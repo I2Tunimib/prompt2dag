@@ -1,0 +1,243 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 01:53:58.687035
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_fan_out_only_01_data_replication_to_environments.py_description.txt
+  pipeline_name: dump_prod_csv_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    job_name: dump_prod_csv_pipeline
+    description: No description provided.
+    executor_type: multiprocess_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - staging_database
+      - dev_database
+      - qa_database
+      - local_filesystem
+schedule:
+  enabled: false
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: prod_db
+    conn_type: resource
+    description: Production Database
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: prod_db
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: jdbc
+        database: production
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: dev_db
+    conn_type: resource
+    description: Development Environment Database
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: dev_db
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: jdbc
+        database: dev_db
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: staging_db
+    conn_type: resource
+    description: Staging Environment Database
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: staging_db
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: jdbc
+        database: staging_db
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: qa_db
+    conn_type: resource
+    description: QA Environment Database
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: qa_db
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: jdbc
+        database: qa_db
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: local_tmp_fs
+    conn_type: fs_io_manager
+    description: Local Temporary Filesystem
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: local_tmp_fs
+      config:
+        base_path: /tmp
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+tasks:
+  - task_id: dump_prod_csv
+    task_name: Dump Production Database to CSV
+    operator_class: Op
+    operator_module: dagster
+    component_ref: dump_prod_csv
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - local_filesystem
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: production_database
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: prod_snapshot_csv
+          dagster_type: String
+          description: Output to local_filesystem
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: copy_dev
+    task_name: Load CSV Snapshot into Development Database
+    operator_class: Op
+    operator_module: dagster
+    component_ref: copy_dev
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - dev_database
+        - local_filesystem
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: prod_snapshot_csv
+          dagster_type: String
+          description: /tmp/prod_snapshot_{{ ds_nodash }}.csv
+      outs:
+        - name: dev_db
+          dagster_type: Any
+          description: Output to dev_database
+    upstream_task_ids:
+      - dump_prod_csv
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: copy_staging
+    task_name: Load CSV Snapshot into Staging Database
+    operator_class: Op
+    operator_module: dagster
+    component_ref: copy_staging
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - staging_database
+        - local_filesystem
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: prod_snapshot_csv
+          dagster_type: String
+          description: /tmp/prod_snapshot_{{ ds_nodash }}.csv
+      outs:
+        - name: staging_db
+          dagster_type: Any
+          description: Output to staging_database
+    upstream_task_ids:
+      - dump_prod_csv
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: copy_qa
+    task_name: Load CSV Snapshot into QA Database
+    operator_class: Op
+    operator_module: dagster
+    component_ref: copy_qa
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - qa_database
+        - local_filesystem
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: prod_snapshot_csv
+          dagster_type: String
+          description: /tmp/prod_snapshot_{{ ds_nodash }}.csv
+      outs:
+        - name: qa_db
+          dagster_type: Any
+          description: Output to qa_database
+    upstream_task_ids:
+      - dump_prod_csv
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

@@ -1,0 +1,140 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-11-28T14:38:09.513336
+# Provider: deepinfra
+# Model: Qwen3-Coder
+# Source: Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__mahidol_aqi_report_pipeline_alert.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+# PM2.5 Risk Alert Pipeline - Technical Report
+
+## 1. Executive Summary
+
+This pipeline implements a comprehensive ETL process that monitors air quality by extracting PM2.5 data from Mahidol University's AQI website, processing the information, loading it into a PostgreSQL data warehouse, and sending email alerts when hazardous conditions are detected. The pipeline follows a strictly sequential execution pattern with four distinct stages, each requiring successful completion of its predecessor. The architecture demonstrates moderate complexity with robust error handling through configurable retry policies and data validation mechanisms to prevent duplicate processing.
+
+## 2. Pipeline Architecture
+
+### Flow Patterns
+The pipeline implements a sequential execution pattern with linear task dependencies. While branching patterns were detected in the analysis, the actual flow structure shows a straightforward linear sequence without conditional logic or parallel execution paths.
+
+### Execution Characteristics
+All components utilize Python-based executors with no parallelism or dynamic mapping capabilities. Each task executes in isolation following the completion of its upstream dependency.
+
+### Component Overview
+The pipeline consists of four specialized components:
+- **Extractor**: Scrapes HTML content from external website
+- **Transformer**: Parses HTML and converts to structured JSON format
+- **Loader**: Persists data to PostgreSQL data warehouse using dimensional modeling
+- **Notifier**: Sends conditional email alerts based on AQI thresholds
+
+### Flow Description
+The pipeline begins with the extraction task, followed by sequential processing through transformation, loading, and notification stages. Each component has a single upstream dependency and exactly one downstream consumer, creating a linear execution chain with no parallelism or sensor-based waiting mechanisms.
+
+## 3. Detailed Component Analysis
+
+### Extract Mahidol AQI Data (Extractor)
+- **Purpose**: Scrapes current AQI data from Mahidol University website and saves HTML content to local filesystem
+- **Executor**: Python-based execution with no containerization or resource constraints
+- **Inputs**: HTTPS endpoint (https://mahidol.ac.th/aqireport/)
+- **Outputs**: HTML file stored locally (data/mahidol_aqi.html)
+- **Retry Policy**: Maximum 3 attempts with 30-second delays and exponential backoff, retrying on timeouts and network errors
+- **Connected Systems**: HTTP API connection to Mahidol University website
+
+### Parse Mahidol AQI HTML (Transformer)
+- **Purpose**: Parses HTML content to extract structured AQI data and validates data freshness
+- **Executor**: Python-based execution with no containerization or resource constraints
+- **Inputs**: Local HTML file (data/mahidol_aqi.html)
+- **Outputs**: Structured JSON file (data/tmp_mahidol.json)
+- **Retry Policy**: Maximum 3 attempts with 30-second delays and exponential backoff, retrying on processing errors
+- **Connected Systems**: PostgreSQL database connection for duplicate detection
+
+### Load Mahidol AQI to PostgreSQL (Loader)
+- **Purpose**: Loads extracted AQI data into PostgreSQL data warehouse with dimensional modeling
+- **Executor**: Python-based execution with no containerization or resource constraints
+- **Inputs**: JSON data file and configuration mapping file
+- **Outputs**: Multiple PostgreSQL tables (dimDateTimeTable, dimLocationTable, dimMainPollutionTable, factmahidolaqitable)
+- **Retry Policy**: Maximum 3 attempts with 60-second delays and exponential backoff, retrying on database and transaction errors
+- **Connected Systems**: PostgreSQL database connection for data loading
+
+### Send PM2.5 Alert Email (Notifier)
+- **Purpose**: Sends email alerts to configured recipients when AQI values exceed safe thresholds
+- **Executor**: Python-based execution with no containerization or resource constraints
+- **Inputs**: JSON data file, email configuration file, and recipient list file
+- **Outputs**: SMTP-based email notifications
+- **Retry Policy**: Maximum 2 attempts with 300-second delays, retrying on SMTP errors
+- **Connected Systems**: SMTP server connection for email delivery
+
+## 4. Parameter Schema
+
+### Pipeline-Level Parameters
+- **name**: String identifier "PM2.5_Risk_Alert_Pipeline"
+- **description**: Detailed pipeline description
+- **tags**: Array of classification tags ["ETL", "air-quality", "scraping", "postgres", "email-alerts"]
+
+### Schedule Configuration
+- Schedule configuration parameters are defined but no default values are specified, indicating scheduling behavior would be determined at deployment time.
+
+### Execution Settings
+- **depends_on_past**: Boolean flag set to true, indicating sequential run dependencies
+- **max_active_runs**: Configurable integer for concurrent pipeline execution limits
+- **timeout_seconds**: Configurable pipeline execution timeout
+
+### Component-Specific Parameters
+Each component has specialized parameters:
+- **Extractor**: HTTP timeout, text encoding, target URL, output file path
+- **Transformer**: Input/output file paths, datetime format, database connection
+- **Loader**: Input file paths, database connection, table names
+- **Notifier**: File paths, SMTP configuration, AQI thresholds
+
+### Environment Variables
+- **POSTGRES_CONN**: Required PostgreSQL connection string
+- **SMTP_USERNAME/SMTP_PASSWORD**: Required SMTP authentication credentials
+- **BASE_DIR**: Optional base directory for file operations
+
+## 5. Integration Points
+
+### External Systems and Connections
+- **Mahidol University AQI Website**: HTTPS API endpoint with no authentication
+- **PostgreSQL Data Warehouse**: JDBC database connection with no authentication
+- **Gmail SMTP Server**: SMTP server with basic authentication
+- **Local Filesystem**: File-based storage for data and configuration files
+
+### Data Sources and Sinks
+- **Sources**: Mahidol University website and existing PostgreSQL records for duplicate detection
+- **Sinks**: PostgreSQL warehouse tables and email notifications via SMTP
+
+### Authentication Methods
+- **None**: For website scraping and database connections
+- **Basic Authentication**: Username/password for SMTP server access
+
+### Data Lineage
+Data flows from the Mahidol website through intermediate HTML and JSON files, into PostgreSQL warehouse tables, with email notifications as the final output. Configuration files provide mapping and alert parameters throughout the process.
+
+## 6. Implementation Notes
+
+### Complexity Assessment
+The pipeline demonstrates moderate complexity with linear task dependencies and robust error handling. The lack of parallelism simplifies execution but may impact performance for larger datasets.
+
+### Upstream Dependency Policies
+All components implement "all_success" upstream policies, requiring successful completion of immediate predecessors before execution.
+
+### Retry and Timeout Configurations
+Components implement escalating retry delays with exponential backoff for most operations, with specialized longer delays for SMTP operations to accommodate email server reliability considerations.
+
+### Potential Risks or Considerations
+- Single point of failure at Mahidol website source
+- No parallelism may create bottlenecks
+- File-based intermediate storage could create consistency issues
+- SMTP alert component has fewer retry attempts than other components
+
+## 7. Orchestrator Compatibility
+
+### Assessment for Major Platforms
+The pipeline's sequential execution pattern and component-based architecture are compatible with major workflow orchestration platforms including Airflow, Prefect, and Dagster. The Python-based executors and file-based data exchange patterns are widely supported.
+
+### Pattern-Specific Considerations
+The linear dependency structure simplifies deployment across orchestrators. The retry policies and timeout configurations are portable, though specific implementation may vary by platform. The lack of sensors or complex branching logic reduces platform-specific complexity.
+
+## 8. Conclusion
+
+This pipeline provides a robust solution for monitoring air quality data with appropriate error handling and data validation mechanisms. The sequential architecture ensures data consistency while the component-based design allows for maintainable and testable individual operations. The integration with PostgreSQL and email alerting provides both data persistence and actionable notifications. While the current implementation lacks parallelism, the modular structure allows for future enhancements and scaling considerations.

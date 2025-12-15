@@ -1,0 +1,94 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_branch_merge_01_fraud_detection_triage.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** branch_merge  
+**Complexity Score:** 4/10  
+
+---
+
+[fraud_detection_triage] - Comprehensive Pipeline Description
+
+Opening Summary:
+This fraud detection triage pipeline processes daily transaction batches by analyzing CSV files, applying risk scoring, and conditionally routing transactions to manual review or auto-approval based on risk thresholds before merging for final notification. The topology follows a branch-merge pattern with conditional routing based on risk scores. Key infrastructure includes BranchPythonOperator for conditional routing, PythonOperator for all processing tasks, and trigger_rule='none_failed' for merge synchronization.
+
+Pipeline Steps:
+
+1. analyze_transactions
+  • Objective: Extract and analyze daily transaction CSV files to calculate risk scores for fraud detection
+  • Technical Details:
+    - Input: Daily transaction CSV files (inferred from function logic)
+    - Output: Risk score (0.75 mock value) passed via XCom to downstream routing decision
+    - Integrations: File system for CSV processing
+    - Key Parameters: None specified beyond python_callable
+  • Operator or Mechanism: PythonOperator
+  • Notes: Initial processing step that feeds risk score to branching decision
+
+2. route_transaction
+  • Objective: Apply risk model and determine transaction routing path based on calculated risk score threshold
+  • Technical Details:
+    - Input: Risk score from analyze_transactions task via XCom
+    - Output: Task ID of next step to execute (route_to_manual_review or route_to_auto_approve)
+    - Integrations: XCom system for data passing between tasks
+    - Key Parameters: python_callable with context for XCom access
+  • Operator or Mechanism: BranchPythonOperator
+  • Notes: Branching gateway that evaluates risk_score > 0.8 threshold
+
+3. route_to_manual_review
+  • Objective: Process high-risk transactions (risk_score > 0.8) through manual review queue
+  • Technical Details:
+    - Input: Triggered when route_transaction returns 'route_to_manual_review'
+    - Output: Process completion signal for merge point
+    - Integrations: Manual review queue system (inferred from function logic)
+    - Key Parameters: None specified beyond python_callable
+  • Operator or Mechanism: PythonOperator
+  • Notes: High-risk branch path for transactions requiring human analyst review
+
+4. route_to_auto_approve
+  • Objective: Process low-risk transactions (risk_score ≤ 0.8) through automated approval for payment processing
+  • Technical Details:
+    - Input: Triggered when route_transaction returns 'route_to_auto_approve'
+    - Output: Process completion signal for merge point
+    - Integrations: Payment processing system (inferred from function logic)
+    - Key Parameters: None specified beyond python_callable
+  • Operator or Mechanism: PythonOperator
+  • Notes: Low-risk branch path for automated transaction clearance
+
+5. send_notification
+  • Objective: Send final notification after both branch paths complete, indicating daily fraud triage process finished
+  • Technical Details:
+    - Input: Completion signals from both manual_review and auto_approve tasks
+    - Output: Notification to fraud detection team
+    - Integrations: Notification system (email/alerting inferred from function)
+    - Key Parameters: trigger_rule='none_failed' ensures execution after both branches
+  • Operator or Mechanism: PythonOperator
+  • Notes: Merge point that synchronizes both branch paths using none_failed trigger rule
+
+Orchestration & Scheduling:
+- Schedule: @daily (runs once per day)
+- Start Date: January 1, 2024
+- Catchup: False (no backfilling of historical runs)
+- Default Args: 2 retries, 5-minute retry delay, email_on_failure=True, email_on_retry=False
+
+Infrastructure & Dependencies:
+- Branching: BranchPythonOperator for conditional routing based on risk threshold
+- Task Dependencies: Linear flow until branching, then parallel execution of two paths with final merge
+- Data Passing: XCom used to pass risk score from analyze_transactions to route_transaction
+- Merge Strategy: trigger_rule='none_failed' ensures notification sends after both branches complete
+
+Failure Handling & Alerts:
+- Email notifications on task failures (email_on_failure=True in default_args)
+- 2 automatic retries with 5-minute delay between attempts
+- No email on retry events (email_on_retry=False)
+
+Pattern-Specific Notes:
+- Branch-Merge Pattern: Conditional branching with two parallel execution paths that converge at a merge point
+- Branch Conditions: 
+  - route_to_manual_review: risk_score > 0.8 (high-risk transactions)
+  - route_to_auto_approve: risk_score ≤ 0.8 (low-risk transactions)
+- Convergence: Both branches feed into send_notification task using none_failed trigger rule
+- Parallel Width: Maximum 2 parallel tasks (manual_review and auto_approve execute in parallel)
+- Branch Depth: Single level of branching (no nested branching)

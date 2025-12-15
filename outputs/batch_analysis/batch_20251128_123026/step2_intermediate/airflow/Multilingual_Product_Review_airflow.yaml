@@ -1,0 +1,149 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 12:32:46.766993
+  source_analysis_file: Pipeline_Description_Dataset/Multilingual_Product_Review.txt
+  pipeline_name: multilingual_product_review_analysis
+  pipeline_description: Enriches product reviews with language verification, sentiment, and key feature extraction using
+    LLM capabilities for deeper customer insight.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir_filesystem
+    conn_type: fs
+    description: Data Directory Filesystem
+    config:
+      base_path: ${DATA_DIR}
+      protocol: file
+      host:
+      port:
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: docker_network
+    conn_type: generic
+    description: Docker Custom Network
+    config:
+      base_path:
+      base_url:
+      host: app_network
+      port:
+      protocol:
+      database:
+      schema:
+      bucket:
+      queue_name:
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: load_and_modify_data
+    config:
+      image: i2t-backendwithintertwino6-load-and-modify:latest
+      environment:
+        DATASET_ID: '2'
+        DATE_COLUMN: submission_date
+        TABLE_NAME_PREFIX: JOT_
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: detect_language
+    task_name: Detect Language
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: detect_language
+    config:
+      image: jmockit/language-detection
+      environment:
+        TEXT_COLUMN: review_text
+        LANG_CODE_COLUMN: language_code
+        OUTPUT_FILE: lang_detected_2.json
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: analyze_sentiment
+    task_name: Analyze Sentiment
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: analyze_sentiment
+    config:
+      image: huggingface/transformers-inference
+      environment:
+        MODEL_NAME: distilbert-base-uncased-finetuned-sst-2-english
+        TEXT_COLUMN: review_text
+        OUTPUT_COLUMN: sentiment_score
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - detect_language
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: extract_features
+    task_name: Extract Features
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: extract_features
+    config:
+      image: i2t-backendwithintertwino6-column-extension:latest
+      environment:
+        EXTENDER_ID: featureExtractor
+        TEXT_COLUMN: review_text
+        OUTPUT_COLUMN: mentioned_features
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - analyze_sentiment
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: save_final_data
+    task_name: Save Final Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: save_final_data
+    config:
+      image: i2t-backendwithintertwino6-save:latest
+      environment:
+        DATASET_ID: '2'
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - extract_features
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

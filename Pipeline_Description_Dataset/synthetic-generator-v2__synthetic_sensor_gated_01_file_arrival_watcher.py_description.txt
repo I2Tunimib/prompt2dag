@@ -1,0 +1,80 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_sensor_gated_01_file_arrival_watcher.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** sensor_gated  
+**Complexity Score:** 3/10  
+
+---
+
+[file_arrival_watcher] - Comprehensive Pipeline Description
+
+Opening Summary:
+This sensor-gated pipeline monitors for daily transaction file arrivals, validates their schema, and loads data to PostgreSQL. The execution follows a strict sequential topology where a FileSensor gates the entire processing workflow, ensuring files exist before validation and loading proceed. Key infrastructure includes file system monitoring with configurable polling, Python-based validation logic, and PostgreSQL integration with daily scheduling and no catchup.
+
+Pipeline Steps:
+
+1. wait_for_file
+  • Objective: Monitor for arrival of daily transaction files before allowing downstream processing to begin.
+  • Technical Details:
+    - Input: File system path /data/incoming/ with pattern transactions_YYYYMMDD.csv
+    - Output: File existence signal that unlocks validate_schema task
+    - Integrations: Local filesystem at /data/incoming/
+    - Key Parameters: 
+        - filepath: /data/incoming/transactions_{{ ds_nodash }}.csv
+        - poke_interval: 30 seconds
+        - timeout: 86400 seconds (24 hours)
+        - mode: poke
+  • Operator or Mechanism: FileSensor
+  • Notes: Sensor gates entire pipeline; will retry every 30 seconds for up to 24 hours
+
+2. validate_schema
+  • Objective: Validate incoming transaction file schema meets required column structure and data types.
+  • Technical Details:
+    - Input: File detected by wait_for_file sensor
+    - Output: Schema validation status, triggers load_db task
+    - Integrations: None (pure Python validation)
+    - Key Parameters: python_callable validates column names and data types
+  • Operator or Mechanism: PythonOperator
+  • Notes: Validates transaction_id, customer_id, amount, transaction_date columns with string, string, decimal, date types
+
+3. load_db
+  • Objective: Load validated transaction data from file to PostgreSQL database table.
+  • Technical Details:
+    - Input: Schema-validated file from validate_schema
+    - Output: Data loaded to PostgreSQL table
+    - Integrations: PostgreSQL database at localhost:5432, table public.transactions
+    - Key Parameters: python_callable handles database connection and loading
+  • Operator or Mechanism: PythonOperator
+  • Notes: Connects to PostgreSQL on standard port, targets public.transactions table
+
+Orchestration & Scheduling:
+- Schedule: @daily (runs once per day)
+- Start Date: January 1, 2024
+- Catchup: False (no backfilling of missed runs)
+- Default Args: 
+  - owner: data_engineering
+  - depends_on_past: False
+  - retries: 2
+  - retry_delay: 5 minutes
+  - email_on_failure: False
+  - email_on_retry: False
+
+Infrastructure & Dependencies:
+- Sensors: FileSensor monitoring /data/incoming/transactions_YYYYMMDD.csv with 30-second polling
+- Task grouping: None (simple linear flow)
+- Connections/IDs: Implicit PostgreSQL connection (localhost:5432), filesystem path /data/incoming/
+- Data I/O hints: File pattern transactions_YYYYMMDD.csv, PostgreSQL table public.transactions
+
+Failure Handling & Alerts:
+- Retry Policy: 2 retries with 5-minute delays on task failures
+- Email Alerts: Disabled (email_on_failure: False, email_on_retry: False)
+- No explicit failure triggers or alert operators
+
+Pattern-Specific Notes:
+- Sensor-gated: FileSensor wait_for_file gates the entire processing pipeline, preventing validation and loading until file arrives
+- Downstream unlock: File detection triggers validate_schema, which then triggers load_db
+- Linear execution: Strict sequential flow with no branching or parallelization

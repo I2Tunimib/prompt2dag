@@ -1,0 +1,193 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-11-28T15:45:11.337493
+# Provider: deepinfra
+# Model: Qwen3-Coder
+# Source: Pipeline_Description_Dataset/bcgov__medis-scheduler__PCD-ETL.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+# PCD_ETL Pipeline Analysis Report
+
+## 1. Executive Summary
+
+The PCD_ETL pipeline is a comprehensive data processing workflow designed to extract healthcare-related data from multiple sources, transform it, and load it into target systems. The pipeline follows a hybrid execution pattern that begins with sequential validation steps, transitions to parallel API data extraction, and concludes with sequential processing and notification.
+
+Key characteristics include:
+- 18-way parallel HTTP API extraction for improved performance
+- Kubernetes-based execution for containerized workloads
+- Comprehensive retry policies with exponential backoff for reliability
+- Multi-system integration including SFTP, shared filesystems, and 18 distinct API endpoints
+- Success/failure notification system with detailed reporting
+
+The pipeline demonstrates moderate to high complexity due to its parallel processing requirements and extensive integration footprint.
+
+## 2. Pipeline Architecture
+
+### Flow Patterns
+The pipeline implements a hybrid execution pattern combining:
+- Sequential execution for initial validation steps
+- Parallel execution for API data extraction (18 concurrent operations)
+- Sequential execution for final processing and notification
+
+### Execution Characteristics
+Three distinct executor types are utilized:
+- Kubernetes executor for containerized job execution
+- HTTP executor for API data extraction
+- Python executor for notification processing
+
+### Component Overview
+The pipeline consists of 5 core components organized by function:
+- Sensor components (2): Environment validation tasks
+- Extractor components (1): Parallel HTTP API data extraction
+- Transformer components (1): Main ETL processing
+- Notifier components (1): Email notification system
+
+### Flow Description
+The pipeline begins with SFTP folder validation, followed by shared folder accessibility checks. After these sequential validations, 18 parallel API extraction tasks execute concurrently. Once all extractions complete, the main ETL processing job runs, concluding with a notification task that executes regardless of upstream success or failure.
+
+## 3. Detailed Component Analysis
+
+### Check SFTP Folder (Sensor)
+- **Purpose**: Validates SFTP folder availability before ETL initiation
+- **Executor**: Kubernetes with job template execution
+- **Inputs**: None (pipeline entry point)
+- **Outputs**: Folder status information
+- **Retry Policy**: Maximum 3 attempts with 30-second delay and exponential backoff, retrying on timeouts and network errors
+- **Concurrency**: No parallelism support
+- **Connected Systems**: Kubernetes cluster for job execution
+
+### Check Shared Folder (Sensor)
+- **Purpose**: Validates shared folder accessibility after SFTP validation
+- **Executor**: Kubernetes with job template execution
+- **Inputs**: Folder status from SFTP check
+- **Outputs**: Shared folder status information
+- **Retry Policy**: Maximum 3 attempts with 30-second delay and exponential backoff, retrying on timeouts and network errors
+- **Concurrency**: No parallelism support
+- **Connected Systems**: Kubernetes cluster for job execution
+
+### Extract API Data (Extractor)
+- **Purpose**: Extracts PCD data from 18 healthcare system APIs via HTTP POST requests
+- **Executor**: HTTP executor for API communication
+- **Inputs**: Shared folder status confirmation
+- **Outputs**: JSON-formatted API responses
+- **Retry Policy**: Maximum 2 attempts with 60-second delay, retrying on network errors and timeouts
+- **Concurrency**: Supports parallel execution with maximum 18 concurrent instances, mapping over endpoint parameter
+- **Connected Systems**: 18 distinct healthcare system APIs
+
+### Process PCD Data (Transformer)
+- **Purpose**: Executes main ETL job to process and upload extracted PCD data
+- **Executor**: Kubernetes with job template execution
+- **Inputs**: All API responses from extraction phase
+- **Outputs**: Processed data in Parquet format
+- **Retry Policy**: Maximum 2 attempts with 120-second delay, retrying on timeouts and processing errors
+- **Concurrency**: No parallelism support
+- **Connected Systems**: Kubernetes cluster for job execution
+
+### Send ETL Notification (Notifier)
+- **Purpose**: Sends comprehensive email notifications with success/failure status and details
+- **Executor**: Python script execution
+- **Inputs**: Processed data status
+- **Outputs**: Notification status confirmation
+- **Retry Policy**: Single attempt with no delay, retrying only on network errors
+- **Concurrency**: No parallelism support
+- **Connected Systems**: Email notification system
+
+## 4. Parameter Schema
+
+### Pipeline-Level Parameters
+- Name: "PCD_ETL" (default)
+- Description: Comprehensive ETL pipeline for PCD processing
+- Tags: ["etl", "pcd"]
+
+### Schedule Configuration
+- Enabled: True (default)
+- Cron Expression: Variable-driven scheduling
+- Start Date: 2021-01-01T00:00:00Z
+- Timezone: UTC
+- Catchup: Disabled
+
+### Execution Settings
+- Timeout: 3600 seconds
+- Depends on Past: False
+
+### Component-Specific Parameters
+- SFTP/Shared Folder Checks: Kubernetes job template file paths
+- API Extraction: HTTP POST method with response validation
+- Processing: Kubernetes job template file path
+- Notification: All-done trigger rule
+
+### Environment Variables
+- ENVIRONMENT: Required deployment environment specification
+- airflow_url: Required Airflow webserver URL
+- Email lists: Required success and alert recipient lists
+
+## 5. Integration Points
+
+### External Systems and Connections
+The pipeline integrates with 23 distinct external systems:
+- 1 SFTP server for data ingestion
+- 1 shared filesystem for temporary storage
+- 18 HTTP APIs for data extraction
+- 1 Kubernetes cluster for job execution
+- 1 SMTP email system for notifications
+
+### Data Sources and Sinks
+**Sources**:
+- PCD SFTP server containing incoming data files
+- 18 healthcare system APIs providing financial, patient, HR, and operational data
+- Shared filesystem for temporary data storage
+
+**Sinks**:
+- Processed PCD data uploaded to target systems
+- Email notifications sent to success and failure distribution lists
+
+### Authentication Methods
+- Key pair authentication for SFTP access
+- Token-based authentication for API access
+- Certificate authentication for Kubernetes cluster
+- Basic authentication for email system
+
+### Data Lineage
+Intermediate datasets include 21 distinct data types flowing from source systems through the pipeline to final destinations, including financial data, patient services information, budget data, and operational metrics.
+
+## 6. Implementation Notes
+
+### Complexity Assessment
+The pipeline demonstrates moderate to high complexity due to:
+- Extensive parallel processing requirements (18 concurrent API calls)
+- Multiple integration points with varying authentication mechanisms
+- Hybrid execution pattern combining sequential and parallel processing
+
+### Upstream Dependency Policies
+- Sequential validation steps require all-success upstream policy
+- API extraction phase requires successful completion of folder validation
+- Main processing requires successful completion of all API extractions
+- Notification executes with all-done policy regardless of upstream success/failure
+
+### Retry and Timeout Configurations
+Components implement varied retry strategies with exponential backoff where appropriate. Timeout configurations range from 30 seconds for network operations to 120 seconds for processing tasks.
+
+### Potential Risks or Considerations
+- API rate limiting across 18 concurrent endpoints
+- Kubernetes cluster resource constraints during high-parallelism execution
+- Email notification reliability dependencies
+- Data consistency requirements across multiple API sources
+
+## 7. Orchestrator Compatibility
+
+The pipeline design is compatible with major orchestrators supporting:
+- Hybrid execution patterns (sequential/parallel combinations)
+- Multiple executor types (container, HTTP, script)
+- Complex dependency management
+- Retry policies with exponential backoff
+- Dynamic task mapping for parallel execution
+
+The design considerations include:
+- Component-level retry policies rather than pipeline-level
+- Flexible parameterization supporting variable-driven configuration
+- Clear separation of concerns between components
+- Extensive integration point documentation
+
+## 8. Conclusion
+
+The PCD_ETL pipeline represents a well-structured, moderately complex data processing workflow that effectively leverages parallel execution for performance optimization while maintaining robust error handling and notification capabilities. The hybrid architecture successfully balances sequential validation requirements with parallel data extraction needs, resulting in an efficient and reliable ETL process for healthcare data integration.

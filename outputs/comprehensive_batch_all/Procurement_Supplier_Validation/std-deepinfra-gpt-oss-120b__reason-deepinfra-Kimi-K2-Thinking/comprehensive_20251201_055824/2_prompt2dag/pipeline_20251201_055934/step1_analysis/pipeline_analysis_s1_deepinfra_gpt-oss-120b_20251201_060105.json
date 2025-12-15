@@ -1,0 +1,817 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-01T06:01:05.986393",
+    "source_file": "Pipeline_Description_Dataset/Procurement_Supplier_Validation.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "gpt-oss-120b",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential"
+      ],
+      "task_executors_used": [
+        "docker"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": false,
+      "total_components": 3,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "Procurement Supplier Validation Pipeline",
+    "description": "Validates and standardizes supplier data by reconciling names against a known database (Wikidata) for improved data quality in procurement systems. Ingests a CSV of basic supplier information, converts it to JSON, reconciles supplier names, and exports the enriched data to CSV.",
+    "flow_patterns": [
+      "sequential"
+    ],
+    "task_executors": [
+      "docker"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "load_and_modify_data",
+      "name": "Load and Modify Data",
+      "category": "Extractor",
+      "description": "Ingests the supplier CSV, standardizes formats and converts it to JSON using the load‑and‑modify service.",
+      "inputs": [
+        "suppliers.csv (DATA_DIR)"
+      ],
+      "outputs": [
+        "table_data_2.json (DATA_DIR)"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-load-and-modify:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "DATASET_ID": "2",
+          "TABLE_NAME_PREFIX": "JOT_",
+          "DATA_DIR": "${DATA_DIR}"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "supplier_csv",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "${DATA_DIR}/suppliers.csv",
+          "connection_id": "fs_data_dir"
+        },
+        {
+          "name": "supplier_json",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/table_data_2.json",
+          "connection_id": "fs_data_dir"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Root component, no upstream dependencies.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_data_dir",
+          "type": "filesystem",
+          "purpose": "Shared volume mounted at ${DATA_DIR}"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "supplier_raw_csv"
+        ],
+        "produces": [
+          "supplier_json"
+        ]
+      }
+    },
+    {
+      "id": "reconcile_supplier_names",
+      "name": "Entity Reconciliation (Wikidata)",
+      "category": "Reconciliator",
+      "description": "Disambiguates supplier_name values by querying the Wikidata API and adds canonical entity IDs/links.",
+      "inputs": [
+        "table_data_2.json (DATA_DIR)"
+      ],
+      "outputs": [
+        "reconciled_table_2.json (DATA_DIR)"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-reconciliation:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "PRIMARY_COLUMN": "supplier_name",
+          "RECONCILIATOR_ID": "wikidataEntity",
+          "DATASET_ID": "2",
+          "DATA_DIR": "${DATA_DIR}"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "supplier_json_input",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/table_data_2.json",
+          "connection_id": "fs_data_dir"
+        },
+        {
+          "name": "reconciled_json_output",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/reconciled_table_2.json",
+          "connection_id": "fs_data_dir"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful completion of load_and_modify_data.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_data_dir",
+          "type": "filesystem",
+          "purpose": "Shared volume mounted at ${DATA_DIR}"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "supplier_json"
+        ],
+        "produces": [
+          "supplier_reconciled_json"
+        ]
+      }
+    },
+    {
+      "id": "save_final_data",
+      "name": "Save Final Data",
+      "category": "Loader",
+      "description": "Exports the validated and enriched supplier data to a CSV file using the save service.",
+      "inputs": [
+        "reconciled_table_2.json (DATA_DIR)"
+      ],
+      "outputs": [
+        "enriched_data_2.csv (DATA_DIR)"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-save:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "DATASET_ID": "2",
+          "DATA_DIR": "${DATA_DIR}"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "reconciled_json_input",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/reconciled_table_2.json",
+          "connection_id": "fs_data_dir"
+        },
+        {
+          "name": "enriched_csv_output",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "${DATA_DIR}/enriched_data_2.csv",
+          "connection_id": "fs_data_dir"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful completion of reconcile_supplier_names.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_data_dir",
+          "type": "filesystem",
+          "purpose": "Shared volume mounted at ${DATA_DIR}"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "supplier_reconciled_json"
+        ],
+        "produces": [
+          "supplier_enriched_csv"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sequential",
+    "entry_points": [
+      "load_and_modify_data"
+    ],
+    "nodes": {
+      "load_and_modify_data": {
+        "kind": "Task",
+        "component_type_id": "load_and_modify_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "reconcile_supplier_names"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "reconcile_supplier_names": {
+        "kind": "Task",
+        "component_type_id": "reconcile_supplier_names",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "save_final_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "save_final_data": {
+        "kind": "Task",
+        "component_type_id": "save_final_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "load_and_modify_data",
+        "to": "reconcile_supplier_names",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "reconcile_supplier_names",
+        "to": "save_final_data",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "Procurement Supplier Validation Pipeline",
+        "required": true,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": "Validates and standardizes supplier data by reconciling names against a known database (Wikidata) for improved data quality in procurement systems. Ingests a CSV of basic supplier information, converts it to JSON, reconciles supplier names, and exports the enriched data to CSV.",
+        "required": true,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": null,
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "load_and_modify_data": {
+        "DATASET_ID": {
+          "description": "Identifier of the dataset to process",
+          "type": "integer",
+          "default": 2,
+          "required": false,
+          "constraints": null
+        },
+        "TABLE_NAME_PREFIX": {
+          "description": "Prefix to prepend to generated table names",
+          "type": "string",
+          "default": "JOT_",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "reconcile_supplier_names": {
+        "PRIMARY_COLUMN": {
+          "description": "Column containing supplier names to reconcile",
+          "type": "string",
+          "default": "supplier_name",
+          "required": false,
+          "constraints": null
+        },
+        "RECONCILIATOR_ID": {
+          "description": "Identifier of the reconciliator service (Wikidata entity)",
+          "type": "string",
+          "default": "wikidataEntity",
+          "required": false,
+          "constraints": null
+        },
+        "DATASET_ID": {
+          "description": "Identifier of the dataset being reconciled",
+          "type": "integer",
+          "default": 2,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "save_final_data": {
+        "DATASET_ID": {
+          "description": "Identifier of the dataset to save",
+          "type": "integer",
+          "default": 2,
+          "required": false,
+          "constraints": null
+        }
+      }
+    },
+    "environment": {
+      "DATA_DIR": {
+        "description": "Path to the shared volume where input CSV and output files are stored",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": null
+      },
+      "APP_NETWORK": {
+        "description": "Custom Docker network that connects pipeline containers with dependencies such as MongoDB and Intertwino API",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": null
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "filesystem_data_dir",
+        "name": "Shared Data Directory (DATA_DIR)",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/data",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_data",
+          "reconcile_supplier_names",
+          "save_final_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "table_data_2.json",
+            "reconciled_table_2.json",
+            "enriched_data_2.csv"
+          ],
+          "consumes": [
+            "suppliers.csv"
+          ]
+        }
+      },
+      {
+        "id": "api_load_modify",
+        "name": "Load‑and‑Modify Service API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "http://load-and-modify:3003",
+          "host": "load-and-modify",
+          "port": 3003,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_data"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "table_data_2.json"
+          ],
+          "consumes": [
+            "suppliers.csv"
+          ]
+        }
+      },
+      {
+        "id": "api_reconciliation",
+        "name": "Entity Reconciliation Service API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "http://reconciliation:3003",
+          "host": "reconciliation",
+          "port": 3003,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "reconcile_supplier_names"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "reconciled_table_2.json"
+          ],
+          "consumes": [
+            "table_data_2.json"
+          ]
+        }
+      },
+      {
+        "id": "api_save",
+        "name": "Save Service API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "http://save-service:3000",
+          "host": "save-service",
+          "port": 3000,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "save_final_data"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "enriched_data_2.csv"
+          ],
+          "consumes": [
+            "reconciled_table_2.json"
+          ]
+        }
+      },
+      {
+        "id": "db_mongodb",
+        "name": "MongoDB Instance",
+        "type": "database",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": "mongodb",
+          "port": 27017,
+          "protocol": "mongodb",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_data",
+          "reconcile_supplier_names",
+          "save_final_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      },
+      {
+        "id": "api_intertwino",
+        "name": "Intertwino API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "http://intertwino:5005",
+          "host": "intertwino",
+          "port": 5005,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_data",
+          "reconcile_supplier_names",
+          "save_final_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      },
+      {
+        "id": "docker_network_app",
+        "name": "Custom Docker Network (app_network)",
+        "type": "other",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": null,
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_data",
+          "reconcile_supplier_names",
+          "save_final_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "suppliers.csv located in the shared DATA_DIR volume"
+      ],
+      "sinks": [
+        "enriched_data_2.csv written to the shared DATA_DIR volume"
+      ],
+      "intermediate_datasets": [
+        "table_data_2.json",
+        "reconciled_table_2.json"
+      ]
+    }
+  }
+}

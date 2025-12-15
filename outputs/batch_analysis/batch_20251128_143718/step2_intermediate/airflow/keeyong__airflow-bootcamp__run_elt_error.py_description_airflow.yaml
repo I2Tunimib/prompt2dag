@@ -1,0 +1,82 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 14:40:57.062293
+  source_analysis_file: Pipeline_Description_Dataset/keeyong__airflow-bootcamp__run_elt_error.py_description.txt
+  pipeline_name: RunELT_Alert
+  pipeline_description: Comprehensive Pipeline Description
+  orchestrator_specific: {}
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2025-01-10T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: snowflake_analytics_db
+    conn_type: snowflake
+    description: Snowflake Analytics Database
+    config:
+      host: your-account.snowflakecomputing.com
+      port: 443
+      protocol: https
+      database: analytics_db
+      schema: analytics
+  - conn_id: slack_alert_webhook
+    conn_type: http
+    description: Slack Alert Webhook
+    config:
+      base_url: https://hooks.slack.com/services
+      protocol: https
+      extra:
+        token_env_var: SLACK_WEBHOOK_TOKEN
+tasks:
+  - task_id: run_ctas
+    task_name: Run CTAS
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: run_ctas
+    config:
+      retry_delay: timedelta(seconds=60)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 3
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: validate_table_data
+    task_name: Validate Table Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: validate_table_data
+    config:
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - run_ctas
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: swap_table
+    task_name: Swap Table
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: swap_table
+    config: {}
+    upstream_task_ids:
+      - validate_table_data
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: send_slack_alert
+    task_name: Send Slack Alert
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: send_slack_alert
+    config:
+      retry_delay: timedelta(seconds=60)
+    upstream_task_ids: []
+    trigger_rule: all_done
+    retries: 3
+    retry_delay_seconds: 60
+    validation_warnings: []

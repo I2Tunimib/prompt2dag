@@ -1,0 +1,135 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-11-28T15:44:54.794553
+# Provider: deepinfra
+# Model: Qwen3-Coder
+# Source: Pipeline_Description_Dataset/nazzang49__gcp-tutorials__airflow_db_cleanup.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+# Airflow Database Cleanup Pipeline Report
+
+## 1. Executive Summary
+
+This pipeline performs routine maintenance by cleaning old metadata entries from Airflow's MetaStore database to prevent excessive data accumulation. The workflow follows a sequential execution pattern with two components that run in strict linear order. Key characteristics include integration with Airflow Variables for configuration, cross-component data passing via XCom, and configurable retention policies for different database objects.
+
+## 2. Pipeline Architecture
+
+### Flow Patterns
+The pipeline implements a sequential execution pattern with no branching, parallelism, or sensor-based waiting mechanisms. Each component executes only after its upstream dependency completes successfully.
+
+### Execution Characteristics
+All components utilize Python-based executors with defined resource allocations. The first component requires 0.5 CPU and 512Mi memory, while the second component requires 1 CPU and 1Gi memory.
+
+### Component Overview
+- **Extractor Component**: Loads and validates cleanup configuration parameters, calculating date thresholds
+- **Loader Component**: Executes database cleanup operations based on calculated thresholds
+
+### Flow Description
+The pipeline begins with the Print Configuration component, which calculates cleanup thresholds and passes them to the Cleanup Airflow MetaDB component via XCom. This creates a strict dependency chain with no parallel execution paths.
+
+## 3. Detailed Component Analysis
+
+### Print Configuration Component
+**Purpose and Category**: Extractor component that loads and validates cleanup configuration parameters, including maximum entry age from pipeline run configuration or Airflow Variables. Calculates the max_date threshold for downstream cleanup tasks.
+
+**Executor Type and Configuration**: Python executor with 0.5 CPU and 512Mi memory allocation. Entry point configured to `print_configuration.main`.
+
+**Inputs and Outputs**: 
+- Inputs: DAG run configuration parameters, Airflow Variable 'airflow_db_cleanup__max_db_entry_age_in_days'
+- Outputs: Calculated max_date pushed to XCom
+
+**Retry Policy and Concurrency**: Single execution attempt with 60-second delay on failure. No parallelism or dynamic mapping capabilities.
+
+**Connected Systems**: Airflow context API for run configuration access, Airflow Variables API for retention settings retrieval.
+
+### Cleanup Airflow MetaDB Component
+**Purpose and Category**: Loader component that executes database cleanup by deleting old entries from multiple Airflow metadata tables based on the calculated max_date threshold. Processes each database object with configurable retention rules.
+
+**Executor Type and Configuration**: Python executor with 1 CPU and 1Gi memory allocation. Entry point configured to `cleanup_airflow_metadb.main`.
+
+**Inputs and Outputs**: 
+- Inputs: max_date from upstream component via XCom, DATABASE_OBJECTS configuration list
+- Outputs: Deleted old entries from Airflow metadata tables
+
+**Retry Policy and Concurrency**: Single execution attempt with 60-second delay on failure. No parallelism or dynamic mapping capabilities.
+
+**Connected Systems**: XCom API for retrieving max_date parameter, Airflow MetaStore database for cleanup operations.
+
+## 4. Parameter Schema
+
+### Pipeline-Level Parameters
+- Name: "Airflow Database Cleanup" (default)
+- Description: Comprehensive maintenance workflow that periodically cleans old metadata entries from Airflow's MetaStore database tables to prevent excessive data accumulation.
+- Tags: maintenance, airflow, database, cleanup
+
+### Schedule Configuration
+- Enabled: True (default)
+- Cron Expression: @daily
+- Timezone: UTC
+- Catchup: False
+- Partitioning: daily
+
+### Execution Settings
+- Max Active Runs: 1
+- Depends on Past: False
+- Retry Policy: 1 retry with 60-second delay
+
+### Component-Specific Parameters
+**Print Configuration**:
+- provide_context: True (required for Airflow context access)
+
+**Cleanup Airflow MetaDB**:
+- DATABASE_OBJECTS: Required array of database objects with retention rules
+- ENABLE_DELETE: Boolean flag for actual deletion (default: True)
+
+### Environment Variables
+- airflow_db_cleanup__max_db_entry_age_in_days: Integer for maximum entry age retention (default: 30)
+- ALERT_EMAIL_ADDRESSES: Optional array of email addresses for failure alerts
+
+## 5. Integration Points
+
+### External Systems and Connections
+- Airflow MetaStore Database: JDBC-based database connection for metadata cleanup operations
+- Airflow Variables Store: Configuration storage for retention settings
+- XCom Backend: Cross-component data passing mechanism
+- Email Alert System: Notification system for failure events
+
+### Data Sources and Sinks
+**Sources**: 
+- Airflow Variables store containing retention configuration
+- Airflow MetaStore database tables including DagRun, TaskInstance, Log, XCom, and others
+
+**Sinks**: 
+- Airflow MetaStore database with cleaned metadata entries
+- Email alert system for operational notifications
+
+### Authentication Methods
+All connections utilize native integration without explicit authentication mechanisms.
+
+### Data Lineage
+Configuration parameters flow from Airflow Variables to the Print Configuration component, which calculates thresholds passed via XCom to the Cleanup component. Database entries are then removed from MetaStore tables based on these thresholds.
+
+## 6. Implementation Notes
+
+### Complexity Assessment
+The pipeline maintains low complexity with a simple two-component sequential flow. No branching, parallelism, or complex dependency structures are present.
+
+### Upstream Dependency Policies
+Both components follow an "all success" upstream policy. The Cleanup component requires successful completion of the Print Configuration component to receive the max_date parameter.
+
+### Retry and Timeout Configurations
+Each component has a single retry attempt with 60-second delay. No explicit timeout configurations are defined at the pipeline level.
+
+### Potential Risks or Considerations
+- Database cleanup operations are irreversible and could impact historical data access
+- Single retry configuration may not adequately handle transient failures
+- Resource requirements differ significantly between components (512Mi vs 1Gi memory)
+- No explicit timeout management could lead to hanging operations
+
+## 7. Orchestrator Compatibility
+
+This pipeline's sequential pattern and Python-based execution model are compatible with major workflow orchestrators including Airflow, Prefect, and Dagster. The component structure and data passing mechanisms can be implemented in any of these platforms without significant architectural changes. The XCom-based data passing would require equivalent cross-component communication features in the target orchestrator.
+
+## 8. Conclusion
+
+The Airflow Database Cleanup pipeline provides essential maintenance functionality through a straightforward sequential workflow. Its design emphasizes configuration-driven behavior and integrates well with Airflow's native features. The pipeline's simplicity makes it portable across different orchestration platforms while maintaining clear data lineage and operational boundaries. The main considerations for implementation involve ensuring adequate resource allocation for the cleanup component and establishing appropriate monitoring for the irreversible database operations.

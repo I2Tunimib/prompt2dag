@@ -1,0 +1,98 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_branch_merge_02_backup_strategy_selector.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** branch_merge  
+**Complexity Score:** 4/10  
+
+---
+
+[Backup Strategy Selector] - Comprehensive Pipeline Description
+
+Opening Summary:
+This DAG implements a branch-merge pattern for automated database backup strategy selection based on day of week. The pipeline routes execution to either full backup (Saturday) or incremental backup (weekdays), then converges for backup verification. Key infrastructure includes BranchPythonOperator for conditional routing and trigger rules for merge synchronization. The topology follows a clear branch-merge pattern with conditional execution paths.
+
+Pipeline Steps:
+
+1. start_backup_process
+  • Objective: Initialize the backup workflow as a starting point
+  • Technical Details:
+    - Input: DAG trigger
+    - Output: Triggers date_check_task
+    - Integrations: None
+  • Operator or Mechanism: EmptyOperator
+  • Notes: Simple workflow starter task
+
+2. date_check_task
+  • Objective: Determine backup strategy by checking day of week (Saturday vs weekdays)
+  • Technical Details:
+    - Input: Execution date context from start_backup_process
+    - Output: Routes to either full_backup_task (Saturday) or incremental_backup_task (weekdays)
+    - Integrations: Python execution context
+    - Key Parameters: provide_context=True
+  • Operator or Mechanism: BranchPythonOperator
+  • Notes: Uses check_day_of_week function; returns task_id for routing
+
+3. full_backup_task
+  • Objective: Perform complete database backup (executed only on Saturdays)
+  • Technical Details:
+    - Input: Triggered from date_check_task when day is Saturday
+    - Output: Simulated full backup completion; feeds into verify_backup_task
+    - Integrations: Bash command execution
+  • Operator or Mechanism: BashOperator
+  • Notes: 5-second simulated execution; Saturday-only branch
+
+4. incremental_backup_task
+  • Objective: Perform partial backup of changed data only (executed on weekdays)
+  • Technical Details:
+    - Input: Triggered from date_check_task when day is weekday
+    - Output: Simulated incremental backup completion; feeds into verify_backup_task
+    - Integrations: Bash command execution
+  • Operator or Mechanism: BashOperator
+  • Notes: 3-second simulated execution; Weekday branch
+
+5. verify_backup_task
+  • Objective: Validate backup integrity and completeness after either backup type
+  • Technical Details:
+    - Input: Receives output from either full_backup_task or incremental_backup_task
+    - Output: Backup verification result; triggers end_task
+    - Integrations: Bash command execution
+    - Key Parameters: trigger_rule='none_failed_min_one_success'
+  • Operator or Mechanism: BashOperator
+  • Notes: Merge point for both branches; special trigger rule ensures execution after either branch completes
+
+6. backup_complete
+  • Objective: Mark backup workflow completion
+  • Technical Details:
+    - Input: Verification result from verify_backup_task
+    - Output: DAG completion
+    - Integrations: None
+  • Operator or Mechanism: EmptyOperator
+  • Notes: Final workflow marker
+
+Orchestration & Scheduling:
+- Schedule: @daily (runs once per day)
+- Start Date: January 1, 2024
+- Catchup: False (no backfilling)
+- Default Args: 2 retries, 5-minute retry delay, no email notifications
+
+Infrastructure & Dependencies:
+- Branch Logic: BranchPythonOperator with check_day_of_week function
+- Trigger Rules: 'none_failed_min_one_success' on merge task
+- Execution Context: Uses execution_date for day-of-week determination
+- Simulated Operations: Bash commands with sleep for backup simulation
+
+Failure Handling & Alerts:
+- Retry Policy: 2 retries with 5-minute delay between attempts
+- Email Notifications: Disabled (email_on_failure: False, email_on_retry: False)
+- Merge Safety: trigger_rule ensures verification runs even if one branch is skipped
+
+Pattern-Specific Notes:
+- Branch-Merge Pattern: Clear conditional routing based on day of week
+- Branch Conditions: Saturday (day 5) → full_backup_task; Weekdays (days 0-4,6) → incremental_backup_task
+- Merge Point: verify_backup_task converges both branches using trigger_rule='none_failed_min_one_success'
+- Parallel Width: Maximum 1 active branch per execution (mutually exclusive paths)
+- Branch Depth: Single level of branching with immediate merge

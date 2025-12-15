@@ -1,0 +1,146 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-01 16:10:38.626520
+  source_analysis_file: 
+    Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__mahidol_aqi_report_pipeline_alert.py_description.txt
+  pipeline_name: get_data_mahidol_aqi_report_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    flow_name: get_data_mahidol_aqi_report_pipeline
+    deployment_name: get_data_mahidol_aqi_report_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: mahidol_aqi_website
+    conn_type: Secret
+    description: Mahidol University AQI Website
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: mahidol_aqi_website
+      config:
+        base_url: https://mahidol.ac.th/aqireport/
+        protocol: https
+  - conn_id: local_filesystem
+    conn_type: LocalFileSystem
+    description: Local Filesystem
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: local_filesystem
+      config:
+        base_path: /opt/airflow/data
+        protocol: file
+  - conn_id: postgres_conn
+    conn_type: Secret
+    description: PostgreSQL Connection
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: postgres_conn
+      config:
+        host: localhost
+        port: 5432
+        database: airquality
+        schema: public
+  - conn_id: smtp_server
+    conn_type: Secret
+    description: SMTP Server
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: smtp_server
+      config:
+        host: smtp.gmail.com
+        port: 587
+        protocol: smtp
+  - conn_id: config_files
+    conn_type: LocalFileSystem
+    description: Configuration Files
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: config_files
+      config:
+        base_path: /opt/airflow/config
+        protocol: file
+tasks:
+  - task_id: get_data_mahidol_aqi_report
+    task_name: Get Mahidol AQI Report
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: get_data_mahidol_aqi_report
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: create_json_object
+    task_name: Create JSON Object
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: create_json_object
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+    upstream_task_ids:
+      - get_data_mahidol_aqi_report
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: load_mahidol_aqi_to_postgres
+    task_name: Load Mahidol AQI to PostgreSQL
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: load_mahidol_aqi_to_postgres
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+    upstream_task_ids:
+      - create_json_object
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: alert_email
+    task_name: Send Email Alert
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: alert_email
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+    upstream_task_ids:
+      - load_mahidol_aqi_to_postgres
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

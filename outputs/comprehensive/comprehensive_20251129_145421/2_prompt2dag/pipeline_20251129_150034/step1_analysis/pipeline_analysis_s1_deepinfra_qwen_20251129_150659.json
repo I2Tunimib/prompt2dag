@@ -1,0 +1,1773 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-11-29T15:06:59.263009",
+    "source_file": "Pipeline_Description_Dataset/bcgov__medis-scheduler__PCD-ETL.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "qwen",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "parallel",
+        "hybrid"
+      ],
+      "task_executors_used": [
+        "kubernetes",
+        "http",
+        "python"
+      ],
+      "has_branching": false,
+      "has_parallelism": true,
+      "has_sensors": false,
+      "total_components": 7,
+      "complexity_score": "medium"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Parallelism via TaskFlow API expand()"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "map() for parallel execution"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "DynamicOutput for fan-out"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "check_pcd_sftp_folder_pipeline",
+    "description": "No description provided.",
+    "flow_patterns": [
+      "sequential",
+      "parallel",
+      "hybrid"
+    ],
+    "task_executors": [
+      "kubernetes",
+      "http",
+      "python"
+    ],
+    "complexity": "medium"
+  },
+  "components": [
+    {
+      "id": "check_pcd_sftp_folder",
+      "name": "Check PCD SFTP Folder",
+      "category": "Sensor",
+      "description": "Verify SFTP folder availability and contents before starting ETL process",
+      "inputs": [],
+      "outputs": [
+        "Folder status verification"
+      ],
+      "executor_type": "kubernetes",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "job_template_file",
+          "direction": "input",
+          "kind": "file",
+          "format": "yaml",
+          "path_pattern": "{{var.value.pcd_emtysftp_job}}",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_done",
+        "description": "Initial check, no upstream dependencies",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "kubernetes",
+          "type": "kubernetes",
+          "purpose": "Job execution"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "folder_status"
+        ]
+      }
+    },
+    {
+      "id": "check_pcd_shared_folder",
+      "name": "Check PCD Shared Folder",
+      "category": "Sensor",
+      "description": "Validate shared folder accessibility after SFTP check",
+      "inputs": [
+        "Folder status verification"
+      ],
+      "outputs": [
+        "Shared folder status"
+      ],
+      "executor_type": "kubernetes",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "job_template_file",
+          "direction": "input",
+          "kind": "file",
+          "format": "yaml",
+          "path_pattern": "{{var.value.pcd_emtydir_job}}",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Depends on successful completion of Check PCD SFTP Folder",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "kubernetes",
+          "type": "kubernetes",
+          "purpose": "Job execution"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "folder_status"
+        ],
+        "produces": [
+          "shared_folder_status"
+        ]
+      }
+    },
+    {
+      "id": "start_pcd_extract_1",
+      "name": "Start PCD Extract 1",
+      "category": "Orchestrator",
+      "description": "Synchronization point after folder checks, initiates parallel API extraction",
+      "inputs": [
+        "Shared folder status"
+      ],
+      "outputs": [],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Depends on successful completion of Check PCD Shared Folder",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "shared_folder_status"
+        ],
+        "produces": []
+      }
+    },
+    {
+      "id": "parallel_http_api_extraction",
+      "name": "Parallel HTTP API Extraction",
+      "category": "Extractor",
+      "description": "Extract PCD data from various healthcare system APIs in parallel",
+      "inputs": [
+        "Start PCD Extract 1 completion"
+      ],
+      "outputs": [
+        "API response data"
+      ],
+      "executor_type": "http",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "financial_expense",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_financial_expense_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "upcc_financial_reporting",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_upcc_financial_reporting_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "chc_financial_reporting",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_chc_financial_reporting_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "pcn_financial_reporting",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_pcn_financial_reporting_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "nppcc_financial_reporting",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_nppcc_financial_reporting_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "fiscal_year_reporting_dates",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_fiscal_year_reporting_dates_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "upcc_primary_care_patient_services",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_upcc_primary_care_patient_services_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "chc_primary_care_patient_services",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_chc_primary_care_patient_services_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "practitioner_role_mapping",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_practitioner_role_mapping_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "status_tracker",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_status_tracker_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "hr_records",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_hr_records_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "provincial_risk_tracking",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_provincial_risk_tracking_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "decision_log",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_decision_log_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "ha_hierarchy",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_ha_hierarchy_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "uppc_budget",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_uppc_budget_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "chc_budget",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_chc_budget_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "pcn_budget",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_pcn_budget_url}}",
+          "connection_id": null
+        },
+        {
+          "name": "nppcc_budget",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "{{var.value.pcd_nppcc_budget_url}}",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Depends on successful completion of Start PCD Extract 1",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": true,
+        "supports_dynamic_mapping": true,
+        "map_over_param": "api_endpoints",
+        "max_parallel_instances": 18
+      },
+      "connections": [
+        {
+          "id": "http",
+          "type": "api",
+          "purpose": "API calls"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "api_response_data"
+        ]
+      }
+    },
+    {
+      "id": "start_pcd_extract_2",
+      "name": "Start PCD Extract 2",
+      "category": "Orchestrator",
+      "description": "Synchronization point after Status_Tracker API call completion",
+      "inputs": [
+        "Status_Tracker task completion"
+      ],
+      "outputs": [],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Depends on successful completion of Status_Tracker",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "status_tracker_response"
+        ],
+        "produces": []
+      }
+    },
+    {
+      "id": "pcd_file_upload",
+      "name": "PCD File Upload",
+      "category": "Loader",
+      "description": "Execute main ETL job to process and upload extracted PCD data",
+      "inputs": [
+        "All parallel HTTP extraction tasks and Start PCD Extract 2 completion"
+      ],
+      "outputs": [
+        "Processed PCD data upload"
+      ],
+      "executor_type": "kubernetes",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "job_template_file",
+          "direction": "input",
+          "kind": "file",
+          "format": "yaml",
+          "path_pattern": "{{var.value.pcd_job}}",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Depends on successful completion of all parallel HTTP extraction tasks and Start PCD Extract 2",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "kubernetes",
+          "type": "kubernetes",
+          "purpose": "Job execution"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "api_response_data"
+        ],
+        "produces": [
+          "processed_pcd_data"
+        ]
+      }
+    },
+    {
+      "id": "etl_notification",
+      "name": "ETL Notification",
+      "category": "Notifier",
+      "description": "Send comprehensive email notifications with success/failure status and failed task details",
+      "inputs": [
+        "All upstream task completion (success or failure)"
+      ],
+      "outputs": [
+        "Email notifications"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "email_list",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "{{var.value.PCD_ETL_email_list_success}}",
+          "connection_id": null
+        },
+        {
+          "name": "alert_list",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "{{var.value.ETL_email_list_alerts}}",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_done",
+        "description": "Always executes regardless of upstream success/failure",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "email",
+          "type": "email",
+          "purpose": "Email notifications"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "all_upstream_tasks"
+        ],
+        "produces": [
+          "email_notifications"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "hybrid",
+    "entry_points": [
+      "check_pcd_sftp_folder"
+    ],
+    "nodes": {
+      "check_pcd_sftp_folder": {
+        "kind": "Task",
+        "component_type_id": "check_pcd_sftp_folder",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "check_pcd_shared_folder"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "check_pcd_shared_folder": {
+        "kind": "Task",
+        "component_type_id": "check_pcd_shared_folder",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "start_pcd_extract_1"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "start_pcd_extract_1": {
+        "kind": "Task",
+        "component_type_id": "start_pcd_extract_1",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "parallel_http_api_extraction"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "parallel_http_api_extraction": {
+        "kind": "Parallel",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "parallel_config": {
+          "type": "static_parallel",
+          "map_over": "api_endpoints",
+          "map_source": "{{ var.value.pcd_api_endpoints }}",
+          "max_parallelism": 18,
+          "join_node": "start_pcd_extract_2"
+        },
+        "next_nodes": [
+          "start_pcd_extract_2"
+        ],
+        "branch_config": null,
+        "sensor_config": null
+      },
+      "start_pcd_extract_2": {
+        "kind": "Task",
+        "component_type_id": "start_pcd_extract_2",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "pcd_file_upload"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "pcd_file_upload": {
+        "kind": "Task",
+        "component_type_id": "pcd_file_upload",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "etl_notification"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "etl_notification": {
+        "kind": "Task",
+        "component_type_id": "etl_notification",
+        "upstream_policy": {
+          "type": "all_done",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "check_pcd_sftp_folder",
+        "to": "check_pcd_shared_folder",
+        "edge_type": "success"
+      },
+      {
+        "from": "check_pcd_shared_folder",
+        "to": "start_pcd_extract_1",
+        "edge_type": "success"
+      },
+      {
+        "from": "start_pcd_extract_1",
+        "to": "parallel_http_api_extraction",
+        "edge_type": "success"
+      },
+      {
+        "from": "parallel_http_api_extraction",
+        "to": "start_pcd_extract_2",
+        "edge_type": "success"
+      },
+      {
+        "from": "start_pcd_extract_2",
+        "to": "pcd_file_upload",
+        "edge_type": "success"
+      },
+      {
+        "from": "pcd_file_upload",
+        "to": "etl_notification",
+        "edge_type": "success"
+      },
+      {
+        "from": "check_pcd_sftp_folder",
+        "to": "etl_notification",
+        "edge_type": "failure"
+      },
+      {
+        "from": "check_pcd_shared_folder",
+        "to": "etl_notification",
+        "edge_type": "failure"
+      },
+      {
+        "from": "start_pcd_extract_1",
+        "to": "etl_notification",
+        "edge_type": "failure"
+      },
+      {
+        "from": "parallel_http_api_extraction",
+        "to": "etl_notification",
+        "edge_type": "failure"
+      },
+      {
+        "from": "start_pcd_extract_2",
+        "to": "etl_notification",
+        "edge_type": "failure"
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": null,
+        "required": true,
+        "constraints": "Must be a unique identifier for the pipeline"
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [
+          "etl",
+          "pcd"
+        ],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "{{var.value.pcd_etl_schedule}}",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2021-01-01T00:00:00Z",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": "UTC",
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": 3600,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": null,
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "check_pcd_sftp_folder": {
+        "job_template_file": {
+          "description": "Kubernetes job template file for folder check",
+          "type": "string",
+          "default": "{{var.value.pcd_emtysftp_job}}",
+          "required": true,
+          "constraints": "Must be a valid Kubernetes job template file"
+        },
+        "wait_until_job_complete": {
+          "description": "Wait until the Kubernetes job completes",
+          "type": "boolean",
+          "default": true,
+          "required": true
+        }
+      },
+      "check_pcd_shared_folder": {
+        "job_template_file": {
+          "description": "Kubernetes job template file for shared folder check",
+          "type": "string",
+          "default": "{{var.value.pcd_emtydir_job}}",
+          "required": true,
+          "constraints": "Must be a valid Kubernetes job template file"
+        },
+        "wait_until_job_complete": {
+          "description": "Wait until the Kubernetes job completes",
+          "type": "boolean",
+          "default": true,
+          "required": true
+        }
+      },
+      "start_pcd_extract_1": {},
+      "parallel_http_api_extraction": {
+        "method": {
+          "description": "HTTP method for API calls",
+          "type": "string",
+          "default": "POST",
+          "required": true
+        },
+        "response_check": {
+          "description": "Response check for HTTP status code",
+          "type": "string",
+          "default": "statusCode==200",
+          "required": true
+        }
+      },
+      "start_pcd_extract_2": {},
+      "pcd_file_upload": {
+        "job_template_file": {
+          "description": "Kubernetes job template file for PCD file upload",
+          "type": "string",
+          "default": "{{var.value.pcd_job}}",
+          "required": true,
+          "constraints": "Must be a valid Kubernetes job template file"
+        }
+      },
+      "etl_notification": {
+        "trigger_rule": {
+          "description": "Trigger rule for notification",
+          "type": "string",
+          "default": "all_done",
+          "required": true
+        }
+      }
+    },
+    "environment": {
+      "PCD_ETL_EMAIL_LIST_SUCCESS": {
+        "description": "Email list for success notifications",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "etl_notification"
+      },
+      "ETL_EMAIL_LIST_ALERTS": {
+        "description": "Email list for failure notifications",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "etl_notification"
+      },
+      "PCD_EMTYSFTP_JOB": {
+        "description": "Kubernetes job template for SFTP folder check",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "check_pcd_sftp_folder"
+      },
+      "PCD_EMTYDIR_JOB": {
+        "description": "Kubernetes job template for shared folder check",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "check_pcd_shared_folder"
+      },
+      "PCD_JOB": {
+        "description": "Kubernetes job template for PCD file upload",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "pcd_file_upload"
+      },
+      "PCD_FINANCIAL_EXPENSE_URL": {
+        "description": "URL for financial expense endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_UPCC_FINANCIAL_REPORTING_URL": {
+        "description": "URL for UPCC financial reporting endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_CHC_FINANCIAL_REPORTING_URL": {
+        "description": "URL for CHC financial reporting endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_PCN_FINANCIAL_REPORTING_URL": {
+        "description": "URL for PCN financial reporting endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_NPPCC_FINANCIAL_REPORTING_URL": {
+        "description": "URL for NPPCC financial reporting endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_FISCAL_YEAR_REPORTING_DATES_URL": {
+        "description": "URL for fiscal year dates endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_UPCC_PRIMARY_CARE_PATIENT_SERVICES_URL": {
+        "description": "URL for UPCC patient services endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_CHC_PRIMARY_CARE_PATIENT_SERVICES_URL": {
+        "description": "URL for CHC patient services endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_PRACTITIONER_ROLE_MAPPING_URL": {
+        "description": "URL for practitioner role mapping endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_STATUS_TRACKER_URL": {
+        "description": "URL for status tracker endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_HR_RECORDS_URL": {
+        "description": "URL for HR records endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_PROVINCIAL_RISK_TRACKING_URL": {
+        "description": "URL for provincial risk tracking endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_DECISION_LOG_URL": {
+        "description": "URL for decision log endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_HA_HIERARCHY_URL": {
+        "description": "URL for health authority hierarchy endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_UPPC_BUDGET_URL": {
+        "description": "URL for UPCC budget endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_CHC_BUDGET_URL": {
+        "description": "URL for CHC budget endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_PCN_BUDGET_URL": {
+        "description": "URL for PCN budget endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      },
+      "PCD_NPPCC_BUDGET_URL": {
+        "description": "URL for NPPCC budget endpoint",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "parallel_http_api_extraction"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "sftp_folder_check",
+        "name": "SFTP Folder Check",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/path/to/sftp/folder",
+          "protocol": "sftp"
+        },
+        "authentication": {
+          "type": "key_pair",
+          "credentials_path": "/path/to/sftp/credentials"
+        },
+        "used_by_components": [
+          "check_pcd_sftp_folder"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "folder_status"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "shared_folder_check",
+        "name": "Shared Folder Check",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/path/to/shared/folder",
+          "protocol": "file"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "check_pcd_shared_folder"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "shared_folder_status"
+          ],
+          "consumes": [
+            "folder_status"
+          ]
+        }
+      },
+      {
+        "id": "financial_expense_api",
+        "name": "Financial Expense API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_financial_expense_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "FINANCIAL_EXPENSE_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "financial_expense_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "upcc_financial_reporting_api",
+        "name": "UPCC Financial Reporting API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_upcc_financial_reporting_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "UPCC_FINANCIAL_REPORTING_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "upcc_financial_reporting_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "chc_financial_reporting_api",
+        "name": "CHC Financial Reporting API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_chc_financial_reporting_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "CHC_FINANCIAL_REPORTING_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "chc_financial_reporting_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "pcn_financial_reporting_api",
+        "name": "PCN Financial Reporting API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_pcn_financial_reporting_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "PCN_FINANCIAL_REPORTING_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "pcn_financial_reporting_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "nppcc_financial_reporting_api",
+        "name": "NPPCC Financial Reporting API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_nppcc_financial_reporting_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "NPPCC_FINANCIAL_REPORTING_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "nppcc_financial_reporting_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "fiscal_year_reporting_dates_api",
+        "name": "Fiscal Year Reporting Dates API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_fiscal_year_reporting_dates_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "FISCAL_YEAR_REPORTING_DATES_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "fiscal_year_reporting_dates_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "upcc_patient_services_api",
+        "name": "UPCC Patient Services API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_upcc_patient_services_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "UPCC_PATIENT_SERVICES_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "upcc_patient_services_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "chc_patient_services_api",
+        "name": "CHC Patient Services API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_chc_patient_services_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "CHC_PATIENT_SERVICES_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "chc_patient_services_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "practitioner_role_mapping_api",
+        "name": "Practitioner Role Mapping API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_practitioner_role_mapping_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "PRACTITIONER_ROLE_MAPPING_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "practitioner_role_mapping_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "status_tracker_api",
+        "name": "Status Tracker API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_status_tracker_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "STATUS_TRACKER_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "status_tracker_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "hr_records_api",
+        "name": "HR Records API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_hr_records_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "HR_RECORDS_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "hr_records_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "provincial_risk_tracking_api",
+        "name": "Provincial Risk Tracking API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_provincial_risk_tracking_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "PROVINCIAL_RISK_TRACKING_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "provincial_risk_tracking_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "decision_log_api",
+        "name": "Decision Log API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_decision_log_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "DECISION_LOG_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "decision_log_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "ha_hierarchy_api",
+        "name": "Health Authority Hierarchy API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_ha_hierarchy_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "HA_HIERARCHY_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "ha_hierarchy_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "uppc_budget_api",
+        "name": "UPPC Budget API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_uppc_budget_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "UPPC_BUDGET_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "uppc_budget_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "chc_budget_api",
+        "name": "CHC Budget API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_chc_budget_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "CHC_BUDGET_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "chc_budget_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "pcn_budget_api",
+        "name": "PCN Budget API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_pcn_budget_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "PCN_BUDGET_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "pcn_budget_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "nppcc_budget_api",
+        "name": "NPPCC Budget API",
+        "type": "api",
+        "config": {
+          "base_url": "{{var.value.pcd_nppcc_budget_url}}",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "NPPCC_BUDGET_API_TOKEN"
+        },
+        "used_by_components": [
+          "parallel_http_api_extraction"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "nppcc_budget_data"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "kubernetes_jobs",
+        "name": "Kubernetes Jobs",
+        "type": "other",
+        "config": {
+          "job_template_file": "{{var.value.pcd_emtysftp_job}}",
+          "job_template_file_2": "{{var.value.pcd_emtydir_job}}",
+          "job_template_file_3": "{{var.value.pcd_job}}"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "check_pcd_sftp_folder",
+          "check_pcd_shared_folder",
+          "pcd_file_upload"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "job_status"
+          ],
+          "consumes": [
+            "folder_status",
+            "shared_folder_status",
+            "api_data"
+          ]
+        }
+      },
+      {
+        "id": "email_notification",
+        "name": "Email Notification",
+        "type": "other",
+        "config": {
+          "email_list_success": "{{var.value.PCD_ETL_email_list_success}}",
+          "email_list_alerts": "{{var.value.ETL_email_list_alerts}}"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "etl_notification"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "email_notification"
+          ],
+          "consumes": [
+            "job_status"
+          ]
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "SFTP folder availability and contents",
+        "Shared folder accessibility",
+        "Financial Expense API",
+        "UPCC Financial Reporting API",
+        "CHC Financial Reporting API",
+        "PCN Financial Reporting API",
+        "NPPCC Financial Reporting API",
+        "Fiscal Year Reporting Dates API",
+        "UPCC Patient Services API",
+        "CHC Patient Services API",
+        "Practitioner Role Mapping API",
+        "Status Tracker API",
+        "HR Records API",
+        "Provincial Risk Tracking API",
+        "Decision Log API",
+        "Health Authority Hierarchy API",
+        "UPPC Budget API",
+        "CHC Budget API",
+        "PCN Budget API",
+        "NPPCC Budget API"
+      ],
+      "sinks": [
+        "Processed PCD data upload",
+        "Email notifications"
+      ],
+      "intermediate_datasets": [
+        "folder_status",
+        "shared_folder_status",
+        "financial_expense_data",
+        "upcc_financial_reporting_data",
+        "chc_financial_reporting_data",
+        "pcn_financial_reporting_data",
+        "nppcc_financial_reporting_data",
+        "fiscal_year_reporting_dates_data",
+        "upcc_patient_services_data",
+        "chc_patient_services_data",
+        "practitioner_role_mapping_data",
+        "status_tracker_data",
+        "hr_records_data",
+        "provincial_risk_tracking_data",
+        "decision_log_data",
+        "ha_hierarchy_data",
+        "uppc_budget_data",
+        "chc_budget_data",
+        "pcn_budget_data",
+        "nppcc_budget_data",
+        "job_status"
+      ]
+    }
+  }
+}

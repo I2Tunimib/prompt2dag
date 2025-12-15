@@ -1,0 +1,133 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_fan_out_fan_in_03_retail_inventory_reconciliation.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** fan_out_fan_in  
+**Complexity Score:** 6/10  
+
+---
+
+[retail_inventory_reconciliation] - Comprehensive Pipeline Description
+
+Opening Summary:
+This DAG implements a fan-out fan-in pattern for retail inventory reconciliation across four warehouse systems. The pipeline fetches CSV inventory data from multiple warehouses, processes SKU formats in parallel, reconciles discrepancies, and generates a final report. Key infrastructure features include PythonOperator-based parallel processing, XCom for inter-task data passing, and daily scheduled execution with retry policies.
+
+Pipeline Steps:
+
+Pre-Processing Stage (before parallel)
+
+1. fetch_north_warehouse_csv
+  • Objective: Retrieve inventory CSV data from the north warehouse management system
+  • Technical Details:
+    - Input: Warehouse management system for north region
+    - Output: warehouse_north_inventory.csv file via XCom
+    - Integrations: Warehouse management system (north region)
+    - Key Parameters: warehouse_id='north'
+  • Operator or Mechanism: PythonOperator
+  • Notes: Part of initial parallel CSV fetching phase
+
+2. fetch_south_warehouse_csv
+  • Objective: Retrieve inventory CSV data from the south warehouse management system
+  • Technical Details:
+    - Input: Warehouse management system for south region
+    - Output: warehouse_south_inventory.csv file via XCom
+    - Integrations: Warehouse management system (south region)
+    - Key Parameters: warehouse_id='south'
+  • Operator or Mechanism: PythonOperator
+
+3. fetch_east_warehouse_csv
+  • Objective: Retrieve inventory CSV data from the east warehouse management system
+  • Technical Details:
+    - Input: Warehouse management system for east region
+    - Output: warehouse_east_inventory.csv file via XCom
+    - Integrations: Warehouse management system (east region)
+    - Key Parameters: warehouse_id='east'
+  • Operator or Mechanism: PythonOperator
+
+4. fetch_west_warehouse_csv
+  • Objective: Retrieve inventory CSV data from the west warehouse management system
+  • Technical Details:
+    - Input: Warehouse management system for west region
+    - Output: warehouse_west_inventory.csv file via XCom
+    - Integrations: Warehouse management system (west region)
+    - Key Parameters: warehouse_id='west'
+  • Operator or Mechanism: PythonOperator
+
+Parallel Segment (4 parallel normalization tasks)
+
+5. normalize_north_skus
+  • Objective: Standardize SKU formats from north warehouse CSV to common format
+  • Technical Details:
+    - Input: warehouse_north_inventory.csv from fetch_north_warehouse_csv
+    - Output: normalized_north_inventory.csv via XCom
+    - Key Parameters: warehouse_id='north', csv_file='warehouse_north_inventory.csv'
+  • Operator or Mechanism: PythonOperator
+
+6. normalize_south_skus
+  • Objective: Standardize SKU formats from south warehouse CSV to common format
+  • Technical Details:
+    - Input: warehouse_south_inventory.csv from fetch_south_warehouse_csv
+    - Output: normalized_south_inventory.csv via XCom
+    - Key Parameters: warehouse_id='south', csv_file='warehouse_south_inventory.csv'
+  • Operator or Mechanism: PythonOperator
+
+7. normalize_east_skus
+  • Objective: Standardize SKU formats from east warehouse CSV to common format
+  • Technical Details:
+    - Input: warehouse_east_inventory.csv from fetch_east_warehouse_csv
+    - Output: normalized_east_inventory.csv via XCom
+    - Key Parameters: warehouse_id='east', csv_file='warehouse_east_inventory.csv'
+  • Operator or Mechanism: PythonOperator
+
+8. normalize_west_skus
+  • Objective: Standardize SKU formats from west warehouse CSV to common format
+  • Technical Details:
+    - Input: warehouse_west_inventory.csv from fetch_west_warehouse_csv
+    - Output: normalized_west_inventory.csv via XCom
+    - Key Parameters: warehouse_id='west', csv_file='warehouse_west_inventory.csv'
+  • Operator or Mechanism: PythonOperator
+
+Synchronization/Join Stage (after parallel)
+
+9. reconcile_all_inventories
+  • Objective: Consolidate and compare all normalized inventory files to identify discrepancies
+  • Technical Details:
+    - Input: All 4 normalized inventory files via XCom (normalized_north_inventory.csv, normalized_south_inventory.csv, normalized_east_inventory.csv, normalized_west_inventory.csv)
+    - Output: inventory_discrepancies_report.csv via XCom
+    - Key Parameters: provide_context=True for XCom access
+  • Operator or Mechanism: PythonOperator
+  • Notes: Fan-in point that waits for all 4 normalization tasks to complete
+
+10. generate_final_report
+  • Objective: Create final reconciliation report from discrepancy analysis
+  • Technical Details:
+    - Input: inventory_discrepancies_report.csv from reconcile_all_inventories
+    - Output: retail_inventory_reconciliation_final.pdf via XCom
+    - Key Parameters: provide_context=True for XCom access
+  • Operator or Mechanism: PythonOperator
+
+Orchestration & Scheduling:
+- Schedule: @daily
+- Start Date: January 1, 2024
+- Catchup: False
+- Default Args: owner='retail_analytics', depends_on_past=False, retries=2, retry_delay=5 minutes, email_on_failure=False, email_on_retry=False
+- Tags: retail, inventory, reconciliation
+
+Infrastructure & Dependencies:
+- Task grouping: No TaskGroups used
+- Data I/O hints: Warehouse CSV files (warehouse_{region}_inventory.csv), normalized files (normalized_{region}_inventory.csv), discrepancy report (inventory_discrepancies_report.csv), final PDF report (retail_inventory_reconciliation_final.pdf)
+- XCom usage: Heavy reliance on XCom for passing file names between tasks
+
+Failure Handling & Alerts:
+- Retry policy: 2 retries with 5-minute delay between attempts
+- Email notifications disabled for both failures and retries
+- No explicit failure triggers or alert operators
+
+Pattern-Specific Notes:
+- Fan-out fan-in pattern with parallel width of 4 (north, south, east, west warehouses)
+- Join achieved through reconcile_all_inventories task that depends on all 4 normalization tasks
+- Data flow: 4 parallel CSV fetches → 4 parallel SKU normalizations → 1 reconciliation → 1 final report
+- Parallel segments process warehouse data independently before synchronization

@@ -1,0 +1,212 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-11-29T15:06:59.263009
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/bcgov__medis-scheduler__PCD-ETL.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+#### Overall Purpose and High-Level Flow
+The PCD ETL pipeline is designed to process and load primary care data from multiple sources. It begins with initial checks to ensure the availability of necessary folders, followed by parallel extraction of data from various HTTP APIs. The extracted data is then processed and uploaded using Kubernetes jobs, with comprehensive email notifications sent at the end to report the status of the pipeline execution.
+
+#### Key Patterns and Complexity
+The pipeline follows a hybrid pattern, combining sequential and parallel execution. It starts with sequential checks for folder availability, transitions into parallel HTTP API extraction, and concludes with sequential data processing and notification. The pipeline leverages Kubernetes for job execution, HTTP for API calls, and Python for orchestration and notification.
+
+### Pipeline Architecture
+
+#### Flow Patterns
+- **Sequential**: Initial folder checks and final data processing and notification.
+- **Parallel**: Parallel HTTP API extraction tasks.
+- **Hybrid**: Combination of sequential and parallel patterns.
+
+#### Execution Characteristics
+- **Task Executor Types**: Kubernetes, HTTP, Python
+
+#### Component Overview
+- **Sensors**: Verify folder availability and contents.
+- **Orchestrators**: Synchronize tasks and trigger parallel execution.
+- **Extractors**: Extract data from HTTP APIs.
+- **Loaders**: Process and upload data using Kubernetes jobs.
+- **Notifiers**: Send email notifications.
+
+#### Flow Description
+1. **Entry Point**: `Check PCD SFTP Folder`
+2. **Main Sequence**:
+   - `Check PCD SFTP Folder` → `Check PCD Shared Folder` → `Start PCD Extract 1` → `Parallel HTTP API Extraction` → `Start PCD Extract 2` → `PCD File Upload` → `ETL Notification`
+3. **Branching/Parallelism**:
+   - `Parallel HTTP API Extraction` runs multiple API calls in parallel.
+4. **Sensors**: None detected.
+
+### Detailed Component Analysis
+
+#### Check PCD SFTP Folder
+- **Purpose and Category**: Sensor
+- **Executor Type**: Kubernetes
+- **Inputs**: None
+- **Outputs**: Folder status verification
+- **Retry Policy**: No retries
+- **Concurrency**: No parallelism
+- **Connected Systems**: Kubernetes for job execution
+
+#### Check PCD Shared Folder
+- **Purpose and Category**: Sensor
+- **Executor Type**: Kubernetes
+- **Inputs**: Folder status verification
+- **Outputs**: Shared folder status
+- **Retry Policy**: No retries
+- **Concurrency**: No parallelism
+- **Connected Systems**: Kubernetes for job execution
+
+#### Start PCD Extract 1
+- **Purpose and Category**: Orchestrator
+- **Executor Type**: Python
+- **Inputs**: Shared folder status
+- **Outputs**: None
+- **Retry Policy**: No retries
+- **Concurrency**: No parallelism
+- **Connected Systems**: None
+
+#### Parallel HTTP API Extraction
+- **Purpose and Category**: Extractor
+- **Executor Type**: HTTP
+- **Inputs**: Start PCD Extract 1 completion
+- **Outputs**: API response data
+- **Retry Policy**: No retries
+- **Concurrency**: Supports parallelism with up to 18 parallel instances
+- **Connected Systems**: Multiple HTTP APIs for data extraction
+
+#### Start PCD Extract 2
+- **Purpose and Category**: Orchestrator
+- **Executor Type**: Python
+- **Inputs**: Status Tracker task completion
+- **Outputs**: None
+- **Retry Policy**: No retries
+- **Concurrency**: No parallelism
+- **Connected Systems**: None
+
+#### PCD File Upload
+- **Purpose and Category**: Loader
+- **Executor Type**: Kubernetes
+- **Inputs**: All parallel HTTP extraction tasks and Start PCD Extract 2 completion
+- **Outputs**: Processed PCD data upload
+- **Retry Policy**: No retries
+- **Concurrency**: No parallelism
+- **Connected Systems**: Kubernetes for job execution
+
+#### ETL Notification
+- **Purpose and Category**: Notifier
+- **Executor Type**: Python
+- **Inputs**: All upstream task completion (success or failure)
+- **Outputs**: Email notifications
+- **Retry Policy**: No retries
+- **Concurrency**: No parallelism
+- **Connected Systems**: Email for notifications
+
+### Parameter Schema
+
+#### Pipeline-Level Parameters
+- **Name**: Unique identifier for the pipeline
+- **Description**: Optional description of the pipeline
+- **Tags**: Classification tags (e.g., etl, pcd)
+
+#### Schedule Configuration
+- **Enabled**: Whether the pipeline runs on a schedule
+- **Cron Expression**: Schedule timing (e.g., @daily, 0 0 * * *)
+- **Start Date**: When to start scheduling
+- **End Date**: When to stop scheduling
+- **Timezone**: Schedule timezone (default: UTC)
+- **Catchup**: Run missed intervals
+- **Batch Window**: Data partitioning strategy
+- **Partitioning**: Data partitioning strategy
+
+#### Execution Settings
+- **Max Active Runs**: Maximum concurrent pipeline runs
+- **Timeout Seconds**: Pipeline execution timeout
+- **Retry Policy**: Pipeline-level retry behavior
+- **Depends on Past**: Whether execution depends on previous run success
+
+#### Component-Specific Parameters
+- **Check PCD SFTP Folder**:
+  - `job_template_file`: Kubernetes job template file for folder check
+  - `wait_until_job_complete`: Wait until the Kubernetes job completes
+- **Check PCD Shared Folder**:
+  - `job_template_file`: Kubernetes job template file for shared folder check
+  - `wait_until_job_complete`: Wait until the Kubernetes job completes
+- **Parallel HTTP API Extraction**:
+  - `method`: HTTP method for API calls
+  - `response_check`: Response check for HTTP status code
+- **PCD File Upload**:
+  - `job_template_file`: Kubernetes job template file for PCD file upload
+- **ETL Notification**:
+  - `trigger_rule`: Trigger rule for notification
+
+#### Environment Variables
+- **PCD_ETL_EMAIL_LIST_SUCCESS**: Email list for success notifications
+- **ETL_EMAIL_LIST_ALERTS**: Email list for failure notifications
+- **PCD_EMTYSFTP_JOB**: Kubernetes job template for SFTP folder check
+- **PCD_EMTYDIR_JOB**: Kubernetes job template for shared folder check
+- **PCD_JOB**: Kubernetes job template for PCD file upload
+- **PCD_API_URLS**: Various API URLs for data extraction
+
+### Integration Points
+
+#### External Systems and Connections
+- **SFTP Folder Check**: Filesystem (SFTP)
+- **Shared Folder Check**: Filesystem (local file)
+- **HTTP APIs**: Multiple APIs for financial, patient, and other data
+- **Kubernetes Jobs**: Job execution for folder checks and data upload
+- **Email Notification**: Email for notifications
+
+#### Data Sources and Sinks
+- **Sources**:
+  - SFTP folder availability and contents
+  - Shared folder accessibility
+  - Various HTTP APIs for financial, patient, and other data
+- **Sinks**:
+  - Processed PCD data upload
+  - Email notifications
+
+#### Authentication Methods
+- **SFTP Folder Check**: Key pair authentication
+- **HTTP APIs**: Token-based authentication
+- **Email Notification**: No authentication required
+
+#### Data Lineage
+- **Sources**: SFTP folder, shared folder, multiple HTTP APIs
+- **Sinks**: Processed PCD data, email notifications
+- **Intermediate Datasets**: Folder status, shared folder status, various API response data, job status
+
+### Implementation Notes
+
+#### Complexity Assessment
+The pipeline is moderately complex due to the combination of sequential and parallel execution patterns, multiple external API integrations, and the use of Kubernetes for job execution.
+
+#### Upstream Dependency Policies
+- **All Success**: Most components depend on the successful completion of their upstream tasks.
+- **All Done**: The ETL notification component runs regardless of upstream success or failure.
+
+#### Retry and Timeout Configurations
+- **Retry Policy**: No retries configured for any components.
+- **Timeout**: Default timeout of 3600 seconds for pipeline execution.
+
+#### Potential Risks or Considerations
+- **API Rate Limits**: Ensure that the rate limits of the HTTP APIs are respected to avoid throttling.
+- **Kubernetes Job Failures**: Monitor Kubernetes job execution to ensure timely completion and handle any failures.
+- **Email Notifications**: Ensure that the email lists are correctly configured to receive notifications.
+
+### Orchestrator Compatibility
+
+#### Assessment for Airflow, Prefect, Dagster
+- **Airflow**: The pipeline's hybrid pattern, use of Kubernetes and HTTP executors, and comprehensive notification system are well-supported by Airflow.
+- **Prefect**: Prefect's dynamic task mapping and robust error handling make it a suitable choice for this pipeline.
+- **Dagster**: Dagster's strong support for data lineage and dynamic execution makes it a good fit for the pipeline's complex data flow and parallel execution.
+
+#### Pattern-Specific Considerations
+- **Hybrid Pattern**: Ensure that the orchestrator can handle both sequential and parallel execution patterns seamlessly.
+- **Kubernetes Integration**: Verify that the orchestrator has robust support for Kubernetes job execution.
+- **HTTP API Calls**: Ensure that the orchestrator can handle multiple parallel HTTP API calls efficiently.
+
+### Conclusion
+The PCD ETL pipeline is a well-structured and comprehensive solution for processing primary care data. It effectively combines sequential and parallel execution patterns, leverages Kubernetes for job execution, and ensures comprehensive monitoring and notification. The pipeline is compatible with multiple orchestrators, making it flexible and adaptable to different environments.

@@ -1,0 +1,728 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-11-28T12:38:13.798694",
+    "source_file": "Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_sensor_gated_02_database_partition_check.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "Qwen3-Coder",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "sensor_driven"
+      ],
+      "task_executors_used": [
+        "python",
+        "sql"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": true,
+      "total_components": 4,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Native sensor support"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "wait_for() or custom sensors"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "Sensors via run_status_sensor"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "Database Partition Check ETL",
+    "description": "A sensor-gated daily ETL pipeline that waits for database partition availability before extracting, transforming, and loading incremental orders data.",
+    "flow_patterns": [
+      "sequential",
+      "sensor_driven"
+    ],
+    "task_executors": [
+      "python",
+      "sql"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "wait_for_partition",
+      "name": "Wait for Database Partition",
+      "category": "Sensor",
+      "description": "Waits for the daily partition in the orders table to exist before allowing downstream ETL tasks to proceed. Uses reschedule mode to release worker slots during wait periods.",
+      "inputs": [
+        "information_schema.partitions"
+      ],
+      "outputs": [
+        "sensor_success_signal"
+      ],
+      "executor_type": "sql",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "partition_metadata",
+          "direction": "input",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "information_schema.partitions",
+          "connection_id": "database_conn"
+        },
+        {
+          "name": "sensor_status",
+          "direction": "output",
+          "kind": "object",
+          "format": "boolean",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Initial sensor step with no upstream dependencies",
+        "timeout_seconds": 3600
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "database_conn",
+          "type": "database",
+          "purpose": "Access to information_schema for partition checking"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "extract_incremental_orders",
+      "name": "Extract Incremental Orders",
+      "category": "Extractor",
+      "description": "Extracts new orders data from the daily partition of the orders table, filtered by current date.",
+      "inputs": [
+        "orders_table"
+      ],
+      "outputs": [
+        "raw_orders_data"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "source_orders",
+          "direction": "input",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "orders",
+          "connection_id": "database_conn"
+        },
+        {
+          "name": "extracted_data",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Requires successful completion of wait_for_partition",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "database_conn",
+          "type": "database",
+          "purpose": "Access to orders table for data extraction"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "raw_orders"
+        ]
+      }
+    },
+    {
+      "id": "transform_orders_data",
+      "name": "Transform Orders Data",
+      "category": "Transformer",
+      "description": "Cleans and validates extracted orders data, processing customer names, addresses, amounts, and timestamps.",
+      "inputs": [
+        "raw_orders_data"
+      ],
+      "outputs": [
+        "cleaned_orders_data"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "raw_data",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "transformed_data",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Requires successful completion of extract_incremental_orders",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "raw_orders"
+        ],
+        "produces": [
+          "cleaned_orders"
+        ]
+      }
+    },
+    {
+      "id": "load_transformed_orders",
+      "name": "Load Transformed Orders",
+      "category": "Loader",
+      "description": "Loads transformed orders data into the fact_orders table in the target data warehouse.",
+      "inputs": [
+        "cleaned_orders_data"
+      ],
+      "outputs": [
+        "loaded_orders_metrics"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "transformed_data",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "warehouse_table",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "fact_orders",
+          "connection_id": "warehouse_conn"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Requires successful completion of transform_orders_data",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "warehouse_conn",
+          "type": "database",
+          "purpose": "Connection to target data warehouse"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "cleaned_orders"
+        ],
+        "produces": [
+          "fact_orders"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sensor_driven",
+    "entry_points": [
+      "wait_for_partition"
+    ],
+    "nodes": {
+      "wait_for_partition": {
+        "kind": "Sensor",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "extract_incremental_orders"
+        ],
+        "sensor_config": {
+          "sensor_type": "sql",
+          "target": "information_schema.partitions",
+          "poke_interval_seconds": 300,
+          "timeout_seconds": 3600,
+          "mode": "reschedule"
+        },
+        "branch_config": null,
+        "parallel_config": null
+      },
+      "extract_incremental_orders": {
+        "kind": "Task",
+        "component_type_id": "extract_incremental_orders",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "transform_orders_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "transform_orders_data": {
+        "kind": "Task",
+        "component_type_id": "transform_orders_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "load_transformed_orders"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "load_transformed_orders": {
+        "kind": "Task",
+        "component_type_id": "load_transformed_orders",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "wait_for_partition",
+        "to": "extract_incremental_orders",
+        "edge_type": "success"
+      },
+      {
+        "from": "extract_incremental_orders",
+        "to": "transform_orders_data",
+        "edge_type": "success"
+      },
+      {
+        "from": "transform_orders_data",
+        "to": "load_transformed_orders",
+        "edge_type": "success"
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "Database Partition Check ETL",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": "A sensor-gated daily ETL pipeline that waits for database partition availability before extracting, transforming, and loading incremental orders data.",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [
+          "sensor_gated",
+          "daily",
+          "etl",
+          "database"
+        ],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2024-01-01T00:00:00Z",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": "ds",
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": "daily",
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": 1,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": 3600,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 2,
+          "retry_delay_minutes": 5
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      }
+    },
+    "components": {
+      "wait_for_partition": {
+        "conn_id": {
+          "description": "Database connection identifier for SqlSensor",
+          "type": "string",
+          "default": "database_conn",
+          "required": true,
+          "constraints": "Must match an existing database connection"
+        },
+        "mode": {
+          "description": "Sensor execution mode",
+          "type": "string",
+          "default": "reschedule",
+          "required": false,
+          "constraints": "Either 'poke' or 'reschedule'"
+        },
+        "timeout": {
+          "description": "Maximum time to wait for partition in seconds",
+          "type": "integer",
+          "default": 3600,
+          "required": false,
+          "constraints": "Positive integer"
+        },
+        "poke_interval": {
+          "description": "Interval between sensor checks in seconds",
+          "type": "integer",
+          "default": 300,
+          "required": false,
+          "constraints": "Positive integer, less than timeout"
+        }
+      },
+      "extract_incremental_orders": {
+        "source_table": {
+          "description": "Source database table for extraction",
+          "type": "string",
+          "default": "orders",
+          "required": false,
+          "constraints": null
+        },
+        "partition_date_column": {
+          "description": "Column used for partition filtering",
+          "type": "string",
+          "default": "partition_date",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "transform_orders_data": {
+        "validation_rules": {
+          "description": "Data validation rules to apply during transformation",
+          "type": "object",
+          "default": {
+            "customer_name_required": true,
+            "amount_positive": true,
+            "timestamp_format": "ISO8601"
+          },
+          "required": false,
+          "constraints": null
+        }
+      },
+      "load_transformed_orders": {
+        "target_table": {
+          "description": "Target table for loading transformed data",
+          "type": "string",
+          "default": "fact_orders",
+          "required": false,
+          "constraints": null
+        },
+        "insert_method": {
+          "description": "Method for inserting data into target table",
+          "type": "string",
+          "default": "append",
+          "required": false,
+          "constraints": "Either 'append' or 'upsert'"
+        }
+      }
+    },
+    "environment": {
+      "DATABASE_CONN": {
+        "description": "Database connection string for ETL operations",
+        "type": "string",
+        "default": null,
+        "required": true,
+        "associated_component_id": "wait_for_partition"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "database_conn",
+        "name": "Database Connection",
+        "type": "database",
+        "config": {
+          "host": "db.example.com",
+          "port": 5432,
+          "database": "orders_db",
+          "schema": "public",
+          "base_path": null,
+          "base_url": null,
+          "protocol": "jdbc",
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "basic",
+          "token_env_var": null,
+          "username_env_var": "DB_USER",
+          "password_env_var": "DB_PASSWORD",
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "wait_for_partition",
+          "extract_incremental_orders",
+          "load_transformed_orders"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "fact_orders"
+          ],
+          "consumes": [
+            "orders"
+          ]
+        }
+      },
+      {
+        "id": "data_warehouse_target",
+        "name": "Data Warehouse Target",
+        "type": "data_warehouse",
+        "config": {
+          "host": "warehouse.example.com",
+          "port": 5439,
+          "database": "analytics_dw",
+          "schema": "public",
+          "base_path": null,
+          "base_url": null,
+          "protocol": "jdbc",
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "iam",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": "/path/to/warehouse/credentials.json"
+        },
+        "used_by_components": [
+          "load_transformed_orders"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": 10,
+          "burst": 20
+        },
+        "datasets": {
+          "produces": [
+            "fact_orders"
+          ],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Orders table in source database with daily partitioning strategy"
+      ],
+      "sinks": [
+        "fact_orders table in target data warehouse"
+      ],
+      "intermediate_datasets": [
+        "extracted_orders_daily",
+        "transformed_orders_validated"
+      ]
+    }
+  }
+}

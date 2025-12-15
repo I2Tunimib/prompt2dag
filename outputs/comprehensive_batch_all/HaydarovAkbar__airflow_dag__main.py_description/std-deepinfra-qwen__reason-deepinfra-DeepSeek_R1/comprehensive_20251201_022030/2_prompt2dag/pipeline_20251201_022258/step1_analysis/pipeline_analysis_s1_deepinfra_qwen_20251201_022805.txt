@@ -1,0 +1,252 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-01T02:28:05.646579
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/HaydarovAkbar__airflow_dag__main.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+**Overall Purpose and High-Level Flow:**
+The pipeline is designed to orchestrate the loading of datasets from DWH L2 to L2, including segmentation processing and integration with SAP. It follows a hybrid pattern with sequential pre-processing, parallel execution, and synchronization. The pipeline ensures that all necessary preconditions are met before proceeding with data loading and processing tasks. It also includes mechanisms for session cleanup, data preparation, and failure notifications.
+
+**Key Patterns and Complexity:**
+- **Sequential Flow:** Initial tasks are executed in a sequential manner to ensure that all prerequisites are met.
+- **Parallel Execution:** The pipeline leverages parallel execution for data preparation and segmentation tasks to optimize performance.
+- **Sensor-Driven:** Sensors are used to monitor external conditions and ensure that the pipeline only proceeds when the required conditions are met.
+- **Complexity:** The pipeline includes multiple external dependencies, data lineage tracking, and failure handling mechanisms, making it moderately complex.
+
+### Pipeline Architecture
+
+**Flow Patterns:**
+- **Sequential:** Initial tasks are executed in a linear sequence to ensure that all prerequisites are met.
+- **Parallel:** Data preparation and segmentation tasks are executed in parallel to optimize performance.
+- **Sensor-Driven:** Sensors are used to monitor the completion of external tasks and data conditions.
+
+**Execution Characteristics:**
+- **Task Executor Types:** Python, Docker, HTTP, SQL
+
+**Component Overview:**
+- **Sensors:** Monitor external conditions and data readiness.
+- **Transformers:** Generate load IDs, register workflows, and finalize metadata.
+- **Orchestrators:** Trigger external DAGs for session cleanup and data preparation.
+- **Notifiers:** Send completion flags to SAP and failure notifications via email.
+
+**Flow Description:**
+- **Entry Point:** The pipeline starts with the `wait_for_l2_full_load` sensor.
+- **Main Sequence:**
+  1. `wait_for_l2_full_load` ensures the previous day's L1 to L2 load is complete.
+  2. `get_load_id` generates a unique load identifier.
+  3. `workflow_registration` registers the workflow session in the metadata system.
+  4. `wait_for_success_end` ensures the previous day's successful completion.
+  5. `run_sys_kill_all_session_pg` triggers session cleanup.
+  6. Parallel execution of `run_wf_data_preparation_for_reports` and `load_ds_client_segmentation`.
+  7. `send_flg_to_sap` sends a completion flag to SAP.
+  8. `end` finalizes the workflow by updating metadata.
+- **Branching/Parallelism/Sensors:**
+  - Parallel execution of data preparation and segmentation tasks.
+  - Sensors are used to monitor the completion of external tasks and data conditions.
+
+### Detailed Component Analysis
+
+**1. Wait for L2 Full Load**
+- **Purpose and Category:** Sensor to monitor the completion of the previous day's L1 to L2 load.
+- **Executor Type and Configuration:** Python
+- **Inputs and Outputs:** Monitors `md.dwh_flag` table in the DWH.
+- **Retry Policy and Concurrency Settings:** No retries, 60-second poke interval, 1-hour timeout.
+- **Connected Systems:** PostgreSQL DWH
+
+**2. Get Load ID**
+- **Purpose and Category:** Transformer to generate a unique load identifier.
+- **Executor Type and Configuration:** Python
+- **Inputs and Outputs:** No specific inputs or outputs.
+- **Retry Policy and Concurrency Settings:** No retries.
+- **Connected Systems:** None
+
+**3. Workflow Registration**
+- **Purpose and Category:** Transformer to register the workflow session in the metadata system.
+- **Executor Type and Configuration:** Python
+- **Inputs and Outputs:** No specific inputs or outputs.
+- **Retry Policy and Concurrency Settings:** No retries.
+- **Connected Systems:** None
+
+**4. Wait for Success End**
+- **Purpose and Category:** Sensor to ensure the previous day's successful completion.
+- **Executor Type and Configuration:** Python
+- **Inputs and Outputs:** No specific inputs or outputs.
+- **Retry Policy and Concurrency Settings:** No retries, 100-second poke interval, 1-hour timeout.
+- **Connected Systems:** None
+
+**5. Run System Kill All Sessions**
+- **Purpose and Category:** Orchestrator to trigger session cleanup.
+- **Executor Type and Configuration:** Python
+- **Inputs and Outputs:** No specific inputs or outputs.
+- **Retry Policy and Concurrency Settings:** No retries.
+- **Connected Systems:** None
+
+**6. Run Data Preparation for Reports**
+- **Purpose and Category:** Orchestrator to trigger data preparation for reporting datasets.
+- **Executor Type and Configuration:** Python
+- **Inputs and Outputs:** No specific inputs or outputs.
+- **Retry Policy and Concurrency Settings:** No retries.
+- **Connected Systems:** None
+
+**7. Load DS Client Segmentation**
+- **Purpose and Category:** Orchestrator to trigger client segmentation data load.
+- **Executor Type and Configuration:** Python
+- **Inputs and Outputs:** No specific inputs or outputs.
+- **Retry Policy and Concurrency Settings:** No retries.
+- **Connected Systems:** None
+
+**8. Send Flag to SAP**
+- **Purpose and Category:** Notifier to send a completion flag to SAP.
+- **Executor Type and Configuration:** Python
+- **Inputs and Outputs:** No specific inputs or outputs.
+- **Retry Policy and Concurrency Settings:** No retries.
+- **Connected Systems:** SAP System
+
+**9. End Workflow**
+- **Purpose and Category:** Transformer to finalize the workflow by updating metadata.
+- **Executor Type and Configuration:** Python
+- **Inputs and Outputs:** No specific inputs or outputs.
+- **Retry Policy and Concurrency Settings:** No retries.
+- **Connected Systems:** None
+
+**10. Email on Failure**
+- **Purpose and Category:** Notifier to send a failure notification email.
+- **Executor Type and Configuration:** Python
+- **Inputs and Outputs:** No specific inputs or outputs.
+- **Retry Policy and Concurrency Settings:** No retries.
+- **Connected Systems:** SMTP Email System
+
+### Parameter Schema
+
+**Pipeline-Level Parameters:**
+- **Name:** Unique identifier for the pipeline.
+- **Description:** Comprehensive pipeline description.
+- **Tags:** Classification tags.
+
+**Schedule Configuration:**
+- **Enabled:** Whether the pipeline runs on schedule.
+- **Cron Expression:** Cron or preset scheduling expression.
+- **Start Date:** When to start scheduling.
+- **End Date:** When to stop scheduling.
+- **Timezone:** Schedule timezone.
+- **Catchup:** Run missed intervals.
+- **Batch Window:** Batch window parameter name.
+- **Partitioning:** Data partitioning strategy.
+
+**Execution Settings:**
+- **Max Active Runs:** Maximum concurrent pipeline runs.
+- **Timeout Seconds:** Pipeline execution timeout.
+- **Retry Policy:** Pipeline-level retry behavior.
+- **Depends on Past:** Whether execution depends on previous run success.
+
+**Component-Specific Parameters:**
+- **wait_for_l2_full_load:**
+  - **conn_id:** Connection ID for the PostgreSQL DWH.
+  - **poke_interval:** Interval in seconds to poke the sensor.
+  - **fail_on_empty:** Fail if the sensor returns an empty result.
+- **wait_for_success_end:**
+  - **external_dag_id:** ID of the external DAG to wait for.
+  - **execution_delta:** Time delta to wait for the previous day's completion.
+  - **poke_interval:** Interval in seconds to poke the sensor.
+- **run_sys_kill_all_session_pg:**
+  - **trigger_dag_id:** ID of the DAG to trigger.
+  - **wait_for_completion:** Wait for the triggered DAG to complete.
+- **run_wf_data_preparation_for_reports:**
+  - **trigger_dag_id:** ID of the DAG to trigger.
+  - **pool:** Pool to use for the task.
+  - **pool_slots:** Number of pool slots to use.
+- **load_ds_client_segmentation:**
+  - **trigger_dag_id:** ID of the DAG to trigger.
+- **email_on_failure:**
+  - **trigger_rule:** Trigger rule for the task.
+
+**Environment Variables:**
+- **DWH_CONN_ID:** Connection ID for the PostgreSQL DWH.
+- **SAP_CONN_ID:** Connection ID for the SAP system.
+- **EMAIL_RECIPIENTS:** Email recipients for failure notifications.
+
+### Integration Points
+
+**External Systems and Connections:**
+- **PostgreSQL DWH:**
+  - **Type:** Database
+  - **Configuration:** Host, port, protocol, database, schema
+  - **Authentication:** Basic (username, password)
+  - **Used By Components:** `wait_for_l2_full_load`, `workflow_registration`, `end`
+  - **Direction:** Both
+  - **Rate Limit:** None
+  - **Datasets:** Consumes `md.dwh_flag`, `metadata_tables`
+
+- **SAP System:**
+  - **Type:** API
+  - **Configuration:** Base URL, protocol
+  - **Authentication:** Token
+  - **Used By Components:** `send_flg_to_sap`
+  - **Direction:** Output
+  - **Rate Limit:** None
+  - **Datasets:** None
+
+- **SMTP Email System:**
+  - **Type:** API
+  - **Configuration:** Base URL, protocol
+  - **Authentication:** Basic (username, password)
+  - **Used By Components:** `email_on_failure`
+  - **Direction:** Output
+  - **Rate Limit:** None
+  - **Datasets:** None
+
+**Data Sources and Sinks:**
+- **Sources:**
+  - `md.dwh_flag` table in PostgreSQL DWH
+  - External DAG 'WF_MAIN_DATASETS_LOAD_L2_TO_L2' end task
+  - External DAG 'sys_kill_all_session_pg' for session cleanup
+  - External DAG 'wf_data_preparation_for_reports' for reporting data preparation
+  - External DAG 'l1_to_l2_p_load_data_ds_client_segmentation_full' for client segmentation data load
+
+- **Sinks:**
+  - Metadata tables in PostgreSQL DWH
+  - SAP system via HTTP POST
+  - Email notifications via SMTP
+
+**Data Lineage:**
+- **Intermediate Datasets:**
+  - Load ID generated by `get_load_id` task
+  - Session registration records in metadata tables
+  - Segmentation data loaded into `wk_export.ds_client_segmentation_last_v` table
+
+### Implementation Notes
+
+**Complexity Assessment:**
+- The pipeline is moderately complex due to its hybrid flow pattern, multiple external dependencies, and data lineage tracking.
+
+**Upstream Dependency Policies:**
+- All tasks wait for all upstream tasks to succeed before proceeding, except for the failure notification task, which triggers on any upstream failure.
+
+**Retry and Timeout Configurations:**
+- Specific retry policies are defined for sensors, with a 60-second delay for `wait_for_l2_full_load` and a 100-second delay for `wait_for_success_end`.
+- Timeout configurations are set for sensors to prevent indefinite waiting.
+
+**Potential Risks or Considerations:**
+- **External Dependencies:** The pipeline relies on external DAGs and systems, which could introduce delays or failures.
+- **Concurrency:** The pipeline supports up to 20 concurrent runs, which may need to be adjusted based on resource availability.
+- **Data Integrity:** Ensuring the integrity of data lineage and metadata updates is crucial for the pipeline's reliability.
+
+### Orchestrator Compatibility
+
+**Assessment for Airflow, Prefect, Dagster:**
+- **Airflow:** The pipeline's hybrid flow pattern, sensor-driven tasks, and parallel execution are well-supported by Airflow. The use of external DAGs and sensors aligns with Airflow's capabilities.
+- **Prefect:** Prefect's support for dynamic task creation and parallel execution makes it a suitable choice. The pipeline's sensor-driven tasks can be implemented using Prefect's triggers and conditions.
+- **Dagster:** Dagster's strong support for data lineage and asset management aligns well with the pipeline's requirements. The hybrid flow pattern and parallel execution can be effectively managed using Dagster's graph-based approach.
+
+**Pattern-Specific Considerations:**
+- **Sequential Flow:** All orchestrators support sequential task execution.
+- **Parallel Execution:** Airflow and Prefect have robust support for parallel execution, while Dagster's graph-based approach can handle parallel tasks efficiently.
+- **Sensor-Driven:** Airflow has built-in support for sensors, while Prefect and Dagster can implement similar functionality using custom triggers and conditions.
+
+### Conclusion
+
+The pipeline is designed to efficiently orchestrate dataset loading, segmentation processing, and SAP integration. It follows a hybrid flow pattern with sequential pre-processing, parallel execution, and sensor-driven synchronization. The pipeline's complexity is managed through well-defined upstream dependency policies, retry configurations, and external system integrations. The pipeline is compatible with popular orchestrators like Airflow, Prefect, and Dagster, each offering unique strengths in handling the pipeline's requirements.

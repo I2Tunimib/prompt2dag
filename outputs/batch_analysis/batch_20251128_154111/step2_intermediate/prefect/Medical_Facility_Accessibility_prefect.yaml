@@ -1,0 +1,326 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-11-28 15:43:35.514289
+  source_analysis_file: Pipeline_Description_Dataset/Medical_Facility_Accessibility.txt
+  pipeline_name: medical_facility_accessibility_pipeline
+  pipeline_description: Assesses medical facility accessibility by geocoding locations and calculating distances to key 
+    infrastructure like public transport and residential areas.
+  orchestrator_specific:
+    flow_name: medical_facility_accessibility_pipeline
+    deployment_name: medical_facility_accessibility_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir_filesystem
+    conn_type: LocalFileSystem
+    description: Data Directory Filesystem
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: data_dir_filesystem
+      config:
+        base_path: ${DATA_DIR}
+        protocol: file
+        host:
+        port:
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_url:
+  - conn_id: load_modify_service_api
+    conn_type: Secret
+    description: Load and Modify Service API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: load_modify_service_api
+      config:
+        base_url: http://localhost:3003
+        protocol: http
+        host: localhost
+        port: 3003
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_path:
+  - conn_id: reconciliation_service_api
+    conn_type: Secret
+    description: Reconciliation Service API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: reconciliation_service_api
+      config:
+        base_url: http://localhost:3003
+        protocol: http
+        host: localhost
+        port: 3003
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_path:
+        token_secret_name: HERE_API_TOKEN
+  - conn_id: column_extension_service_api
+    conn_type: Secret
+    description: Column Extension Service API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: column_extension_service_api
+      config:
+        base_url: http://localhost:3003
+        protocol: http
+        host: localhost
+        port: 3003
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_path:
+  - conn_id: save_service_api
+    conn_type: Secret
+    description: Save Service API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: save_service_api
+      config:
+        base_url: http://localhost:3003
+        protocol: http
+        host: localhost
+        port: 3003
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_path:
+  - conn_id: mongodb_database
+    conn_type: Secret
+    description: MongoDB Database
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: mongodb_database
+      config:
+        host: localhost
+        port: 27017
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_path:
+        base_url:
+        protocol: mongodb
+  - conn_id: intertwino_api
+    conn_type: Secret
+    description: Intertwino API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: intertwino_api
+      config:
+        base_url: http://localhost:5005
+        protocol: http
+        host: localhost
+        port: 5005
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_path:
+  - conn_id: transport_stops_geojson
+    conn_type: LocalFileSystem
+    description: Transport Stops GeoJSON
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: transport_stops_geojson
+      config:
+        base_path: /app/data/transport_stops.geojson
+        protocol: file
+        host:
+        port:
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_url:
+  - conn_id: residential_areas_geojson
+    conn_type: LocalFileSystem
+    description: Residential Areas GeoJSON
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: residential_areas_geojson
+      config:
+        base_path: /app/data/residential_areas.geojson
+        protocol: file
+        host:
+        port:
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_url:
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: load_and_modify_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-load-and-modify:latest
+          env:
+            DATASET_ID: '2'
+            TABLE_NAME_PREFIX: JOT_
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 30
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: reconcile_geocode_here
+    task_name: Reconcile Geocode HERE
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: reconcile_geocode_here
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-reconciliation:latest
+          env:
+            PRIMARY_COLUMN: address
+            RECONCILIATOR_ID: geocodingHere
+            API_TOKEN: '[HERE API token]'
+            DATASET_ID: '2'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 30
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: calculate_distance_public_transport
+    task_name: Calculate Distance to Public Transport
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: calculate_distance_public_transport
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-column-extension:latest
+          env:
+            EXTENDER_ID: spatialDistanceCalculator
+            LAT_COLUMN: latitude
+            LON_COLUMN: longitude
+            TARGET_LAYER: public_transport
+            TARGET_DATA_SOURCE: /app/data/transport_stops.geojson
+            OUTPUT_COLUMN: distance_to_pt
+            DATASET_ID: '2'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 30
+    upstream_task_ids:
+      - reconcile_geocode_here
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: calculate_distance_residential_areas
+    task_name: Calculate Distance to Residential Areas
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: calculate_distance_residential_areas
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-column-extension:latest
+          env:
+            EXTENDER_ID: spatialDistanceCalculator
+            LAT_COLUMN: latitude
+            LON_COLUMN: longitude
+            TARGET_LAYER: residential_areas
+            TARGET_DATA_SOURCE: /app/data/residential_areas.geojson
+            OUTPUT_COLUMN: distance_to_residential
+            DATASET_ID: '2'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 30
+    upstream_task_ids:
+      - calculate_distance_public_transport
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: save_final_data
+    task_name: Save Final Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: save_final_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-save:latest
+          env:
+            DATASET_ID: '2'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 30
+    upstream_task_ids:
+      - calculate_distance_residential_areas
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

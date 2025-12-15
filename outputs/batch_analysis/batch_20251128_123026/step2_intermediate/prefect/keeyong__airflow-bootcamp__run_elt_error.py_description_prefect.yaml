@@ -1,0 +1,116 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-11-28 12:34:32.745785
+  source_analysis_file: Pipeline_Description_Dataset/keeyong__airflow-bootcamp__run_elt_error.py_description.txt
+  pipeline_name: RunELT_Alert
+  pipeline_description: Comprehensive Pipeline Description
+  orchestrator_specific:
+    flow_name: runelt_alert
+    deployment_name: runelt_alert_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2025-01-10T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: snowflake_analytics_db
+    conn_type: Secret
+    description: Snowflake Analytics Database
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: snowflake_analytics_db
+      config:
+        host: your_account.snowflakecomputing.com
+        port: 443
+        protocol: https
+        database: analytics_db
+        schema: analytics
+  - conn_id: slack_alert_webhook
+    conn_type: Secret
+    description: Slack Alert Webhook
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: slack_alert_webhook
+      config:
+        base_url: https://hooks.slack.com/services
+        protocol: https
+        token_secret_name: SLACK_WEBHOOK_TOKEN
+tasks:
+  - task_id: run_ctas_for_table
+    task_name: Run CTAS for Analytics Table
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: run_ctas_for_table
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 3
+      retry_delay_seconds: 60
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 3
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: validate_temp_table
+    task_name: Validate Temporary Table
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: validate_temp_table
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 30
+    upstream_task_ids:
+      - run_ctas_for_table
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: swap_table_atomic
+    task_name: Atomic Table Swap
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: swap_table_atomic
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config: {}
+      retries: 1
+    upstream_task_ids:
+      - validate_temp_table
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: send_slack_alert
+    task_name: Send Slack Failure Alert
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: send_slack_alert
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 3
+      retry_delay_seconds: 30
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 3
+    retry_delay_seconds: 30
+    validation_warnings: []

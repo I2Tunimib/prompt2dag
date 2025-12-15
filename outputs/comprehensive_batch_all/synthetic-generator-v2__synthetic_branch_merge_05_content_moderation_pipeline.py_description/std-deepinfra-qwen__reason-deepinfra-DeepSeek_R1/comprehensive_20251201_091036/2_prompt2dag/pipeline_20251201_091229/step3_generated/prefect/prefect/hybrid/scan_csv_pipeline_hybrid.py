@@ -1,0 +1,90 @@
+from prefect import flow, task, get_run_logger
+from prefect.orion.schemas.states import Completed
+from prefect.task_runners import SequentialTaskRunner
+from prefect.deployments import Deployment
+from prefect.server.schemas.core import Flow
+from prefect.server.schemas.actions import DeploymentCreate
+from prefect.client.orchestration import get_client
+from datetime import timedelta
+from prefect.orion.schemas.schedules import IntervalSchedule
+
+# Task Definitions
+@task(name='scan_csv', retries=2)
+def scan_csv():
+    """Task: Scan CSV"""
+    # Docker execution via infrastructure
+    # Image: python:3.9
+    pass
+
+@task(name='toxicity_check', retries=2)
+def toxicity_check():
+    """Task: Toxicity Check"""
+    # Docker execution via infrastructure
+    # Image: python:3.9
+    pass
+
+@task(name='remove_and_flag_content', retries=2)
+def remove_and_flag_content():
+    """Task: Remove and Flag Content"""
+    # Docker execution via infrastructure
+    # Image: python:3.9
+    pass
+
+@task(name='publish_content', retries=2)
+def publish_content():
+    """Task: Publish Content"""
+    # Docker execution via infrastructure
+    # Image: python:3.9
+    pass
+
+@task(name='audit_log', retries=2)
+def audit_log():
+    """Task: Audit Log"""
+    # Docker execution via infrastructure
+    # Image: python:3.9
+    pass
+
+# Flow Definition
+@flow(name="scan_csv_pipeline", task_runner=SequentialTaskRunner)
+def scan_csv_pipeline():
+    logger = get_run_logger()
+    logger.info("Starting scan_csv_pipeline")
+
+    # Entry point
+    scan_csv_result = scan_csv.submit()
+
+    # Fan out
+    toxicity_check_result = toxicity_check.submit(wait_for=[scan_csv_result])
+
+    # Fan in
+    remove_and_flag_content_result = remove_and_flag_content.submit(wait_for=[toxicity_check_result])
+    publish_content_result = publish_content.submit(wait_for=[toxicity_check_result])
+
+    # Final task
+    audit_log.submit(wait_for=[remove_and_flag_content_result, publish_content_result])
+
+# Deployment Configuration
+deployment = Deployment.build_from_flow(
+    flow=scan_csv_pipeline,
+    name="scan_csv_pipeline_deployment",
+    work_pool_name="default-agent-pool",
+    schedule=IntervalSchedule(interval=timedelta(days=1)),
+)
+
+# Register the deployment
+async def register_deployment():
+    async with get_client() as client:
+        flow_id = await client.create_flow(Flow(name="scan_csv_pipeline"))
+        deployment_id = await client.create_deployment(
+            DeploymentCreate(
+                flow_id=flow_id,
+                name="scan_csv_pipeline_deployment",
+                work_pool_name="default-agent-pool",
+                schedule=IntervalSchedule(interval=timedelta(days=1)),
+            )
+        )
+        print(f"Deployment registered with ID: {deployment_id}")
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(register_deployment())

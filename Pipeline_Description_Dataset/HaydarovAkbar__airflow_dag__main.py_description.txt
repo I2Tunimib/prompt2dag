@@ -1,0 +1,122 @@
+
+[WF_MAIN_DATASETS_LOAD_L2_TO_L2] - Comprehensive Pipeline Description
+
+Opening Summary:
+This pipeline orchestrates dataset loading from DWH L2 to L2 with segmentation processing and SAP integration. It follows a mixed topology pattern with sequential pre-processing, fan-out parallel execution (width: 2), and fan-in synchronization. Key infrastructure features include SqlSensor and ExternalTaskSensor gates, TriggerDagRunOperator for external DAG dependencies, TaskGroup for segmentation workflows, and email failure alerts. The pipeline is manually triggered (schedule_interval=None) with catchup disabled and supports up to 20 concurrent runs.
+
+Pipeline Steps:
+
+1. wait_for_l2_full_load
+  • Objective: Gate pipeline execution until previous day's L1 to L2 load completes successfully
+  • Technical Details:
+    - Input: Monitors md.dwh_flag table in DWH
+    - Output: Unlocks downstream pipeline tasks when condition met
+    - Integrations: PostgreSQL DWH (conn_id: dwh)
+    - Key Parameters: conn_id='dwh', poke_interval=60, fail_on_empty=False
+  • Operator or Mechanism: SqlSensor
+  • Notes: Checks for 'l1_to_l2_load_successfull' flag with previous business date
+
+2. get_load_id
+  • Objective: Generate unique load identifier for workflow tracking
+  • Technical Details:
+    - Input: Triggered by SqlSensor completion
+    - Output: Load ID pushed via XCom for downstream consumption
+    - Integrations: md_dwh utility functions
+  • Operator or Mechanism: PythonOperator
+
+3. workflow_registration
+  • Objective: Register workflow session in metadata system and initialize data load tracking
+  • Technical Details:
+    - Input: Load ID from get_load_id task
+    - Output: Session registration records in metadata tables
+    - Integrations: md_dwh.workflow_registration functions
+  • Operator or Mechanism: PythonOperator
+
+4. wait_for_success_end
+  • Objective: Ensure previous day's successful completion before proceeding
+  • Technical Details:
+    - Input: External DAG execution status
+    - Output: Unlocks system session cleanup
+    - Integrations: External DAG 'WF_MAIN_DATASETS_LOAD_L2_TO_L2' end task
+    - Key Parameters: external_dag_id='WF_MAIN_DATASETS_LOAD_L2_TO_L2', execution_delta=timedelta(days=1), poke_interval=100
+  • Operator or Mechanism: ExternalTaskSensor
+
+5. run_sys_kill_all_session_pg
+  • Objective: Clean up PostgreSQL sessions before parallel execution
+  • Technical Details:
+    - Input: ExternalTaskSensor completion
+    - Output: Triggers session cleanup DAG
+    - Integrations: External DAG 'sys_kill_all_session_pg'
+    - Key Parameters: trigger_dag_id='sys_kill_all_session_pg', wait_for_completion=True
+  • Operator or Mechanism: TriggerDagRunOperator
+
+Pre-Processing Stage (before parallel):
+• Steps 1-5 complete sequentially to validate dependencies and initialize the workflow
+
+Parallel Segment (width: 2):
+6. run_wf_data_preparation_for_reports
+  • Objective: Trigger data preparation workflow for reporting datasets
+  • Technical Details:
+    - Input: Session cleanup completion
+    - Output: Triggers external reporting preparation DAG
+    - Integrations: External DAG 'wf_data_preparation_for_reports'
+    - Key Parameters: trigger_dag_id='wf_data_preparation_for_reports', pool='dwh_l2', pool_slots=1
+  • Operator or Mechanism: TriggerDagRunOperator
+
+7. segmentation_group (TaskGroup)
+  • Objective: Execute client segmentation processing and SAP notification
+  • Technical Details:
+    - Input: Session cleanup completion
+    - Output: Segmentation data loaded and SAP flag sent
+    - Integrations: External DAG 'l1_to_l2_p_load_data_ds_client_segmentation_full', SAP system
+  • Operator or Mechanism: TaskGroup containing:
+    - load_ds_client_segmentation: TriggerDagRunOperator for segmentation data load
+    - send_flg_to_sap: PythonOperator sending completion flag to SAP via HTTP POST
+
+Synchronization/Join Stage (after parallel):
+8. end
+  • Objective: Finalize workflow by updating metadata with successful completion status
+  • Technical Details:
+    - Input: Completion of both parallel branches (run_wf_data_preparation_for_reports and segmentation_group)
+    - Output: Session status updated to 'successful' in metadata tables
+    - Integrations: md_dwh.workflow_update_data_load_session functions
+  • Operator or Mechanism: PythonOperator
+
+9. email_on_failure
+  • Objective: Send failure notification email if any task in the pipeline fails
+  • Technical Details:
+    - Input: Monitors all upstream tasks for failure
+    - Output: Email notification to configured recipients
+    - Integrations: SMTP email system
+    - Key Parameters: trigger_rule='one_failed'
+  • Operator or Mechanism: EmailOperator
+
+Orchestration & Scheduling:
+• Schedule: Manual trigger (schedule_interval=None)
+• Start Date: December 22, 2024
+• Catchup: Disabled (catchup=False)
+• Max Active Runs: 20
+• Default Args: 0 retries, email_on_failure=True, email_on_retry=False
+
+Infrastructure & Dependencies:
+• Sensors: 
+  - SqlSensor: Waits for 'l1_to_l2_load_successfull' flag in md.dwh_flag table
+  - ExternalTaskSensor: Waits for previous day's 'end' task completion
+• External Triggers: 
+  - sys_kill_all_session_pg: Session cleanup with wait_for_completion=True
+  - wf_data_preparation_for_reports: Reporting data preparation with pool constraints
+  - l1_to_l2_p_load_data_ds_client_segmentation_full: Client segmentation data load
+• Task Grouping: segmentation_group for client segmentation workflow
+• Connections: dwh (PostgreSQL), sap_conn (HTTP)
+• Data I/O: wk_export.ds_client_segmentation_last_v table for row counting
+
+Failure Handling & Alerts:
+• EmailOperator configured for failure notifications with trigger_rule='one_failed'
+• No retries configured (retries=0 in default_args)
+• Email recipients: test@gmail.com
+
+Pattern-Specific Notes:
+• Fan-out/Fan-in: Parallel width of 2 tasks (reporting preparation and segmentation group) with implicit join at 'end' task
+• Sensor-gated: SqlSensor gates entire pipeline start; ExternalTaskSensor ensures previous day completion
+• Mixed topology: Sequential validation → Parallel execution → Synchronization → Completion handling
+• Staged execution: Dependency validation → Session initialization → Parallel processing → Metadata finalization

@@ -1,0 +1,1536 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T17:57:30.993264",
+    "source_file": "Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_fan_out_fan_in_01_climate_data_fusion.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "gpt-oss-120b",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "parallel",
+        "hybrid"
+      ],
+      "task_executors_used": [
+        "python"
+      ],
+      "has_branching": false,
+      "has_parallelism": true,
+      "has_sensors": false,
+      "total_components": 11,
+      "complexity_score": "medium"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Parallelism via TaskFlow API expand()"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "map() for parallel execution"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "DynamicOutput for fan-out"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "climate_data_fusion_pipeline",
+    "description": "Implements a climate data fusion workflow that downloads weather station data from five meteorological agencies, normalizes each dataset, and merges them into a unified climate dataset.",
+    "flow_patterns": [
+      "sequential",
+      "parallel",
+      "hybrid"
+    ],
+    "task_executors": [
+      "python"
+    ],
+    "complexity": "medium"
+  },
+  "components": [
+    {
+      "id": "download_noaa",
+      "name": "Download NOAA Weather Data",
+      "category": "Extractor",
+      "description": "Downloads NOAA weather station CSV data from the FTP endpoint and passes it via XCom.",
+      "inputs": [
+        "NOAA FTP endpoint (ftp://noaa.gov/weather/stations.csv)"
+      ],
+      "outputs": [
+        "NOAA raw CSV data (XCom)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "noaa_ftp_endpoint",
+          "direction": "input",
+          "kind": "api",
+          "format": "csv",
+          "path_pattern": "ftp://noaa.gov/weather/stations.csv",
+          "connection_id": "ftp_noaa"
+        },
+        {
+          "name": "noaa_raw_csv",
+          "direction": "output",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://download_noaa",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "No upstream dependencies.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "ftp_noaa",
+          "type": "filesystem",
+          "purpose": "FTP access to NOAA data"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "noaa_station_ftp"
+        ],
+        "produces": [
+          "noaa_raw_csv"
+        ]
+      }
+    },
+    {
+      "id": "download_ecmwf",
+      "name": "Download ECMWF Weather Data",
+      "category": "Extractor",
+      "description": "Downloads ECMWF weather station CSV data from the HTTPS endpoint and passes it via XCom.",
+      "inputs": [
+        "ECMWF HTTPS endpoint (https://ecmwf.int/data/stations.csv)"
+      ],
+      "outputs": [
+        "ECMWF raw CSV data (XCom)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "ecmwf_https_endpoint",
+          "direction": "input",
+          "kind": "api",
+          "format": "csv",
+          "path_pattern": "https://ecmwf.int/data/stations.csv",
+          "connection_id": "https_ecmwf"
+        },
+        {
+          "name": "ecmwf_raw_csv",
+          "direction": "output",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://download_ecmwf",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "No upstream dependencies.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "https_ecmwf",
+          "type": "api",
+          "purpose": "HTTPS access to ECMWF data"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "ecmwf_station_https"
+        ],
+        "produces": [
+          "ecmwf_raw_csv"
+        ]
+      }
+    },
+    {
+      "id": "download_jma",
+      "name": "Download JMA Weather Data",
+      "category": "Extractor",
+      "description": "Downloads JMA weather station CSV data from the HTTPS endpoint and passes it via XCom.",
+      "inputs": [
+        "JMA HTTPS endpoint (https://jma.go.jp/weather/stations.csv)"
+      ],
+      "outputs": [
+        "JMA raw CSV data (XCom)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "jma_https_endpoint",
+          "direction": "input",
+          "kind": "api",
+          "format": "csv",
+          "path_pattern": "https://jma.go.jp/weather/stations.csv",
+          "connection_id": "https_jma"
+        },
+        {
+          "name": "jma_raw_csv",
+          "direction": "output",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://download_jma",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "No upstream dependencies.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "https_jma",
+          "type": "api",
+          "purpose": "HTTPS access to JMA data"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "jma_station_https"
+        ],
+        "produces": [
+          "jma_raw_csv"
+        ]
+      }
+    },
+    {
+      "id": "download_metoffice",
+      "name": "Download MetOffice Weather Data",
+      "category": "Extractor",
+      "description": "Downloads MetOffice weather station CSV data from the HTTPS endpoint and passes it via XCom.",
+      "inputs": [
+        "MetOffice HTTPS endpoint (https://metoffice.gov.uk/data/stations.csv)"
+      ],
+      "outputs": [
+        "MetOffice raw CSV data (XCom)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "metoffice_https_endpoint",
+          "direction": "input",
+          "kind": "api",
+          "format": "csv",
+          "path_pattern": "https://metoffice.gov.uk/data/stations.csv",
+          "connection_id": "https_metoffice"
+        },
+        {
+          "name": "metoffice_raw_csv",
+          "direction": "output",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://download_metoffice",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "No upstream dependencies.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "https_metoffice",
+          "type": "api",
+          "purpose": "HTTPS access to MetOffice data"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "metoffice_station_https"
+        ],
+        "produces": [
+          "metoffice_raw_csv"
+        ]
+      }
+    },
+    {
+      "id": "download_bom",
+      "name": "Download BOM Weather Data",
+      "category": "Extractor",
+      "description": "Downloads BOM weather station CSV data from the HTTPS endpoint and passes it via XCom.",
+      "inputs": [
+        "BOM HTTPS endpoint (https://bom.gov.au/observations/stations.csv)"
+      ],
+      "outputs": [
+        "BOM raw CSV data (XCom)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "bom_https_endpoint",
+          "direction": "input",
+          "kind": "api",
+          "format": "csv",
+          "path_pattern": "https://bom.gov.au/observations/stations.csv",
+          "connection_id": "https_bom"
+        },
+        {
+          "name": "bom_raw_csv",
+          "direction": "output",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://download_bom",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "No upstream dependencies.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "https_bom",
+          "type": "api",
+          "purpose": "HTTPS access to BOM data"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "bom_station_https"
+        ],
+        "produces": [
+          "bom_raw_csv"
+        ]
+      }
+    },
+    {
+      "id": "normalize_noaa",
+      "name": "Normalize NOAA Weather Data",
+      "category": "Transformer",
+      "description": "Converts NOAA raw CSV data to a standard format (ISO timestamp, Celsius temperature, meters elevation).",
+      "inputs": [
+        "NOAA raw CSV data (XCom)"
+      ],
+      "outputs": [
+        "NOAA normalized CSV data (XCom)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "noaa_raw_csv",
+          "direction": "input",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://download_noaa",
+          "connection_id": null
+        },
+        {
+          "name": "noaa_normalized_csv",
+          "direction": "output",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://normalize_noaa",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful download_noaa.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "noaa_raw_csv"
+        ],
+        "produces": [
+          "noaa_normalized_csv"
+        ]
+      }
+    },
+    {
+      "id": "normalize_ecmwf",
+      "name": "Normalize ECMWF Weather Data",
+      "category": "Transformer",
+      "description": "Converts ECMWF raw CSV data to a standard format (ISO timestamp, Celsius temperature, meters elevation).",
+      "inputs": [
+        "ECMWF raw CSV data (XCom)"
+      ],
+      "outputs": [
+        "ECMWF normalized CSV data (XCom)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "ecmwf_raw_csv",
+          "direction": "input",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://download_ecmwf",
+          "connection_id": null
+        },
+        {
+          "name": "ecmwf_normalized_csv",
+          "direction": "output",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://normalize_ecmwf",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful download_ecmwf.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "ecmwf_raw_csv"
+        ],
+        "produces": [
+          "ecmwf_normalized_csv"
+        ]
+      }
+    },
+    {
+      "id": "normalize_jma",
+      "name": "Normalize JMA Weather Data",
+      "category": "Transformer",
+      "description": "Converts JMA raw CSV data to a standard format (ISO timestamp, Celsius temperature, meters elevation).",
+      "inputs": [
+        "JMA raw CSV data (XCom)"
+      ],
+      "outputs": [
+        "JMA normalized CSV data (XCom)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "jma_raw_csv",
+          "direction": "input",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://download_jma",
+          "connection_id": null
+        },
+        {
+          "name": "jma_normalized_csv",
+          "direction": "output",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://normalize_jma",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful download_jma.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "jma_raw_csv"
+        ],
+        "produces": [
+          "jma_normalized_csv"
+        ]
+      }
+    },
+    {
+      "id": "normalize_metoffice",
+      "name": "Normalize MetOffice Weather Data",
+      "category": "Transformer",
+      "description": "Converts MetOffice raw CSV data to a standard format (ISO timestamp, Celsius temperature, meters elevation).",
+      "inputs": [
+        "MetOffice raw CSV data (XCom)"
+      ],
+      "outputs": [
+        "MetOffice normalized CSV data (XCom)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "metoffice_raw_csv",
+          "direction": "input",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://download_metoffice",
+          "connection_id": null
+        },
+        {
+          "name": "metoffice_normalized_csv",
+          "direction": "output",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://normalize_metoffice",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful download_metoffice.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "metoffice_raw_csv"
+        ],
+        "produces": [
+          "metoffice_normalized_csv"
+        ]
+      }
+    },
+    {
+      "id": "normalize_bom",
+      "name": "Normalize BOM Weather Data",
+      "category": "Transformer",
+      "description": "Converts BOM raw CSV data to a standard format (ISO timestamp, Celsius temperature, meters elevation).",
+      "inputs": [
+        "BOM raw CSV data (XCom)"
+      ],
+      "outputs": [
+        "BOM normalized CSV data (XCom)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "bom_raw_csv",
+          "direction": "input",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://download_bom",
+          "connection_id": null
+        },
+        {
+          "name": "bom_normalized_csv",
+          "direction": "output",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://normalize_bom",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful download_bom.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "bom_raw_csv"
+        ],
+        "produces": [
+          "bom_normalized_csv"
+        ]
+      }
+    },
+    {
+      "id": "merge_climate_data",
+      "name": "Merge Climate Datasets",
+      "category": "Merger",
+      "description": "Merges the five normalized climate datasets into a unified Parquet dataset with a standardized schema.",
+      "inputs": [
+        "NOAA normalized CSV data (XCom)",
+        "ECMWF normalized CSV data (XCom)",
+        "JMA normalized CSV data (XCom)",
+        "MetOffice normalized CSV data (XCom)",
+        "BOM normalized CSV data (XCom)"
+      ],
+      "outputs": [
+        "Unified climate dataset (Parquet)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "noaa_normalized_csv",
+          "direction": "input",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://normalize_noaa",
+          "connection_id": null
+        },
+        {
+          "name": "ecmwf_normalized_csv",
+          "direction": "input",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://normalize_ecmwf",
+          "connection_id": null
+        },
+        {
+          "name": "jma_normalized_csv",
+          "direction": "input",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://normalize_jma",
+          "connection_id": null
+        },
+        {
+          "name": "metoffice_normalized_csv",
+          "direction": "input",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://normalize_metoffice",
+          "connection_id": null
+        },
+        {
+          "name": "bom_normalized_csv",
+          "direction": "input",
+          "kind": "object",
+          "format": "csv",
+          "path_pattern": "xcom://normalize_bom",
+          "connection_id": null
+        },
+        {
+          "name": "unified_climate_parquet",
+          "direction": "output",
+          "kind": "file",
+          "format": "parquet",
+          "path_pattern": "output/unified_climate_dataset.parquet",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Executes after all five normalization tasks complete successfully.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "noaa_normalized_csv",
+          "ecmwf_normalized_csv",
+          "jma_normalized_csv",
+          "metoffice_normalized_csv",
+          "bom_normalized_csv"
+        ],
+        "produces": [
+          "unified_climate_parquet"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "hybrid",
+    "entry_points": [
+      "download_noaa",
+      "download_ecmwf",
+      "download_jma",
+      "download_metoffice",
+      "download_bom"
+    ],
+    "nodes": {
+      "download_noaa": {
+        "kind": "Task",
+        "component_type_id": "download_noaa",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "normalize_noaa"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "download_ecmwf": {
+        "kind": "Task",
+        "component_type_id": "download_ecmwf",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "normalize_ecmwf"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "download_jma": {
+        "kind": "Task",
+        "component_type_id": "download_jma",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "normalize_jma"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "download_metoffice": {
+        "kind": "Task",
+        "component_type_id": "download_metoffice",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "normalize_metoffice"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "download_bom": {
+        "kind": "Task",
+        "component_type_id": "download_bom",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "normalize_bom"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "normalize_noaa": {
+        "kind": "Task",
+        "component_type_id": "normalize_noaa",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "merge_climate_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "normalize_ecmwf": {
+        "kind": "Task",
+        "component_type_id": "normalize_ecmwf",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "merge_climate_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "normalize_jma": {
+        "kind": "Task",
+        "component_type_id": "normalize_jma",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "merge_climate_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "normalize_metoffice": {
+        "kind": "Task",
+        "component_type_id": "normalize_metoffice",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "merge_climate_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "normalize_bom": {
+        "kind": "Task",
+        "component_type_id": "normalize_bom",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "merge_climate_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "merge_climate_data": {
+        "kind": "Task",
+        "component_type_id": "merge_climate_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "download_noaa",
+        "to": "normalize_noaa",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "download_ecmwf",
+        "to": "normalize_ecmwf",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "download_jma",
+        "to": "normalize_jma",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "download_metoffice",
+        "to": "normalize_metoffice",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "download_bom",
+        "to": "normalize_bom",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "normalize_noaa",
+        "to": "merge_climate_data",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "normalize_ecmwf",
+        "to": "merge_climate_data",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "normalize_jma",
+        "to": "merge_climate_data",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "normalize_metoffice",
+        "to": "merge_climate_data",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "normalize_bom",
+        "to": "merge_climate_data",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "climate_data_fusion_pipeline",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Comprehensive description of the pipeline",
+        "type": "string",
+        "default": "Implements a climate data fusion workflow that downloads weather station data from five meteorological agencies, normalizes each dataset, and merges them into a unified climate dataset.",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2024-01-01T00:00:00Z",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": null,
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      }
+    },
+    "components": {
+      "download_noaa": {},
+      "download_ecmwf": {},
+      "download_jma": {},
+      "download_metoffice": {},
+      "download_bom": {},
+      "normalize_noaa": {},
+      "normalize_ecmwf": {},
+      "normalize_jma": {},
+      "normalize_metoffice": {},
+      "normalize_bom": {},
+      "merge_climate_data": {}
+    },
+    "environment": {}
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "noaa_ftp",
+        "name": "NOAA Weather Station FTP",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "ftp://noaa.gov/weather/stations.csv",
+          "host": "noaa.gov",
+          "port": null,
+          "protocol": "ftp",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "download_noaa"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "noaa_stations_raw.csv"
+          ]
+        }
+      },
+      {
+        "id": "ecmwf_https",
+        "name": "ECMWF Weather Station HTTPS",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "https://ecmwf.int/data/stations.csv",
+          "host": "ecmwf.int",
+          "port": null,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "download_ecmwf"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "ecmwf_stations_raw.csv"
+          ]
+        }
+      },
+      {
+        "id": "jma_https",
+        "name": "JMA Weather Station HTTPS",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "https://jma.go.jp/weather/stations.csv",
+          "host": "jma.go.jp",
+          "port": null,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "download_jma"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "jma_stations_raw.csv"
+          ]
+        }
+      },
+      {
+        "id": "metoffice_https",
+        "name": "MetOffice Weather Station HTTPS",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "https://metoffice.gov.uk/data/stations.csv",
+          "host": "metoffice.gov.uk",
+          "port": null,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "download_metoffice"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "metoffice_stations_raw.csv"
+          ]
+        }
+      },
+      {
+        "id": "bom_https",
+        "name": "BOM Weather Station HTTPS",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "https://bom.gov.au/observations/stations.csv",
+          "host": "bom.gov.au",
+          "port": null,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "download_bom"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "bom_stations_raw.csv"
+          ]
+        }
+      },
+      {
+        "id": "local_filesystem",
+        "name": "Local Filesystem for Final Parquet Output",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/tmp/climate_pipeline",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "merge_climate_data"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "unified_climate_dataset.parquet"
+          ],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "NOAA weather station CSV from ftp://noaa.gov/weather/stations.csv",
+        "ECMWF weather station CSV from https://ecmwf.int/data/stations.csv",
+        "JMA weather station CSV from https://jma.go.jp/weather/stations.csv",
+        "MetOffice weather station CSV from https://metoffice.gov.uk/data/stations.csv",
+        "BOM weather station CSV from https://bom.gov.au/observations/stations.csv"
+      ],
+      "sinks": [
+        "Unified climate dataset in Parquet format stored on local filesystem (/tmp/climate_pipeline/unified_climate_dataset.parquet)"
+      ],
+      "intermediate_datasets": [
+        "noaa_stations_normalized.csv",
+        "ecmwf_stations_normalized.csv",
+        "jma_stations_normalized.csv",
+        "metoffice_stations_normalized.csv",
+        "bom_stations_normalized.csv",
+        "merged_climate_dataset.parquet (intermediate before final write)"
+      ]
+    }
+  }
+}

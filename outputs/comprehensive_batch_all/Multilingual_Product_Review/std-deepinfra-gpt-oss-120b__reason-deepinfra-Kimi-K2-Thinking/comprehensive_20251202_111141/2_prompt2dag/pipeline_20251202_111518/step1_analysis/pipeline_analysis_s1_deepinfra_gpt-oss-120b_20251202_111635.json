@@ -1,0 +1,866 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T11:16:35.299602",
+    "source_file": "Pipeline_Description_Dataset/Multilingual_Product_Review.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "gpt-oss-120b",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential"
+      ],
+      "task_executors_used": [
+        "docker"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": false,
+      "total_components": 5,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "Multilingual Product Review Analysis Pipeline",
+    "description": "Enriches product reviews with language verification, sentiment, and key feature extraction using LLM capabilities for deeper customer insight.",
+    "flow_patterns": [
+      "sequential"
+    ],
+    "task_executors": [
+      "docker"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "load_and_modify_reviews",
+      "name": "Load and Modify Reviews",
+      "category": "Extractor",
+      "description": "Ingests the reviews CSV, standardizes the submission_date format, and converts the data to JSON. Uses image default entrypoint/command.",
+      "inputs": [
+        "reviews.csv"
+      ],
+      "outputs": [
+        "table_data_2.json"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-load-and-modify:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": null,
+        "resources": null,
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "reviews_csv",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "${DATA_DIR}/reviews.csv",
+          "connection_id": "data_dir_fs"
+        },
+        {
+          "name": "modified_json",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/table_data_2.json",
+          "connection_id": "data_dir_fs"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "No upstream dependencies",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "data_dir_fs",
+          "type": "filesystem",
+          "purpose": "Shared DATA_DIR volume"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "raw_reviews"
+        ],
+        "produces": [
+          "modified_reviews_json"
+        ]
+      }
+    },
+    {
+      "id": "detect_review_language",
+      "name": "Detect Review Language",
+      "category": "Enricher",
+      "description": "Verifies or corrects the language_code for each review using language detection algorithms. Uses image default entrypoint/command.",
+      "inputs": [
+        "table_data_2.json"
+      ],
+      "outputs": [
+        "lang_detected_2.json"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "jmockit/language-detection",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": null,
+        "resources": null,
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "modified_json",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/table_data_2.json",
+          "connection_id": "data_dir_fs"
+        },
+        {
+          "name": "language_enriched_json",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/lang_detected_2.json",
+          "connection_id": "data_dir_fs"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful load and modify step",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "data_dir_fs",
+          "type": "filesystem",
+          "purpose": "Shared DATA_DIR volume"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "modified_reviews_json"
+        ],
+        "produces": [
+          "language_enriched_json"
+        ]
+      }
+    },
+    {
+      "id": "analyze_sentiment",
+      "name": "Sentiment Analysis",
+      "category": "Enricher",
+      "description": "Determines the sentiment of each review using an LLM model. Uses image default entrypoint/command.",
+      "inputs": [
+        "lang_detected_2.json"
+      ],
+      "outputs": [
+        "sentiment_analyzed_2.json"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "huggingface/transformers-inference",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": null,
+        "resources": null,
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "language_enriched_json",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/lang_detected_2.json",
+          "connection_id": "data_dir_fs"
+        },
+        {
+          "name": "sentiment_enriched_json",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/sentiment_analyzed_2.json",
+          "connection_id": "data_dir_fs"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful language detection step",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "data_dir_fs",
+          "type": "filesystem",
+          "purpose": "Shared DATA_DIR volume"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "language_enriched_json"
+        ],
+        "produces": [
+          "sentiment_enriched_json"
+        ]
+      }
+    },
+    {
+      "id": "extract_review_features",
+      "name": "Extract Review Features",
+      "category": "Enricher",
+      "description": "Extracts product features or categories mentioned in the review text using an LLM. Uses image default entrypoint/command.",
+      "inputs": [
+        "sentiment_analyzed_2.json"
+      ],
+      "outputs": [
+        "column_extended_2.json"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-column-extension:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": null,
+        "resources": null,
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "sentiment_enriched_json",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/sentiment_analyzed_2.json",
+          "connection_id": "data_dir_fs"
+        },
+        {
+          "name": "features_extended_json",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/column_extended_2.json",
+          "connection_id": "data_dir_fs"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful sentiment analysis step",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "data_dir_fs",
+          "type": "filesystem",
+          "purpose": "Shared DATA_DIR volume"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "sentiment_enriched_json"
+        ],
+        "produces": [
+          "features_extended_json"
+        ]
+      }
+    },
+    {
+      "id": "save_enriched_reviews",
+      "name": "Save Enriched Reviews",
+      "category": "Loader",
+      "description": "Exports the fully enriched review data to a CSV file. Uses image default entrypoint/command.",
+      "inputs": [
+        "column_extended_2.json"
+      ],
+      "outputs": [
+        "enriched_data_2.csv"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-save:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": null,
+        "resources": null,
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "features_extended_json",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/column_extended_2.json",
+          "connection_id": "data_dir_fs"
+        },
+        {
+          "name": "enriched_csv",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "${DATA_DIR}/enriched_data_2.csv",
+          "connection_id": "data_dir_fs"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful feature extraction step",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "data_dir_fs",
+          "type": "filesystem",
+          "purpose": "Shared DATA_DIR volume"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "features_extended_json"
+        ],
+        "produces": [
+          "enriched_reviews_csv"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sequential",
+    "entry_points": [
+      "load_and_modify_reviews"
+    ],
+    "nodes": {
+      "load_and_modify_reviews": {
+        "kind": "Task",
+        "component_type_id": "load_and_modify_reviews",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "detect_review_language"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "detect_review_language": {
+        "kind": "Task",
+        "component_type_id": "detect_review_language",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "analyze_sentiment"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "analyze_sentiment": {
+        "kind": "Task",
+        "component_type_id": "analyze_sentiment",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "extract_review_features"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "extract_review_features": {
+        "kind": "Task",
+        "component_type_id": "extract_review_features",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "save_enriched_reviews"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "save_enriched_reviews": {
+        "kind": "Task",
+        "component_type_id": "save_enriched_reviews",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "load_and_modify_reviews",
+        "to": "detect_review_language",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "detect_review_language",
+        "to": "analyze_sentiment",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "analyze_sentiment",
+        "to": "extract_review_features",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "extract_review_features",
+        "to": "save_enriched_reviews",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "Multilingual Product Review Analysis Pipeline",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Business value / high‑level description of the pipeline",
+        "type": "string",
+        "default": "Enriches product reviews with language verification, sentiment, and key feature extraction using LLM capabilities for deeper customer insight.",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false,
+        "constraints": null
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false,
+        "format": "ISO8601",
+        "constraints": null
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false,
+        "constraints": null
+      }
+    },
+    "components": {
+      "load_and_modify_reviews": {
+        "DATASET_ID": {
+          "description": "Identifier of the dataset to process",
+          "type": "integer",
+          "default": 2,
+          "required": false,
+          "constraints": null
+        },
+        "DATE_COLUMN": {
+          "description": "Name of the column containing the submission date",
+          "type": "string",
+          "default": "submission_date",
+          "required": false,
+          "constraints": null
+        },
+        "TABLE_NAME_PREFIX": {
+          "description": "Prefix to prepend to generated table names",
+          "type": "string",
+          "default": "JOT_",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "detect_review_language": {
+        "TEXT_COLUMN": {
+          "description": "Column containing the review text to analyze",
+          "type": "string",
+          "default": "review_text",
+          "required": false,
+          "constraints": null
+        },
+        "LANG_CODE_COLUMN": {
+          "description": "Column that holds the language code (to verify or correct)",
+          "type": "string",
+          "default": "language_code",
+          "required": false,
+          "constraints": null
+        },
+        "OUTPUT_FILE": {
+          "description": "Filename for the language‑detected output JSON",
+          "type": "string",
+          "default": "lang_detected_2.json",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "analyze_sentiment": {
+        "MODEL_NAME": {
+          "description": "Name of the sentiment analysis model to use",
+          "type": "string",
+          "default": "distilbert-base-uncased-finetuned-sst-2-english",
+          "required": false,
+          "constraints": null
+        },
+        "TEXT_COLUMN": {
+          "description": "Column containing the review text for sentiment scoring",
+          "type": "string",
+          "default": "review_text",
+          "required": false,
+          "constraints": null
+        },
+        "OUTPUT_COLUMN": {
+          "description": "Name of the column where sentiment scores will be stored",
+          "type": "string",
+          "default": "sentiment_score",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "extract_review_features": {
+        "EXTENDER_ID": {
+          "description": "Identifier of the feature‑extraction extender to use",
+          "type": "string",
+          "default": "featureExtractor",
+          "required": false,
+          "constraints": null
+        },
+        "TEXT_COLUMN": {
+          "description": "Column containing the review text for feature extraction",
+          "type": "string",
+          "default": "review_text",
+          "required": false,
+          "constraints": null
+        },
+        "OUTPUT_COLUMN": {
+          "description": "Column name for the extracted product features",
+          "type": "string",
+          "default": "mentioned_features",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "save_enriched_reviews": {
+        "DATASET_ID": {
+          "description": "Identifier of the dataset to save",
+          "type": "integer",
+          "default": 2,
+          "required": false,
+          "constraints": null
+        }
+      }
+    },
+    "environment": {
+      "DATA_DIR": {
+        "description": "Path to the shared volume where input and output files are stored",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": null
+      },
+      "APP_NETWORK": {
+        "description": "Docker network name used for inter‑component communication",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": null
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "data_dir_volume",
+        "name": "Shared Data Directory Volume",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/data",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_reviews",
+          "detect_review_language",
+          "analyze_sentiment",
+          "extract_review_features",
+          "save_enriched_reviews"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "table_data_2.json",
+            "lang_detected_2.json",
+            "sentiment_analyzed_2.json",
+            "column_extended_2.json",
+            "enriched_data_2.csv"
+          ],
+          "consumes": [
+            "reviews.csv",
+            "table_data_2.json",
+            "lang_detected_2.json",
+            "sentiment_analyzed_2.json",
+            "column_extended_2.json"
+          ]
+        }
+      },
+      {
+        "id": "app_network",
+        "name": "Custom Docker Network",
+        "type": "other",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": null,
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_reviews",
+          "detect_review_language",
+          "analyze_sentiment",
+          "extract_review_features",
+          "save_enriched_reviews"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "reviews.csv file located in the shared DATA_DIR volume"
+      ],
+      "sinks": [
+        "enriched_data_2.csv file written to the shared DATA_DIR volume"
+      ],
+      "intermediate_datasets": [
+        "table_data_2.json",
+        "lang_detected_2.json",
+        "sentiment_analyzed_2.json",
+        "column_extended_2.json"
+      ]
+    }
+  }
+}

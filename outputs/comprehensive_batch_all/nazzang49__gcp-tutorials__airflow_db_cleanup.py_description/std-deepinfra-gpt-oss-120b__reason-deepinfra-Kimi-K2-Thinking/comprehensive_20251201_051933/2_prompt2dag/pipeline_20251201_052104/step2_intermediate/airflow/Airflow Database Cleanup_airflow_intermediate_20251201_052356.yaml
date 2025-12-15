@@ -1,0 +1,72 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-01 05:23:56.506046
+  source_analysis_file: Pipeline_Description_Dataset/nazzang49__gcp-tutorials__airflow_db_cleanup.py_description.txt
+  pipeline_name: Airflow Database Cleanup
+  pipeline_description: Maintenance workflow that periodically cleans old metadata entries from Airflow's MetaStore 
+    database tables to prevent excessive data accumulation.
+  orchestrator_specific: {}
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: airflow_metastore_db
+    conn_type: generic
+    description: Airflow MetaStore Database
+    config:
+      base_path:
+      base_url:
+      host: AIRFLOW_DB_HOST
+      port: 5432
+      protocol: postgresql
+      database: airflow
+      schema: public
+      bucket:
+      queue_name:
+      login: AIRFLOW_DB_USER
+      password: AIRFLOW_DB_PASSWORD
+  - conn_id: email_smtp_server
+    conn_type: generic
+    description: SMTP Server for Alert Emails
+    config:
+      base_path:
+      base_url:
+      host: SMTP_HOST
+      port: 587
+      protocol: smtp
+      database:
+      schema:
+      bucket:
+      queue_name:
+      login: SMTP_USER
+      password: SMTP_PASSWORD
+tasks:
+  - task_id: extract_cleanup_configuration
+    task_name: Extract Cleanup Configuration
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_cleanup_configuration
+    config:
+      retry_delay: timedelta(seconds=60)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: cleanup_airflow_metadb
+    task_name: Cleanup Airflow MetaDB
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: cleanup_airflow_metadb
+    config:
+      retry_delay: timedelta(seconds=60)
+    upstream_task_ids:
+      - extract_cleanup_configuration
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []

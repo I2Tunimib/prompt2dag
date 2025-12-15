@@ -1,0 +1,187 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-01T05:13:39.223473
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/nazzang49__gcp-tutorials__airflow_db_cleanup.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+**Overall Purpose:**
+The Airflow Database Cleanup pipeline is designed to periodically clean old metadata entries from Airflow's MetaStore database tables to prevent excessive data accumulation. This maintenance workflow ensures that the database remains optimized and efficient by removing outdated entries.
+
+**High-Level Flow:**
+The pipeline follows a sequential linear pattern with two tasks executing in strict order. The first task, `print_configuration`, loads and validates cleanup configuration parameters, including the maximum entry age. The second task, `cleanup_airflow_metadb`, performs the actual database cleanup based on the calculated maximum date.
+
+**Key Patterns and Complexity:**
+- **Sequential Flow:** The pipeline has a straightforward sequential flow with no branching or parallelism.
+- **Configuration and Validation:** The pipeline relies on configuration parameters from Airflow Variables and DAG run configurations.
+- **Database Operations:** The cleanup task interacts with multiple Airflow metadata tables to delete old entries.
+
+### Pipeline Architecture
+
+**Flow Patterns:**
+- **Sequential:** The pipeline consists of two tasks that execute in a linear sequence.
+
+**Execution Characteristics:**
+- **Task Executor Types:** The pipeline uses Python-based executors for both tasks.
+
+**Component Overview:**
+- **Transformer:** `print_configuration` - Loads and validates cleanup configuration parameters.
+- **Loader:** `cleanup_airflow_metadb` - Executes the database cleanup based on the calculated maximum date.
+
+**Flow Description:**
+- **Entry Points:** The pipeline starts with the `print_configuration` task.
+- **Main Sequence:** The `print_configuration` task sets the execution threshold date, which is then used by the `cleanup_airflow_metadb` task to perform the database cleanup.
+- **Branching/Parallelism/Sensors:** The pipeline does not include branching, parallelism, or sensor tasks.
+
+### Detailed Component Analysis
+
+**1. Print Configuration**
+- **Purpose and Category:** Transformer
+- **Executor Type and Configuration:** Python
+  - **Entry Point:** `module.function`
+  - **Environment:** `AIRFLOW_VAR_AIRFLOW_DB_CLEANUP__MAX_DB_ENTRY_AGE_IN_DAYS`
+- **Inputs:**
+  - DAG run configuration parameters
+  - Airflow Variable `airflow_db_cleanup__max_db_entry_age_in_days`
+- **Outputs:**
+  - Calculated `max_date` (datetime) stored in XCom
+- **Retry Policy and Concurrency Settings:**
+  - **Max Attempts:** 1
+  - **Delay Seconds:** 60
+  - **Exponential Backoff:** False
+  - **Retry On:** Timeout, Network Error
+  - **Concurrency:** Does not support parallelism or dynamic mapping
+- **Connected Systems:**
+  - **Airflow Variables:** API for retrieving configuration parameters
+  - **XCom:** Object storage for cross-task communication
+
+**2. Cleanup Airflow MetaDB**
+- **Purpose and Category:** Loader
+- **Executor Type and Configuration:** Python
+  - **Entry Point:** `module.function`
+  - **Environment:** `DATABASE_OBJECTS`
+- **Inputs:**
+  - `max_date` from `print_configuration` task via XCom
+  - `DATABASE_OBJECTS` configuration list
+- **Outputs:**
+  - Deleted old entries from multiple Airflow metadata tables (DagRun, TaskInstance, Log, XCom, SlaMiss, DagModel, etc.)
+- **Retry Policy and Concurrency Settings:**
+  - **Max Attempts:** 1
+  - **Delay Seconds:** 60
+  - **Exponential Backoff:** False
+  - **Retry On:** Timeout, Network Error
+  - **Concurrency:** Does not support parallelism or dynamic mapping
+- **Connected Systems:**
+  - **Airflow MetaStore Database:** Database for accessing metadata tables
+  - **XCom:** Object storage for cross-task communication
+
+### Parameter Schema
+
+**Pipeline-Level Parameters:**
+- **Name:** Pipeline identifier (string, required, unique)
+- **Description:** Comprehensive pipeline description (string, optional)
+- **Tags:** Classification tags (array, optional)
+
+**Schedule Configuration:**
+- **Enabled:** Whether the pipeline runs on schedule (boolean, default: true)
+- **Cron Expression:** Schedule timing (string, default: @daily)
+- **Start Date:** When to start scheduling (datetime, ISO8601, optional)
+- **End Date:** When to stop scheduling (datetime, ISO8601, optional)
+- **Timezone:** Schedule timezone (string, default: UTC)
+- **Catchup:** Run missed intervals (boolean, default: false)
+- **Batch Window:** Batch window parameter name (string, optional)
+- **Partitioning:** Data partitioning strategy (string, optional)
+
+**Execution Settings:**
+- **Max Active Runs:** Maximum concurrent pipeline runs (integer, optional)
+- **Timeout Seconds:** Pipeline execution timeout (integer, optional)
+- **Retry Policy:** Pipeline-level retry behavior (object, default: retries: 1, retry_delay: 60)
+- **Depends on Past:** Whether execution depends on previous run success (boolean, optional)
+
+**Component-Specific Parameters:**
+- **Print Configuration:**
+  - **Provide Context:** Whether to provide Airflow context (boolean, default: true)
+  - **airflow_db_cleanup__max_db_entry_age_in_days:** Maximum age of database entries in days (integer, default: 30)
+- **Cleanup Airflow MetaDB:**
+  - **max_date:** Calculated max_date from `print_configuration` task (datetime, required)
+  - **DATABASE_OBJECTS:** List of database objects to clean (array, required)
+
+**Environment Variables:**
+- **ALERT_EMAIL_ADDRESSES:** Email addresses to notify on task failures (array, optional)
+- **AIRFLOW_DB_CLEANUP__MAX_DB_ENTRY_AGE_IN_DAYS:** Maximum age of database entries in days (integer, default: 30, associated with `print_configuration`)
+
+### Integration Points
+
+**External Systems and Connections:**
+- **Airflow MetaStore Database:**
+  - **Type:** Database
+  - **Configuration:** Host: localhost, Port: 5432, Protocol: jdbc, Database: airflow, Schema: public
+  - **Authentication:** None
+  - **Used By Components:** `print_configuration`, `cleanup_airflow_metadb`
+  - **Direction:** Both
+  - **Rate Limit:** None
+  - **Datasets:** Consumes: DagRun, TaskInstance, Log, XCom, SlaMiss, DagModel, TaskReschedule, TaskFail, RenderedTaskInstanceFields, ImportError, Job, BaseJob
+
+- **Airflow Variables:**
+  - **Type:** API
+  - **Configuration:** Base URL: http://localhost:8080/api/v1/variables, Protocol: http
+  - **Authentication:** Token (environment variable: `AIRFLOW_API_TOKEN`)
+  - **Used By Components:** `print_configuration`
+  - **Direction:** Input
+  - **Rate Limit:** None
+  - **Datasets:** Consumes: `airflow_db_cleanup__max_db_entry_age_in_days`
+
+- **Email Alerts:**
+  - **Type:** API
+  - **Configuration:** Base URL: http://localhost:8080/api/v1/email, Protocol: http
+  - **Authentication:** Token (environment variable: `AIRFLOW_API_TOKEN`)
+  - **Used By Components:** `cleanup_airflow_metadb`
+  - **Direction:** Output
+  - **Rate Limit:** None
+  - **Datasets:** None
+
+**Data Lineage:**
+- **Sources:**
+  - Airflow Variables system for configuration parameters
+  - Airflow MetaStore database for metadata tables
+- **Sinks:**
+  - Email alerts on task failures
+- **Intermediate Datasets:**
+  - XCom data for `max_date`
+
+### Implementation Notes
+
+**Complexity Assessment:**
+- The pipeline is relatively simple with a sequential flow and two tasks.
+- The main complexity lies in the database operations and the need to handle multiple metadata tables.
+
+**Upstream Dependency Policies:**
+- Both tasks have an upstream policy of `all_success`, ensuring they only execute after all upstream tasks have succeeded.
+
+**Retry and Timeout Configurations:**
+- Both tasks have a retry policy with a maximum of 1 attempt and a 60-second delay.
+- No exponential backoff is configured.
+- The pipeline-level retry policy is also set to 1 attempt with a 60-second delay.
+
+**Potential Risks or Considerations:**
+- **Data Loss:** Care must be taken to ensure that the `max_date` is correctly calculated to avoid accidental deletion of important data.
+- **Performance Impact:** The cleanup task may have a significant performance impact on the Airflow MetaStore, especially if a large number of entries are deleted.
+- **Error Handling:** Proper error handling and alerting mechanisms are in place to notify on task failures.
+
+### Orchestrator Compatibility
+
+**Assessment for Airflow, Prefect, Dagster:**
+- **Airflow:** The pipeline's sequential flow and use of Python-based tasks are well-suited for Airflow. The use of XCom for cross-task communication and Airflow Variables for configuration are native to Airflow.
+- **Prefect:** Prefect supports sequential flows and Python-based tasks. The pipeline can be adapted to use Prefect's task runners and data passing mechanisms.
+- **Dagster:** Dagster also supports sequential flows and Python-based tasks. The pipeline can be implemented using Dagster's solid and pipeline constructs, with appropriate configuration for data passing and retries.
+
+**Pattern-Specific Considerations:**
+- **Sequential Flow:** All orchestrators handle sequential flows well, but the specific mechanisms for data passing and retries may differ.
+- **Python-Based Tasks:** All orchestrators support Python-based tasks, but the configuration and execution details may vary.
+
+### Conclusion
+
+The Airflow Database Cleanup pipeline is a straightforward maintenance workflow designed to keep the Airflow MetaStore database optimized by periodically cleaning old metadata entries. The pipeline follows a sequential flow with two tasks, each performing specific roles in configuration and cleanup. The pipeline is well-suited for orchestrators like Airflow, Prefect, and Dagster, with minimal adjustments needed for different orchestrator-specific features.

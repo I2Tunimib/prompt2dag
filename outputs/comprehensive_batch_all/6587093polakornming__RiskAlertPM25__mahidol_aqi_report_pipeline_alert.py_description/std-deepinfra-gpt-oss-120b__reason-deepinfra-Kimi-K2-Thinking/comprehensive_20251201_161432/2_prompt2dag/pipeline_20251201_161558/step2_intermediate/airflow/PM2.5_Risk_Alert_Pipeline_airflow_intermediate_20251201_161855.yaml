@@ -1,0 +1,121 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-01 16:18:55.334008
+  source_analysis_file: 
+    Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__mahidol_aqi_report_pipeline_alert.py_description.txt
+  pipeline_name: PM2.5_Risk_Alert_Pipeline
+  pipeline_description: Sequential ETL pipeline that scrapes Mahidol University AQI data, transforms it to JSON, loads 
+    it into PostgreSQL, and sends email alerts when PM2.5 exceeds thresholds.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: mahidol_aqi_website_api
+    conn_type: http
+    description: Mahidol University AQI Website
+    config:
+      base_path:
+      base_url: https://mahidol.ac.th/aqireport/
+      host:
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: local_filesystem
+    conn_type: fs
+    description: Local Filesystem (Data & Config)
+    config:
+      base_path: /opt/airflow
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: postgres_warehouse
+    conn_type: generic
+    description: PostgreSQL Data Warehouse
+    config:
+      base_path:
+      base_url:
+      host:
+      port:
+      protocol: jdbc
+      database: warehouse
+      schema:
+      bucket:
+      queue_name:
+      login: POSTGRES_USER
+      password: POSTGRES_PASSWORD
+  - conn_id: smtp_gmail
+    conn_type: http
+    description: Gmail SMTP Server
+    config:
+      base_path:
+      base_url:
+      host: smtp.gmail.com
+      port: 587
+      protocol: smtp
+      database:
+      schema:
+      bucket:
+      queue_name:
+      login: SMTP_USERNAME
+      password: SMTP_PASSWORD
+tasks:
+  - task_id: extract_mahidol_aqi_html
+    task_name: Extract Mahidol AQI HTML
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_mahidol_aqi_html
+    config: {}
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: transform_html_to_json
+    task_name: Transform HTML to Structured JSON
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: transform_html_to_json
+    config: {}
+    upstream_task_ids:
+      - extract_mahidol_aqi_html
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: load_mahidol_aqi_to_warehouse
+    task_name: Load AQI Data to PostgreSQL Warehouse
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: load_mahidol_aqi_to_warehouse
+    config: {}
+    upstream_task_ids:
+      - duplicate_check_branch
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: notify_pm25_alert
+    task_name: PM2.5 Email Alert Notification
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: notify_pm25_alert
+    config: {}
+    upstream_task_ids:
+      - aqi_threshold_branch
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

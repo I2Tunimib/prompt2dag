@@ -1,0 +1,173 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-01T15:42:13.030956
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__airvisual_pipeline_by_lat_long_review.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+#### Overall Purpose and High-Level Flow
+The pipeline is designed to extract current air quality and weather data from the AirVisual API, validate the data, and load it into a PostgreSQL database using a dimensional model. The pipeline follows a strictly sequential flow with three linear stages: API extraction, data validation, and database loading. The primary objective is to ensure that the data is processed and stored accurately, with mechanisms in place to prevent redundant data ingestion.
+
+#### Key Patterns and Complexity
+- **Sequential Flow**: The pipeline processes data in a linear sequence, with each stage dependent on the successful completion of the previous one.
+- **Data Integrity**: The pipeline includes a validation step to ensure the integrity of the data before it is loaded into the database.
+- **Duplicate Detection**: The extraction stage includes logic to check for existing records in the database to avoid redundant data processing.
+
+### Pipeline Architecture
+
+#### Flow Patterns
+- **Sequential**: The pipeline follows a linear sequence of tasks without any branching, parallelism, or sensor-based triggers.
+
+#### Execution Characteristics
+- **Task Executor Types**: All tasks are executed using Python scripts.
+
+#### Component Overview
+- **Extractor**: Fetches data from the AirVisual API and performs duplicate detection.
+- **QualityCheck**: Validates the integrity of the fetched data.
+- **Loader**: Transforms the validated data and loads it into PostgreSQL tables.
+
+#### Flow Description
+- **Entry Points**: The pipeline starts with the `get_airvisual_data_hourly` task.
+- **Main Sequence**: 
+  1. **get_airvisual_data_hourly**: Fetches air quality and weather data from the AirVisual API and saves it as a JSON file.
+  2. **read_data_airvisual**: Reads and validates the JSON file created by the previous task.
+  3. **load_data_airvisual_to_postgresql**: Transforms the validated JSON data and loads it into PostgreSQL tables.
+
+### Detailed Component Analysis
+
+#### Fetch AirVisual Data
+- **Purpose and Category**: Extractor
+- **Executor Type and Configuration**: Python script located at `path/to/fetch_airvisual_data.py` with environment variables for latitude, longitude, and API request timeout.
+- **Inputs**: AirVisual API endpoint, API key from config file, current timestamp.
+- **Outputs**: JSON file at `/opt/airflow/data/tmp_airvisual.json`, temporary .tmp file during atomic write.
+- **Retry Policy and Concurrency Settings**: 
+  - **Max Attempts**: 2
+  - **Delay**: 300 seconds
+  - **Exponential Backoff**: No
+  - **Retry On**: Timeout, network error
+- **Connected Systems**: AirVisual API, PostgreSQL database for duplicate detection.
+
+#### Read and Validate AirVisual Data
+- **Purpose and Category**: QualityCheck
+- **Executor Type and Configuration**: Python script located at `path/to/read_and_validate_data.py` with environment variable for file path.
+- **Inputs**: JSON file from `get_airvisual_data_hourly`.
+- **Outputs**: Validated JSON data structure.
+- **Retry Policy and Concurrency Settings**: 
+  - **Max Attempts**: 2
+  - **Delay**: 180 seconds
+  - **Exponential Backoff**: No
+  - **Retry On**: Timeout, network error
+- **Connected Systems**: Local filesystem for JSON file access.
+
+#### Load AirVisual Data to PostgreSQL
+- **Purpose and Category**: Loader
+- **Executor Type and Configuration**: Python script located at `path/to/load_data_to_postgresql.py` with environment variables for mapping files.
+- **Inputs**: JSON file from `read_data_airvisual`, pollution and weather mapping files.
+- **Outputs**: Records in `dimDateTimeTable`, `dimLocationTable`, `dimMainPollutionTable`, `factairvisualtable`.
+- **Retry Policy and Concurrency Settings**: 
+  - **Max Attempts**: 2
+  - **Delay**: 180 seconds
+  - **Exponential Backoff**: No
+  - **Retry On**: Timeout, network error
+- **Connected Systems**: PostgreSQL database for data loading.
+
+### Parameter Schema
+
+#### Pipeline-Level Parameters
+- **Name**: Unique identifier for the pipeline.
+- **Description**: Comprehensive pipeline description.
+- **Tags**: Classification tags.
+
+#### Schedule Configuration
+- **Enabled**: Whether the pipeline runs on schedule.
+- **Cron Expression**: Cron or preset schedule.
+- **Start Date**: When to start scheduling.
+- **End Date**: When to stop scheduling.
+- **Timezone**: Schedule timezone.
+- **Catchup**: Run missed intervals.
+- **Batch Window**: Batch window parameter name.
+- **Partitioning**: Data partitioning strategy.
+
+#### Execution Settings
+- **Max Active Runs**: Max concurrent pipeline runs.
+- **Timeout Seconds**: Pipeline execution timeout.
+- **Retry Policy**: Pipeline-level retry behavior.
+- **Depends on Past**: Whether execution depends on previous run success.
+
+#### Component-Specific Parameters
+- **get_airvisual_data_hourly**:
+  - **LATITUDE**: Latitude coordinate for API request.
+  - **LONGITUDE**: Longitude coordinate for API request.
+  - **Timeout**: Timeout for API request.
+- **read_data_airvisual**:
+  - **File Path**: Path to the JSON file created by the previous task.
+- **load_data_airvisual_to_postgresql**:
+  - **Mapping Main Pollution File**: Path to the main pollution mapping file.
+  - **Mapping Weather Code File**: Path to the weather code mapping file.
+
+#### Environment Variables
+- **POSTGRES_CONN**: PostgreSQL connection string.
+- **AIRVISUAL_API_KEY**: API key for AirVisual API.
+
+### Integration Points
+
+#### External Systems and Connections
+- **AirVisual API**: Fetches air quality data.
+- **Local Filesystem**: Accesses JSON files.
+- **PostgreSQL Database**: Loads data into dimensional tables.
+
+#### Data Sources and Sinks
+- **Sources**:
+  - AirVisual API: Fetches current air quality and weather data.
+- **Sinks**:
+  - PostgreSQL Database: Stores the transformed data in dimensional tables.
+
+#### Authentication Methods
+- **AirVisual API**: Token-based authentication.
+- **PostgreSQL Database**: Key-pair authentication.
+
+#### Data Lineage
+- **Sources**:
+  - AirVisual API: Fetches current air quality and weather data.
+- **Sinks**:
+  - PostgreSQL Database: Stores the transformed data in dimensional tables.
+- **Intermediate Datasets**:
+  - `/opt/airflow/data/tmp_airvisual.json`
+  - `/opt/airflow/config/mapping_main_pollution.json`
+  - `/opt/airflow/config/mapping_weather_code.json`
+
+### Implementation Notes
+
+#### Complexity Assessment
+- The pipeline is relatively straightforward with a linear, sequential flow.
+- The inclusion of data validation and duplicate detection adds a layer of complexity to ensure data integrity.
+
+#### Upstream Dependency Policies
+- Each task depends on the successful completion of the previous task, ensuring a linear and controlled data processing flow.
+
+#### Retry and Timeout Configurations
+- Retry policies are defined for each task to handle transient failures, with specific delays and conditions for retries.
+
+#### Potential Risks or Considerations
+- **API Rate Limits**: The AirVisual API may have rate limits that could impact the pipeline's performance.
+- **Data Integrity**: The validation step is crucial to ensure that only valid data is loaded into the database.
+- **Concurrency**: The pipeline does not support parallelism, which may limit its scalability for large datasets.
+
+### Orchestrator Compatibility
+
+#### Assessment for Airflow, Prefect, Dagster
+- **Airflow**: The sequential flow and task dependencies are well-supported. The retry policies and environment variables are compatible.
+- **Prefect**: The linear flow and task configurations are straightforward to implement. Prefect's robust error handling and retry mechanisms align well with the pipeline's requirements.
+- **Dagster**: The pipeline's sequential nature and task configurations are easily mapped to Dagster's solid and pipeline constructs. Dagster's strong data lineage and dependency management features are beneficial.
+
+#### Pattern-Specific Considerations
+- **Sequential Flow**: All orchestrators handle sequential flows efficiently, making the pipeline easy to implement and manage.
+- **Retry Policies**: Each orchestrator supports retry policies, but the specific configuration may vary slightly.
+- **Environment Variables**: All orchestrators support environment variables, but the method of configuration may differ.
+
+### Conclusion
+
+The AirVisual data pipeline is a well-structured, sequential process designed to extract, validate, and load air quality and weather data into a PostgreSQL database. The pipeline ensures data integrity and prevents redundant data ingestion through duplicate detection. The linear flow and task dependencies are straightforward, making it compatible with various orchestrators. The inclusion of retry policies and environment variables enhances the pipeline's robustness and flexibility.

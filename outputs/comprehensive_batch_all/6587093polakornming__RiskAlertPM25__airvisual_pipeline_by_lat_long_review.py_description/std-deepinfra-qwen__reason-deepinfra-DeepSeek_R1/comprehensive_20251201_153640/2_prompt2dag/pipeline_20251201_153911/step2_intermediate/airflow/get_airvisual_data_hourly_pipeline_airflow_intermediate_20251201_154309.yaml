@@ -1,0 +1,80 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-01 15:43:09.225720
+  source_analysis_file: 
+    Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__airvisual_pipeline_by_lat_long_review.py_description.txt
+  pipeline_name: get_airvisual_data_hourly_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: '2025-03-20'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: airvisual_api
+    conn_type: http
+    description: AirVisual API
+    config:
+      base_url: http://api.airvisual.com/v2/nearest_city
+      protocol: http
+      extra:
+        token_env_var: AIRVISUAL_API_KEY
+  - conn_id: local_filesystem
+    conn_type: fs
+    description: Local Filesystem
+    config:
+      base_path: /opt/airflow/data
+      protocol: file
+  - conn_id: postgresql_db
+    conn_type: generic
+    description: PostgreSQL Database
+    config:
+      host: hostname
+      port: 5432
+      database: airvisual_db
+      schema: public
+tasks:
+  - task_id: get_airvisual_data_hourly
+    task_name: Fetch AirVisual Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: get_airvisual_data_hourly
+    config:
+      python_callable: path/to/fetch_airvisual_data.py
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: read_data_airvisual
+    task_name: Read and Validate AirVisual Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: read_data_airvisual
+    config:
+      python_callable: path/to/read_and_validate_data.py
+      retry_delay: timedelta(seconds=180)
+    upstream_task_ids:
+      - get_airvisual_data_hourly
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 180
+    validation_warnings: []
+  - task_id: load_data_airvisual_to_postgresql
+    task_name: Load AirVisual Data to PostgreSQL
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: load_data_airvisual_to_postgresql
+    config:
+      python_callable: path/to/load_data_to_postgresql.py
+      retry_delay: timedelta(seconds=180)
+    upstream_task_ids:
+      - read_data_airvisual
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 180
+    validation_warnings: []

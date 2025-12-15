@@ -1,0 +1,2078 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T09:49:12.817406",
+    "source_file": "Pipeline_Description_Dataset/M4TTRX__data-eng-project__global_dag.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "qwen",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "parallel",
+        "branching"
+      ],
+      "task_executors_used": [
+        "bash",
+        "python",
+        "sql"
+      ],
+      "has_branching": true,
+      "has_parallelism": true,
+      "has_sensors": false,
+      "total_components": 14,
+      "complexity_score": "medium"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Branching via BranchPythonOperator",
+          "Parallelism via TaskFlow API expand()"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "Conditional logic via Python control flow",
+          "map() for parallel execution"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "Dynamic graphs or branching ops",
+          "DynamicOutput for fan-out"
+        ]
+      }
+    },
+    "validation_warnings": [
+      "Unreachable nodes: ['cleanse_power_plant_data', 'generate_plant_insert_queries']"
+    ]
+  },
+  "pipeline_summary": {
+    "name": "extract_death_records_pipeline",
+    "description": "No description provided.",
+    "flow_patterns": [
+      "sequential",
+      "parallel",
+      "branching"
+    ],
+    "task_executors": [
+      "bash",
+      "python",
+      "sql"
+    ],
+    "complexity": "medium"
+  },
+  "components": [
+    {
+      "id": "extract_death_records",
+      "name": "Extract Death Records",
+      "category": "Extractor",
+      "description": "Fetches death record metadata and downloads multiple death data files from the data.gouv.fr API.",
+      "inputs": [],
+      "outputs": [
+        "death_resources.json",
+        "death_*.txt"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "script_path": "path/to/get_death_resources.py",
+        "environment": {},
+        "resources": {},
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "death_resources",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/opt/airflow/dags/data/ingestion/death_resources.json",
+          "connection_id": null
+        },
+        {
+          "name": "death_data_files",
+          "direction": "output",
+          "kind": "file",
+          "format": "txt",
+          "path_pattern": "/opt/airflow/dags/data/ingestion/death_*.txt",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 10,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "data_gouv_api",
+          "type": "api",
+          "purpose": "Fetch death records"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "death_resources",
+          "death_data_files"
+        ]
+      }
+    },
+    {
+      "id": "extract_nuclear_plants",
+      "name": "Extract Nuclear Plants",
+      "category": "Extractor",
+      "description": "Fetches nuclear power plant metadata and extracts CSV data from the data.gouv.fr API.",
+      "inputs": [],
+      "outputs": [
+        "nuclear_plants.json",
+        "nuclear.csv"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "script_path": "path/to/get_nuclear_data.py",
+        "environment": {},
+        "resources": {},
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "nuclear_metadata",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/opt/airflow/dags/data/ingestion/nuclear_plants.json",
+          "connection_id": null
+        },
+        {
+          "name": "nuclear_data",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/opt/airflow/dags/data/ingestion/nuclear.csv",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 10,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "data_gouv_api",
+          "type": "api",
+          "purpose": "Fetch nuclear plant data"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "nuclear_metadata",
+          "nuclear_data"
+        ]
+      }
+    },
+    {
+      "id": "extract_thermal_plants",
+      "name": "Extract Thermal Plants",
+      "category": "Extractor",
+      "description": "Fetches thermal power plant metadata and extracts CSV data from the data.gouv.fr API.",
+      "inputs": [],
+      "outputs": [
+        "thermal_plants.json",
+        "thermal_plants_.csv"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "script_path": "path/to/get_thermal_data.py",
+        "environment": {},
+        "resources": {},
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "thermal_metadata",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/opt/airflow/dags/data/ingestion/thermal_plants.json",
+          "connection_id": null
+        },
+        {
+          "name": "thermal_data",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/opt/airflow/dags/data/ingestion/thermal_plants_.csv",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 10,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "data_gouv_api",
+          "type": "api",
+          "purpose": "Fetch thermal plant data"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "thermal_metadata",
+          "thermal_data"
+        ]
+      }
+    },
+    {
+      "id": "extract_city_geo_data",
+      "name": "Extract City Geo Data",
+      "category": "Extractor",
+      "description": "Downloads city geographic coordinates mapping data from the static.data.gouv.fr CSV endpoint.",
+      "inputs": [],
+      "outputs": [
+        "city_geo_loc.csv"
+      ],
+      "executor_type": "bash",
+      "executor_config": {
+        "command": [
+          "curl",
+          "-o",
+          "/opt/airflow/dags/data/ingestion/city_geo_loc.csv",
+          "CITY_GEO_DATASET_URL"
+        ],
+        "environment": {},
+        "resources": {},
+        "image": null,
+        "entry_point": null,
+        "script_path": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "city_geo_data",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/opt/airflow/dags/data/ingestion/city_geo_loc.csv",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 10,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "data_gouv_api",
+          "type": "api",
+          "purpose": "Fetch city geo data"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "city_geo_data"
+        ]
+      }
+    },
+    {
+      "id": "load_death_records_to_redis",
+      "name": "Load Death Records to Redis",
+      "category": "Loader",
+      "description": "Loads death records from ingestion files into Redis with deduplication.",
+      "inputs": [
+        "death_*.txt"
+      ],
+      "outputs": [
+        "death_raw",
+        "imported_death_files"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "script_path": "path/to/load_data_from_ingestion.py",
+        "environment": {},
+        "resources": {},
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "death_data_files",
+          "direction": "input",
+          "kind": "file",
+          "format": "txt",
+          "path_pattern": "/opt/airflow/dags/data/ingestion/death_*.txt",
+          "connection_id": null
+        },
+        {
+          "name": "death_raw",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "Redis list 'death_raw'",
+          "connection_id": "redis"
+        },
+        {
+          "name": "imported_death_files",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "Redis set 'imported_death_files'",
+          "connection_id": "redis"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 10,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "redis",
+          "type": "object_storage",
+          "purpose": "Intermediate storage"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "death_data_files"
+        ],
+        "produces": [
+          "death_raw",
+          "imported_death_files"
+        ]
+      }
+    },
+    {
+      "id": "cleanse_death_data",
+      "name": "Cleanse Death Data",
+      "category": "Transformer",
+      "description": "Transforms death records with geographic mapping and date formatting.",
+      "inputs": [
+        "death_raw",
+        "city_geo_loc.csv"
+      ],
+      "outputs": [
+        "death_insertion_queries.sql"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "script_path": "path/to/cleanse_death_data.py",
+        "environment": {},
+        "resources": {},
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "death_raw",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "Redis list 'death_raw'",
+          "connection_id": "redis"
+        },
+        {
+          "name": "city_geo_data",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/opt/airflow/dags/data/ingestion/city_geo_loc.csv",
+          "connection_id": null
+        },
+        {
+          "name": "death_insertion_queries",
+          "direction": "output",
+          "kind": "file",
+          "format": "sql",
+          "path_pattern": "/opt/airflow/dags/sql/tmp/death_insertion_queries.sql",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 10,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "redis",
+          "type": "object_storage",
+          "purpose": "Intermediate storage"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "death_raw",
+          "city_geo_data"
+        ],
+        "produces": [
+          "death_insertion_queries"
+        ]
+      }
+    },
+    {
+      "id": "cleanse_power_plant_data",
+      "name": "Cleanse Power Plant Data",
+      "category": "Transformer",
+      "description": "Cleans and transforms power plant data with column standardization.",
+      "inputs": [
+        "thermal_plants_.csv",
+        "nuclear.csv"
+      ],
+      "outputs": [
+        "thermal_clean.csv",
+        "nuclear_clean.csv"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "script_path": "path/to/import_thermal_clean_data.py",
+        "environment": {},
+        "resources": {},
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "thermal_data",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/opt/airflow/dags/data/ingestion/thermal_plants_.csv",
+          "connection_id": null
+        },
+        {
+          "name": "nuclear_data",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/opt/airflow/dags/data/ingestion/nuclear.csv",
+          "connection_id": null
+        },
+        {
+          "name": "thermal_clean_data",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/opt/airflow/dags/data/staging/thermal_clean.csv",
+          "connection_id": null
+        },
+        {
+          "name": "nuclear_clean_data",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/opt/airflow/dags/data/staging/nuclear_clean.csv",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 10,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": true,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "thermal_data",
+          "nuclear_data"
+        ],
+        "produces": [
+          "thermal_clean_data",
+          "nuclear_clean_data"
+        ]
+      }
+    },
+    {
+      "id": "create_power_plant_table",
+      "name": "Create Power Plant Table",
+      "category": "SQLTransform",
+      "description": "Creates the target database table for power plant data in PostgreSQL.",
+      "inputs": [
+        "create_power_plant_table.sql"
+      ],
+      "outputs": [
+        "power_plants_table"
+      ],
+      "executor_type": "sql",
+      "executor_config": {
+        "script_path": "/opt/airflow/dags/sql/create_power_plant_table.sql",
+        "environment": {},
+        "resources": {},
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "power_plant_table_schema",
+          "direction": "input",
+          "kind": "file",
+          "format": "sql",
+          "path_pattern": "/opt/airflow/dags/sql/create_power_plant_table.sql",
+          "connection_id": null
+        },
+        {
+          "name": "power_plants_table",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "PostgreSQL table 'power_plants'",
+          "connection_id": "postgres_default"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 10,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "postgres_default",
+          "type": "database",
+          "purpose": "Create power plant table"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "power_plant_table_schema"
+        ],
+        "produces": [
+          "power_plants_table"
+        ]
+      }
+    },
+    {
+      "id": "create_death_table",
+      "name": "Create Death Table",
+      "category": "SQLTransform",
+      "description": "Creates the target database table for death records in PostgreSQL.",
+      "inputs": [
+        "create_death_table.sql"
+      ],
+      "outputs": [
+        "deaths_table"
+      ],
+      "executor_type": "sql",
+      "executor_config": {
+        "script_path": "/opt/airflow/dags/sql/create_death_table.sql",
+        "environment": {},
+        "resources": {},
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "death_table_schema",
+          "direction": "input",
+          "kind": "file",
+          "format": "sql",
+          "path_pattern": "/opt/airflow/dags/sql/create_death_table.sql",
+          "connection_id": null
+        },
+        {
+          "name": "deaths_table",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "PostgreSQL table 'deaths'",
+          "connection_id": "postgres_default"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 10,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "postgres_default",
+          "type": "database",
+          "purpose": "Create death table"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "death_table_schema"
+        ],
+        "produces": [
+          "deaths_table"
+        ]
+      }
+    },
+    {
+      "id": "generate_plant_insert_queries",
+      "name": "Generate Plant Insert Queries",
+      "category": "Transformer",
+      "description": "Generates SQL insertion queries for power plant data.",
+      "inputs": [
+        "thermal_clean.csv",
+        "nuclear_clean.csv"
+      ],
+      "outputs": [
+        "plant_insertion_queries.sql"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "script_path": "path/to/create_plant_persist_sql_query.py",
+        "environment": {},
+        "resources": {},
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "thermal_clean_data",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/opt/airflow/dags/data/staging/thermal_clean.csv",
+          "connection_id": null
+        },
+        {
+          "name": "nuclear_clean_data",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/opt/airflow/dags/data/staging/nuclear_clean.csv",
+          "connection_id": null
+        },
+        {
+          "name": "plant_insertion_queries",
+          "direction": "output",
+          "kind": "file",
+          "format": "sql",
+          "path_pattern": "/opt/airflow/dags/sql/tmp/plant_insertion_queries.sql",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 10,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "thermal_clean_data",
+          "nuclear_clean_data"
+        ],
+        "produces": [
+          "plant_insertion_queries"
+        ]
+      }
+    },
+    {
+      "id": "check_death_data_emptiness",
+      "name": "Check Death Data Emptiness",
+      "category": "QualityCheck",
+      "description": "Checks if death data processing produced valid SQL queries.",
+      "inputs": [
+        "death_insertion_queries.sql"
+      ],
+      "outputs": [
+        "branch_decision"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "script_path": "path/to/death_emptiness_check.py",
+        "environment": {},
+        "resources": {},
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "death_insertion_queries",
+          "direction": "input",
+          "kind": "file",
+          "format": "sql",
+          "path_pattern": "/opt/airflow/dags/sql/tmp/death_insertion_queries.sql",
+          "connection_id": null
+        },
+        {
+          "name": "branch_decision",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "Branch decision",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 10,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "death_insertion_queries"
+        ],
+        "produces": [
+          "branch_decision"
+        ]
+      }
+    },
+    {
+      "id": "store_deaths_in_postgres",
+      "name": "Store Deaths in PostgreSQL",
+      "category": "Loader",
+      "description": "Executes death data insertion into PostgreSQL.",
+      "inputs": [
+        "death_insertion_queries.sql"
+      ],
+      "outputs": [
+        "deaths_table"
+      ],
+      "executor_type": "sql",
+      "executor_config": {
+        "script_path": "/opt/airflow/dags/sql/tmp/death_insertion_queries.sql",
+        "environment": {},
+        "resources": {},
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "death_insertion_queries",
+          "direction": "input",
+          "kind": "file",
+          "format": "sql",
+          "path_pattern": "/opt/airflow/dags/sql/tmp/death_insertion_queries.sql",
+          "connection_id": null
+        },
+        {
+          "name": "deaths_table",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "PostgreSQL table 'deaths'",
+          "connection_id": "postgres_default"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 10,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "postgres_default",
+          "type": "database",
+          "purpose": "Insert death data"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "death_insertion_queries"
+        ],
+        "produces": [
+          "deaths_table"
+        ]
+      }
+    },
+    {
+      "id": "store_plants_in_postgres",
+      "name": "Store Plants in PostgreSQL",
+      "category": "Loader",
+      "description": "Executes power plant data insertion into PostgreSQL.",
+      "inputs": [
+        "plant_insertion_queries.sql"
+      ],
+      "outputs": [
+        "power_plants_table"
+      ],
+      "executor_type": "sql",
+      "executor_config": {
+        "script_path": "/opt/airflow/dags/sql/tmp/plant_insertion_queries.sql",
+        "environment": {},
+        "resources": {},
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "plant_insertion_queries",
+          "direction": "input",
+          "kind": "file",
+          "format": "sql",
+          "path_pattern": "/opt/airflow/dags/sql/tmp/plant_insertion_queries.sql",
+          "connection_id": null
+        },
+        {
+          "name": "power_plants_table",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "PostgreSQL table 'power_plants'",
+          "connection_id": "postgres_default"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 10,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "postgres_default",
+          "type": "database",
+          "purpose": "Insert power plant data"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "plant_insertion_queries"
+        ],
+        "produces": [
+          "power_plants_table"
+        ]
+      }
+    },
+    {
+      "id": "clean_tmp_death_files",
+      "name": "Clean Temporary Death Files",
+      "category": "Other",
+      "description": "Cleans up temporary death data from Redis and the file system.",
+      "inputs": [
+        "death_raw",
+        "death_insertion_queries.sql"
+      ],
+      "outputs": [],
+      "executor_type": "python",
+      "executor_config": {
+        "script_path": "path/to/clean_tmp_death_files.py",
+        "environment": {},
+        "resources": {},
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "death_raw",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "Redis list 'death_raw'",
+          "connection_id": "redis"
+        },
+        {
+          "name": "death_insertion_queries",
+          "direction": "input",
+          "kind": "file",
+          "format": "sql",
+          "path_pattern": "/opt/airflow/dags/sql/tmp/death_insertion_queries.sql",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 10,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "redis",
+          "type": "object_storage",
+          "purpose": "Intermediate storage"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "death_raw",
+          "death_insertion_queries"
+        ],
+        "produces": []
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "hybrid",
+    "entry_points": [
+      "ingestion_pipeline_start"
+    ],
+    "nodes": {
+      "ingestion_pipeline_start": {
+        "kind": "Virtual",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "extract_death_records",
+          "extract_nuclear_plants",
+          "extract_thermal_plants",
+          "extract_city_geo_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "extract_death_records": {
+        "kind": "Task",
+        "component_type_id": "extract_death_records",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "staging_pipeline_start"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "extract_nuclear_plants": {
+        "kind": "Task",
+        "component_type_id": "extract_nuclear_plants",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "staging_pipeline_start"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "extract_thermal_plants": {
+        "kind": "Task",
+        "component_type_id": "extract_thermal_plants",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "staging_pipeline_start"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "extract_city_geo_data": {
+        "kind": "Task",
+        "component_type_id": "extract_city_geo_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "staging_pipeline_start"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "staging_pipeline_start": {
+        "kind": "Virtual",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "create_death_table",
+          "create_power_plant_table",
+          "load_death_records_to_redis"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "create_death_table": {
+        "kind": "Task",
+        "component_type_id": "create_death_table",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "staging_pipeline_end"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "create_power_plant_table": {
+        "kind": "Task",
+        "component_type_id": "create_power_plant_table",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "staging_pipeline_end"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "load_death_records_to_redis": {
+        "kind": "Task",
+        "component_type_id": "load_death_records_to_redis",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "cleanse_death_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "cleanse_death_data": {
+        "kind": "Task",
+        "component_type_id": "cleanse_death_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "check_death_data_emptiness"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "cleanse_power_plant_data": {
+        "kind": "Task",
+        "component_type_id": "cleanse_power_plant_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "generate_plant_insert_queries"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "generate_plant_insert_queries": {
+        "kind": "Task",
+        "component_type_id": "generate_plant_insert_queries",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "store_plants_in_postgres"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "check_death_data_emptiness": {
+        "kind": "Branch",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "branch_config": {
+          "type": "conditional",
+          "branches": [
+            {
+              "label": "Death data exists",
+              "condition": "not empty",
+              "next_node": "store_deaths_in_postgres"
+            },
+            {
+              "label": "No death data",
+              "condition": "else",
+              "next_node": "staging_pipeline_end"
+            }
+          ]
+        },
+        "next_nodes": [
+          "store_deaths_in_postgres",
+          "staging_pipeline_end"
+        ],
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "store_deaths_in_postgres": {
+        "kind": "Task",
+        "component_type_id": "store_deaths_in_postgres",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "staging_pipeline_end"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "staging_pipeline_end": {
+        "kind": "Virtual",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "store_plants_in_postgres"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "store_plants_in_postgres": {
+        "kind": "Task",
+        "component_type_id": "store_plants_in_postgres",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "clean_tmp_death_files"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "clean_tmp_death_files": {
+        "kind": "Task",
+        "component_type_id": "clean_tmp_death_files",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "ingestion_pipeline_start",
+        "to": "extract_death_records"
+      },
+      {
+        "from": "ingestion_pipeline_start",
+        "to": "extract_nuclear_plants"
+      },
+      {
+        "from": "ingestion_pipeline_start",
+        "to": "extract_thermal_plants"
+      },
+      {
+        "from": "ingestion_pipeline_start",
+        "to": "extract_city_geo_data"
+      },
+      {
+        "from": "extract_death_records",
+        "to": "staging_pipeline_start"
+      },
+      {
+        "from": "extract_nuclear_plants",
+        "to": "staging_pipeline_start"
+      },
+      {
+        "from": "extract_thermal_plants",
+        "to": "staging_pipeline_start"
+      },
+      {
+        "from": "extract_city_geo_data",
+        "to": "staging_pipeline_start"
+      },
+      {
+        "from": "staging_pipeline_start",
+        "to": "create_death_table"
+      },
+      {
+        "from": "staging_pipeline_start",
+        "to": "create_power_plant_table"
+      },
+      {
+        "from": "staging_pipeline_start",
+        "to": "load_death_records_to_redis"
+      },
+      {
+        "from": "create_death_table",
+        "to": "staging_pipeline_end"
+      },
+      {
+        "from": "create_power_plant_table",
+        "to": "staging_pipeline_end"
+      },
+      {
+        "from": "load_death_records_to_redis",
+        "to": "cleanse_death_data"
+      },
+      {
+        "from": "cleanse_death_data",
+        "to": "check_death_data_emptiness"
+      },
+      {
+        "from": "check_death_data_emptiness",
+        "to": "store_deaths_in_postgres",
+        "edge_type": "conditional",
+        "condition": "Death data exists"
+      },
+      {
+        "from": "check_death_data_emptiness",
+        "to": "staging_pipeline_end",
+        "edge_type": "conditional",
+        "condition": "No death data"
+      },
+      {
+        "from": "store_deaths_in_postgres",
+        "to": "staging_pipeline_end"
+      },
+      {
+        "from": "staging_pipeline_end",
+        "to": "store_plants_in_postgres"
+      },
+      {
+        "from": "store_plants_in_postgres",
+        "to": "clean_tmp_death_files"
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": null,
+        "required": true,
+        "constraints": "Must be a unique identifier for the pipeline"
+      },
+      "description": {
+        "description": "Comprehensive Pipeline Description",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "days_ago(0)",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": 1,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 1,
+          "retry_delay_seconds": 10
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "extract_death_records": {
+        "DEATH_DATASET_ID": {
+          "description": "API ID for death records dataset",
+          "type": "string",
+          "default": null,
+          "required": true
+        },
+        "max_resource": {
+          "description": "Maximum number of resources to fetch",
+          "type": "integer",
+          "default": 5,
+          "required": false
+        }
+      },
+      "extract_nuclear_plants": {
+        "NUCLEAR_DATASET_ID": {
+          "description": "API ID for nuclear power plant dataset",
+          "type": "string",
+          "default": null,
+          "required": true
+        }
+      },
+      "extract_thermal_plants": {
+        "THERMAL_DATASET_ID": {
+          "description": "API ID for thermal power plant dataset",
+          "type": "string",
+          "default": null,
+          "required": true
+        }
+      },
+      "extract_city_geo_data": {
+        "CITY_GEO_DATASET_URL": {
+          "description": "URL for city geographic coordinates mapping data",
+          "type": "string",
+          "default": null,
+          "required": true
+        }
+      },
+      "load_death_records_to_redis": {
+        "ingestion_directory": {
+          "description": "Directory for ingestion files",
+          "type": "string",
+          "default": "/opt/airflow/dags/data/ingestion/",
+          "required": false
+        },
+        "redis_host": {
+          "description": "Redis host",
+          "type": "string",
+          "default": "redis",
+          "required": false
+        },
+        "redis_port": {
+          "description": "Redis port",
+          "type": "integer",
+          "default": 6379,
+          "required": false
+        },
+        "redis_db": {
+          "description": "Redis database index",
+          "type": "integer",
+          "default": 0,
+          "required": false
+        }
+      },
+      "cleanse_death_data": {
+        "city_geo_loc_file": {
+          "description": "Path to city geographic coordinates file",
+          "type": "string",
+          "default": "/opt/airflow/dags/data/ingestion/city_geo_loc.csv",
+          "required": false
+        },
+        "redis_host": {
+          "description": "Redis host",
+          "type": "string",
+          "default": "redis",
+          "required": false
+        },
+        "redis_port": {
+          "description": "Redis port",
+          "type": "integer",
+          "default": 6379,
+          "required": false
+        },
+        "redis_db": {
+          "description": "Redis database index",
+          "type": "integer",
+          "default": 0,
+          "required": false
+        }
+      },
+      "cleanse_power_plant_data": {
+        "thermal_plants_file": {
+          "description": "Path to thermal power plant data file",
+          "type": "string",
+          "default": "/opt/airflow/dags/data/ingestion/thermal_plants_.csv",
+          "required": false
+        },
+        "nuclear_plants_file": {
+          "description": "Path to nuclear power plant data file",
+          "type": "string",
+          "default": "/opt/airflow/dags/data/ingestion/nuclear.csv",
+          "required": false
+        },
+        "staging_directory": {
+          "description": "Directory for staging files",
+          "type": "string",
+          "default": "/opt/airflow/dags/data/staging/",
+          "required": false
+        }
+      },
+      "create_power_plant_table": {
+        "sql_file": {
+          "description": "Path to SQL schema file for power plant table",
+          "type": "string",
+          "default": "/opt/airflow/dags/sql/create_power_plant_table.sql",
+          "required": false
+        }
+      },
+      "create_death_table": {
+        "sql_file": {
+          "description": "Path to SQL schema file for death table",
+          "type": "string",
+          "default": "/opt/airflow/dags/sql/create_death_table.sql",
+          "required": false
+        }
+      },
+      "generate_plant_insert_queries": {
+        "thermal_plants_file": {
+          "description": "Path to thermal power plant data file",
+          "type": "string",
+          "default": "/opt/airflow/dags/data/staging/thermal_plants_.csv",
+          "required": false
+        },
+        "nuclear_plants_file": {
+          "description": "Path to nuclear power plant data file",
+          "type": "string",
+          "default": "/opt/airflow/dags/data/staging/nuclear.csv",
+          "required": false
+        },
+        "output_sql_file": {
+          "description": "Path to output SQL insertion queries file",
+          "type": "string",
+          "default": "/opt/airflow/dags/sql/tmp/plant_insert_queries.sql",
+          "required": false
+        }
+      },
+      "check_death_data_emptiness": {
+        "death_insertion_queries_path": {
+          "description": "Path to death insertion queries file",
+          "type": "string",
+          "default": "/opt/airflow/dags/sql/tmp/death_insertion_queries.sql",
+          "required": false
+        }
+      },
+      "store_deaths_in_postgres": {
+        "sql_file": {
+          "description": "Path to SQL insertion queries file for death records",
+          "type": "string",
+          "default": "/opt/airflow/dags/sql/tmp/death_insertion_queries.sql",
+          "required": false
+        }
+      },
+      "store_plants_in_postgres": {
+        "sql_file": {
+          "description": "Path to SQL insertion queries file for power plant data",
+          "type": "string",
+          "default": "/opt/airflow/dags/sql/tmp/plant_insert_queries.sql",
+          "required": false
+        }
+      },
+      "clean_tmp_death_files": {
+        "redis_host": {
+          "description": "Redis host",
+          "type": "string",
+          "default": "redis",
+          "required": false
+        },
+        "redis_port": {
+          "description": "Redis port",
+          "type": "integer",
+          "default": 6379,
+          "required": false
+        },
+        "redis_db": {
+          "description": "Redis database index",
+          "type": "integer",
+          "default": 0,
+          "required": false
+        },
+        "sql_query_files_directory": {
+          "description": "Directory for temporary SQL query files",
+          "type": "string",
+          "default": "/opt/airflow/dags/sql/tmp/",
+          "required": false
+        }
+      }
+    },
+    "environment": {
+      "POSTGRES_DEFAULT_CONNECTION": {
+        "description": "PostgreSQL connection string",
+        "type": "string",
+        "default": null,
+        "required": true,
+        "associated_component_id": null
+      },
+      "REDIS_HOST": {
+        "description": "Redis host",
+        "type": "string",
+        "default": "redis",
+        "required": false,
+        "associated_component_id": null
+      },
+      "REDIS_PORT": {
+        "description": "Redis port",
+        "type": "integer",
+        "default": 6379,
+        "required": false,
+        "associated_component_id": null
+      },
+      "REDIS_DB": {
+        "description": "Redis database index",
+        "type": "integer",
+        "default": 0,
+        "required": false,
+        "associated_component_id": null
+      },
+      "INGESTION_DIRECTORY": {
+        "description": "Directory for ingestion files",
+        "type": "string",
+        "default": "/opt/airflow/dags/data/ingestion/",
+        "required": false,
+        "associated_component_id": null
+      },
+      "STAGING_DIRECTORY": {
+        "description": "Directory for staging files",
+        "type": "string",
+        "default": "/opt/airflow/dags/data/staging/",
+        "required": false,
+        "associated_component_id": null
+      },
+      "SQL_QUERY_FILES_DIRECTORY": {
+        "description": "Directory for temporary SQL query files",
+        "type": "string",
+        "default": "/opt/airflow/dags/sql/tmp/",
+        "required": false,
+        "associated_component_id": null
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "data_gouv_fr_api",
+        "name": "data.gouv.fr API",
+        "type": "api",
+        "config": {
+          "base_url": "https://data.gouv.fr/api/1",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "DATA_GOUV_FR_API_TOKEN"
+        },
+        "used_by_components": [
+          "extract_death_records",
+          "extract_nuclear_plants",
+          "extract_thermal_plants"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": 10,
+          "burst": 20
+        },
+        "datasets": {
+          "produces": [
+            "death_records",
+            "nuclear_plants",
+            "thermal_plants"
+          ]
+        }
+      },
+      {
+        "id": "static_data_gouv_fr",
+        "name": "static.data.gouv.fr",
+        "type": "api",
+        "config": {
+          "base_url": "https://static.data.gouv.fr",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "extract_city_geo_data"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": 5,
+          "burst": 10
+        },
+        "datasets": {
+          "produces": [
+            "city_geo_data"
+          ]
+        }
+      },
+      {
+        "id": "redis",
+        "name": "Redis",
+        "type": "cache",
+        "config": {
+          "host": "redis",
+          "port": 6379,
+          "protocol": "redis"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "load_death_records_to_redis",
+          "cleanse_death_data",
+          "clean_tmp_death_files"
+        ],
+        "direction": "both",
+        "datasets": {
+          "produces": [
+            "death_raw",
+            "imported_death_files"
+          ],
+          "consumes": [
+            "death_raw",
+            "imported_death_files"
+          ]
+        }
+      },
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "type": "database",
+        "config": {
+          "host": "localhost",
+          "port": 5432,
+          "database": "etl_pipeline",
+          "schema": "public",
+          "protocol": "jdbc"
+        },
+        "authentication": {
+          "type": "basic",
+          "username_env_var": "POSTGRES_USER",
+          "password_env_var": "POSTGRES_PASSWORD"
+        },
+        "used_by_components": [
+          "create_power_plant_table",
+          "create_death_table",
+          "store_deaths_in_postgres",
+          "store_plants_in_postgres"
+        ],
+        "direction": "both",
+        "datasets": {
+          "produces": [
+            "power_plants",
+            "deaths"
+          ],
+          "consumes": [
+            "power_plants",
+            "deaths"
+          ]
+        }
+      },
+      {
+        "id": "ingestion_directory",
+        "name": "Ingestion Directory",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/opt/airflow/dags/data/ingestion/",
+          "protocol": "file"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "extract_death_records",
+          "extract_nuclear_plants",
+          "extract_thermal_plants",
+          "extract_city_geo_data",
+          "load_death_records_to_redis",
+          "cleanse_death_data",
+          "cleanse_power_plant_data",
+          "clean_tmp_death_files"
+        ],
+        "direction": "both",
+        "datasets": {
+          "produces": [
+            "death_*.txt",
+            "nuclear.csv",
+            "thermal_plants_.csv",
+            "city_geo_loc.csv"
+          ],
+          "consumes": [
+            "death_*.txt",
+            "nuclear.csv",
+            "thermal_plants_.csv",
+            "city_geo_loc.csv"
+          ]
+        }
+      },
+      {
+        "id": "staging_directory",
+        "name": "Staging Directory",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/opt/airflow/dags/data/staging/",
+          "protocol": "file"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "cleanse_power_plant_data",
+          "generate_plant_insert_queries"
+        ],
+        "direction": "both",
+        "datasets": {
+          "produces": [
+            "cleaned_thermal_plants.csv",
+            "cleaned_nuclear_plants.csv"
+          ],
+          "consumes": [
+            "cleaned_thermal_plants.csv",
+            "cleaned_nuclear_plants.csv"
+          ]
+        }
+      },
+      {
+        "id": "sql_tmp_directory",
+        "name": "SQL Temporary Directory",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/opt/airflow/dags/sql/tmp/",
+          "protocol": "file"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "generate_plant_insert_queries",
+          "check_death_data_emptiness",
+          "store_deaths_in_postgres",
+          "clean_tmp_death_files"
+        ],
+        "direction": "both",
+        "datasets": {
+          "produces": [
+            "plant_insert_queries.sql",
+            "death_insert_queries.sql"
+          ],
+          "consumes": [
+            "plant_insert_queries.sql",
+            "death_insert_queries.sql"
+          ]
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "data.gouv.fr API for death records, nuclear plants, and thermal plants",
+        "static.data.gouv.fr for city geographic coordinates mapping data"
+      ],
+      "sinks": [
+        "PostgreSQL database for storing death records and power plant data"
+      ],
+      "intermediate_datasets": [
+        "death_*.txt",
+        "nuclear.csv",
+        "thermal_plants_.csv",
+        "city_geo_loc.csv",
+        "cleaned_thermal_plants.csv",
+        "cleaned_nuclear_plants.csv",
+        "plant_insert_queries.sql",
+        "death_insert_queries.sql"
+      ]
+    }
+  }
+}

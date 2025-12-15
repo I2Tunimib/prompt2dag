@@ -1,0 +1,159 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 05:35:11.782904
+  source_analysis_file: 
+    Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__airvisual_pipeline_by_lat_long_review.py_description.txt
+  pipeline_name: AirVisual_Pipeline_Lat_Long_v1
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    job_name: airvisual_pipeline_lat_long_v1
+    description: No description provided.
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - airvisual_api
+      - postgres_conn
+      - local_filesystem
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: '2025-03-20'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: airvisual_api
+    conn_type: resource
+    description: AirVisual API
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: airvisual_api
+      config:
+        base_url: http://api.airvisual.com/v2/nearest_city
+        protocol: http
+        token: EnvVar('AIRVISUAL_API_KEY')
+  - conn_id: local_filesystem
+    conn_type: fs_io_manager
+    description: Local Filesystem
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: local_filesystem
+      config:
+        base_path: /opt/airflow/data
+        protocol: file
+  - conn_id: postgresql_db
+    conn_type: resource
+    description: PostgreSQL Database
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: postgresql_db
+      config:
+        host: localhost
+        port: 5432
+        database: airvisual_db
+        schema: public
+tasks:
+  - task_id: get_airvisual_data_hourly
+    task_name: Fetch AirVisual Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: get_airvisual_data_hourly
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: path/to/fetch_airvisual_data.py
+      config_schema: {}
+      required_resource_keys:
+        - airvisual_api
+        - postgres_conn
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins: []
+      outs:
+        - name: airvisual_api_response
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: read_data_airvisual
+    task_name: Read and Validate AirVisual Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: read_data_airvisual
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: path/to/read_and_validate_data.py
+      config_schema: {}
+      required_resource_keys:
+        - local_filesystem
+      retry_policy:
+        max_retries: 2
+        delay: 180
+        backoff: CONSTANT
+      ins:
+        - name: airvisual_json_file
+          dagster_type: String
+          description: /opt/airflow/data/tmp_airvisual.json
+      outs: []
+    upstream_task_ids:
+      - get_airvisual_data_hourly
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 180
+    validation_warnings: []
+  - task_id: load_data_airvisual_to_postgresql
+    task_name: Load AirVisual Data to PostgreSQL
+    operator_class: Op
+    operator_module: dagster
+    component_ref: load_data_airvisual_to_postgresql
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: path/to/load_data_to_postgresql.py
+      config_schema: {}
+      required_resource_keys:
+        - postgres_conn
+      retry_policy:
+        max_retries: 2
+        delay: 180
+        backoff: CONSTANT
+      ins:
+        - name: airvisual_json_file
+          dagster_type: String
+          description: /opt/airflow/data/tmp_airvisual.json
+        - name: pollution_mapping_file
+          dagster_type: String
+          description: /opt/airflow/config/mapping_main_pollution.json
+        - name: weather_mapping_file
+          dagster_type: String
+          description: /opt/airflow/config/mapping_weather_code.json
+      outs:
+        - name: postgresql_tables
+          dagster_type: String
+          description: Output to postgres_conn
+    upstream_task_ids:
+      - read_data_airvisual
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 180
+    validation_warnings: []

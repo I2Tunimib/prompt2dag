@@ -1,0 +1,96 @@
+# Environmental Monitoring Network Pipeline Configuration
+
+## Dataset
+Environmental monitoring station locations and installation dates.
+
+## Business Value
+Creates a comprehensive dataset for environmental risk analysis by integrating location data with geocoding, weather history, land use, and demographic information.
+
+## Pipeline Steps
+
+### 1. Load & Modify Data
+- **Objective**: Ingest station CSV, parse installation_date, standardize location names, convert to JSON
+- **Input**: stations.csv from DATA_DIR
+- **Output**: table_data_2.json in DATA_DIR
+- **API Integration**: Calls the load-and-modify service (port 3003)
+- **Docker Image**: i2t-backendwithintertwino6-load-and-modify:latest
+- **Key Parameters**:
+  - DATASET_ID=2
+  - DATE_COLUMN=installation_date
+  - TABLE_NAME_PREFIX=JOT_
+
+### 2. Reconciliation (Geocoding)
+- **Objective**: Geocode station locations using the location field
+- **Input**: table_data_2.json
+- **Output**: reconciled_table_2.json (with added latitude/longitude)
+- **API Integration**: Uses reconciliation service (port 3003)
+- **Docker Image**: i2t-backendwithintertwino6-reconciliation:latest
+- **Key Parameters**:
+  - PRIMARY_COLUMN=location
+  - RECONCILIATOR_ID=geocodingHere
+  - API_TOKEN=[HERE API token]
+  - DATASET_ID=2
+
+### 3. OpenMeteo Data Extension
+- **Objective**: Add historical weather data based on geocoded location and installation_date
+- **Input**: reconciled_table_2.json
+- **Output**: open_meteo_2.json
+- **API Integration**: Uses OpenMeteo service
+- **Docker Image**: i2t-backendwithintertwino6-openmeteo-extension:latest
+- **Key Parameters**:
+  - LAT_COLUMN=latitude
+  - LON_COLUMN=longitude
+  - DATE_COLUMN=installation_date
+  - WEATHER_VARIABLES=apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_hours
+  - DATE_SEPARATOR_FORMAT=YYYYMMDD
+
+### 4. Land Use Extension
+- **Objective**: Add land use classification based on location using a GIS API
+- **Input**: open_meteo_2.json
+- **Output**: land_use_2.json
+- **API Integration**: External GIS Land Use API
+- **Docker Image**: geoapify-land-use:latest (recommended alternative)
+- **Key Parameters**:
+  - LAT_COLUMN=latitude
+  - LON_COLUMN=longitude
+  - OUTPUT_COLUMN=land_use_type
+  - API_KEY=[Geoapify API key]
+
+### 5. Population Density Extension
+- **Objective**: Add population density data for the area surrounding the station location
+- **Input**: land_use_2.json
+- **Output**: pop_density_2.json
+- **API Integration**: External Demographic Data Service
+- **Docker Image**: worldpop-density:latest (recommended alternative)
+- **Key Parameters**:
+  - LAT_COLUMN=latitude
+  - LON_COLUMN=longitude
+  - OUTPUT_COLUMN=population_density
+  - RADIUS=5000
+
+### 6. Environmental Calculation (Column Extension)
+- **Objective**: Compute custom environmental risk factors based on combined data
+- **Input**: pop_density_2.json
+- **Output**: column_extended_2.json
+- **API Integration**: Uses column extension service
+- **Docker Image**: i2t-backendwithintertwino6-column-extension:latest
+- **Key Parameters**:
+  - EXTENDER_ID=environmentalRiskCalculator
+  - INPUT_COLUMNS=precipitation_sum,population_density,land_use_type
+  - OUTPUT_COLUMN=risk_score
+  - CALCULATION_FORMULA=[risk calculation parameters]
+
+### 7. Save Final Data
+- **Objective**: Export the comprehensive environmental dataset to CSV
+- **Input**: column_extended_2.json
+- **Output**: enriched_data_2.csv in DATA_DIR
+- **API Integration**: save service
+- **Docker Image**: i2t-backendwithintertwino6-save:latest
+- **Key Parameters**:
+  - DATASET_ID=2
+
+## Infrastructure & Error Handling
+- Shared volume mounting (DATA_DIR via environment variable)
+- Custom Docker network (app_network) covering dependencies such as MongoDB (port 27017) and Intertwino API (port 5005)
+- Error handling through Airflow task retries (default: 1)
+- Auto-cleanup of containers

@@ -1,0 +1,73 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_staged_etl_00_healthcare_claims_processing.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** staged_etl  
+**Complexity Score:** 4/10  
+
+---
+
+[healthcare_claims_etl] - Comprehensive Pipeline Description
+
+Opening Summary:
+This healthcare claims processing ETL pipeline implements a staged ETL pattern with parallel extraction, followed by sequential transformation and parallel loading stages. The pipeline extracts patient claims and provider data from CSV sources, joins and transforms the data with PII anonymization, then loads results to a data warehouse while refreshing BI tools. Key infrastructure includes TaskGroups for stage organization, daily scheduling, and retry policies.
+
+Pipeline Steps:
+
+Pre-Processing Stage (Extract Phase)
+1. extract TaskGroup
+  • Objective: Extract healthcare data from multiple CSV sources in parallel
+  • Technical Details:
+    - Input: claims.csv (claim_id, patient_id, provider_id, procedure_code, amount, date_of_service), providers.csv (provider_id, provider_name, specialty, location)
+    - Output: Extracted data status signals via XCom for downstream transformation
+    - Integrations: Local file system CSV files
+    - Key Parameters: Parallel execution within TaskGroup
+  • Operator or Mechanism: PythonOperator (extract_claims, extract_providers) within TaskGroup
+  • Notes: Two parallel extraction tasks running concurrently
+
+2. transform_join
+  • Objective: Join claims and provider data, anonymize PII, and calculate risk scores
+  • Technical Details:
+    - Input: XCom outputs from extract_claims and extract_providers tasks
+    - Output: Transformed, joined dataset ready for loading
+    - Integrations: None external
+    - Key Parameters: Uses XCom to pull data from upstream extraction tasks
+  • Operator or Mechanism: PythonOperator
+  • Notes: Synchronization point that waits for both extraction tasks to complete
+
+Post-Processing Stage (Load Phase)
+3. load TaskGroup
+  • Objective: Load transformed data to analytics warehouse and refresh BI tools in parallel
+  • Technical Details:
+    - Input: Transformed data from transform_join task
+    - Output: Data loaded to healthcare_analytics.claims_fact and healthcare_analytics.providers_dim tables; BI dashboard refreshes
+    - Integrations: Data warehouse (Postgres), Power BI, Tableau
+    - Key Parameters: Parallel execution within TaskGroup
+  • Operator or Mechanism: PythonOperator (load_warehouse, refresh_bi) within TaskGroup
+  • Notes: Two parallel loading tasks running concurrently after transformation
+
+Orchestration & Scheduling:
+- Schedule: @daily
+- Start Date: 2024-01-01
+- Catchup: False
+- Default Args: owner=healthcare_analytics, depends_on_past=False, retries=2, retry_delay=5 minutes, email_on_failure=False, email_on_retry=False
+
+Infrastructure & Dependencies:
+- Task grouping: Three TaskGroups - extract (parallel extraction), load (parallel loading)
+- Connections/IDs: No explicit connection IDs visible in provided code
+- Data I/O hints: Input CSV files (claims.csv, providers.csv), output tables (healthcare_analytics.claims_fact, healthcare_analytics.providers_dim)
+- BI Tools: Power BI, Tableau refresh mechanisms
+
+Failure Handling & Alerts:
+- Retry Policy: 2 retries with 5-minute delay between attempts
+- Email Alerts: Disabled (email_on_failure=False, email_on_retry=False)
+- No explicit failure handling operators present
+
+Pattern-Specific Notes:
+- Staged ETL: Clear three-stage pattern - Extract → Transform → Load
+- Fan-out/Fan-in: Parallel width of 2 in both extract and load stages
+- Join Mechanism: transform_join task serves as synchronization point between extract and load stages
+- Data Flow: CSV extraction → join/transform with PII anonymization → warehouse loading + BI refresh

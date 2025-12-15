@@ -1,0 +1,125 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-01 17:54:51.262102
+  source_analysis_file: 
+    Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_ensembl.py_description.txt
+  pipeline_name: etl_import_ensembl
+  pipeline_description: Comprehensive Pipeline Description
+  orchestrator_specific:
+    flow_name: etl_import_ensembl
+    deployment_name: etl_import_ensembl_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: ensembl_ftp
+    conn_type: Secret
+    description: Ensembl FTP Server
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: ensembl_ftp
+      config:
+        base_path:
+        base_url: ftp://ftp.ensembl.org/pub/current_tsv/homo_sapiens
+        host: ftp.ensembl.org
+        port: 21
+        protocol: ftp
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: s3_data_lake
+    conn_type: S3Bucket
+    description: AWS S3 Data Lake
+    config:
+      block_type: S3Bucket
+      block_module: prefect_aws.s3
+      block_name: s3_data_lake
+      config:
+        base_path: raw/landing/ensembl/
+        base_url:
+        host:
+        port:
+        protocol: s3
+        database:
+        schema:
+        bucket: cqgc-{env}-app-datalake
+        queue_name:
+  - conn_id: slack_notifications
+    conn_type: Secret
+    description: Slack Notification API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: slack_notifications
+      config:
+        base_path:
+        base_url: https://slack.com/api/
+        host: slack.com
+        port: 443
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+        token_secret_name: SLACK_TOKEN
+  - conn_id: kubernetes_etl_cluster
+    conn_type: Secret
+    description: Kubernetes ETL Cluster
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: kubernetes_etl_cluster
+      config:
+        base_path:
+        base_url:
+        host: k8s-cluster.etl.internal
+        port:
+        protocol: k8s
+        database:
+        schema:
+        bucket:
+        queue_name:
+tasks:
+  - task_id: extract_ensembl_files
+    task_name: Extract Ensembl Mapping Files
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: extract_ensembl_files
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: transform_ensembl_mapping
+    task_name: Transform Ensembl Mapping with Spark
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: transform_ensembl_mapping
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config: {}
+      retries: 0
+      task_runner: ConcurrentTaskRunner
+    upstream_task_ids:
+      - extract_ensembl_files
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

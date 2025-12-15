@@ -1,0 +1,300 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 08:14:27.714930
+  source_analysis_file: 
+    Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_mondo.py_description.txt
+  pipeline_name: etl_import_mondo
+  pipeline_description: Comprehensive Pipeline Description
+  orchestrator_specific:
+    job_name: etl_import_mondo
+    description: Comprehensive Pipeline Description
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - s3_conn_id
+      - github_api
+      - slack_webhook
+      - es_url
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: '2022-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: github_mondo_releases
+    conn_type: resource
+    description: GitHub Mondo Releases
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: github_mondo_releases
+      config:
+        base_path:
+        base_url: https://github.com/monarch-initiative/mondo/releases
+        host: github.com
+        port: 443
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: s3_data_lake
+    conn_type: s3_resource
+    description: S3 Data Lake (cqgc-{env}-app-datalake)
+    config:
+      resource_type: s3_resource
+      resource_module: dagster_aws.s3
+      resource_key: s3_data_lake
+      config:
+        base_path: ''
+        base_url:
+        host:
+        port:
+        protocol: s3
+        database:
+        schema:
+        bucket: cqgc-{env}-app-datalake
+        queue_name:
+  - conn_id: elasticsearch_mondo
+    conn_type: resource
+    description: Elasticsearch (Mondo Index)
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: elasticsearch_mondo
+      config:
+        base_path:
+        base_url: <es_url_placeholder>
+        host: <es_host>
+        port: 9200
+        protocol: http
+        database:
+        schema:
+        bucket:
+        queue_name:
+        username: EnvVar('ES_USERNAME')
+        password: EnvVar('ES_PASSWORD')
+  - conn_id: slack_webhook
+    conn_type: resource
+    description: Slack Webhook
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: slack_webhook
+      config:
+        base_path:
+        base_url: <slack_webhook_url>
+        host: hooks.slack.com
+        port: 443
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+        token: EnvVar('SLACK_WEBHOOK_URL')
+  - conn_id: internal_publishing_api
+    conn_type: resource
+    description: Internal Publishing System
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: internal_publishing_api
+      config:
+        base_path: /publish
+        base_url: <internal_publish_endpoint>
+        host: <publish_host>
+        port: 443
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+        token: EnvVar('PUBLISH_API_TOKEN')
+tasks:
+  - task_id: validate_color_parameter
+    task_name: Validate Color Parameter
+    operator_class: Op
+    operator_module: dagster
+    component_ref: validate_color_parameter
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: validators.validate_color
+      config_schema: {}
+      required_resource_keys: []
+      ins:
+        - name: color_parameter
+          dagster_type: Any
+          description: dag_params.color
+      outs:
+        - name: validation_result
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: download_mondo_terms
+    task_name: Download Mondo OBO File
+    operator_class: Op
+    operator_module: dagster
+    component_ref: download_mondo_terms
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: download.download_mondo
+      config_schema: {}
+      required_resource_keys:
+        - s3_conn_id
+        - github_api
+      ins:
+        - name: github_release_metadata
+          dagster_type: String
+          description: https://api.github.com/repos/monarch-initiative/mondo/releases/latest
+        - name: s3_current_version
+          dagster_type: String
+          description: s3://cqgc-{env}-app-datalake/raw/landing/mondo/version.json
+      outs:
+        - name: mondo_obo_s3
+          dagster_type: String
+          description: Output to s3_conn_id
+        - name: download_version_xcom
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - validate_color_parameter
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: normalize_mondo_terms
+    task_name: Normalize Mondo Terms
+    operator_class: Op
+    operator_module: dagster
+    component_ref: normalize_mondo_terms
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - s3_conn_id
+      ins:
+        - name: mondo_obo_input
+          dagster_type: String
+          description: s3://cqgc-{env}-app-datalake/raw/landing/mondo/mondo.obo
+      outs:
+        - name: normalized_terms_output
+          dagster_type: String
+          description: Output to s3_conn_id
+    upstream_task_ids:
+      - download_mondo_terms
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: index_mondo_terms
+    task_name: Index Mondo Terms
+    operator_class: Op
+    operator_module: dagster
+    component_ref: index_mondo_terms
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - s3_conn_id
+        - es_url
+      ins:
+        - name: normalized_terms_input
+          dagster_type: String
+          description: s3://cqgc-{env}-app-datalake/public/mondo_terms/
+      outs:
+        - name: elasticsearch_mondo_index
+          dagster_type: String
+          description: Output to es_url
+    upstream_task_ids:
+      - normalize_mondo_terms
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: publish_mondo_data
+    task_name: Publish Mondo Dataset
+    operator_class: Op
+    operator_module: dagster
+    component_ref: publish_mondo_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: publish.publish_mondo
+      config_schema: {}
+      required_resource_keys:
+        - es_url
+      ins:
+        - name: elasticsearch_mondo_index
+          dagster_type: String
+          description: elasticsearch://{es_url}/mondo
+        - name: download_version
+          dagster_type: Any
+          description: xcom.download_version
+        - name: color_parameter
+          dagster_type: Any
+          description: dag_params.color
+      outs:
+        - name: published_mondo_dataset
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - index_mondo_terms
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: send_slack_notification
+    task_name: Send Slack Notification
+    operator_class: Op
+    operator_module: dagster
+    component_ref: send_slack_notification
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - slack_webhook
+      ins:
+        - name: pipeline_status
+          dagster_type: Any
+          description: dag_status.success
+      outs:
+        - name: slack_message
+          dagster_type: String
+          description: Output to slack_webhook
+    upstream_task_ids:
+      - publish_mondo_data
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

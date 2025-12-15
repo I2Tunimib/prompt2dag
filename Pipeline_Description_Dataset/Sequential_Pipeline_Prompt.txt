@@ -1,0 +1,55 @@
+This data processing pipeline is implemented as an Apache Airflow DAG that executes a series of Docker-containerized tasks in a strictly sequential order. The workflow transforms raw CSV data through successive enrichment steps and finally saves the processed data as a CSV file. Each task is configured via environment variables and communicates over a custom Docker network (app_network).
+
+Pipeline Steps:
+1. Load and Modify Data  
+   • Objective: Ingest CSV files from a specified data directory and convert them into a JSON format suitable for pipeline processing.  
+   • Technical Details:  
+    - Input: Reads all *.csv files from the DATA_DIR  
+    - Output: Generates files named table_data_{}.json  
+    - API Integration: Calls the load-and-modify service (port 3003)  
+    - Key Parameters:  
+   * Dataset ID (default: 2)  
+   * Date Column name (default: Fecha_id)  
+   * Table naming convention: 'JOT_{}'  
+   • Docker Image: i2t-backendwithintertwino6-load-and-modify:latest
+
+2. Data Reconciliation  
+   • Objective: Standardize and reconcile city names using the HERE geocoding service.  
+   • Technical Details:  
+    - Input: table_data_*.json  
+    - Output: Outputs reconciled_table_{}.json  
+    - API Integration: Uses reconciliation service (port 3003) with the required API token  
+    - Parameters: Primary column 'City'; optional columns 'County' and 'Country'; Reconciliator ID: geocodingHere  
+   • Docker Image: i2t-backendwithintertwino6-reconciliation:latest
+
+3. OpenMeteo Data Extension  
+   • Objective: Enrich the dataset with weather information.  
+   • Technical Details:  
+    - Input: reconciled_table_*.json  
+    - Output: Creates open_meteo_{}.json  
+    - Weather Attributes: Apparent temperature (max/min), precipitation sum, precipitation hours  
+    - Date Formatting: Configurable separator format  
+   • Docker Image: i2t-backendwithintertwino6-openmeteo-extension:latest
+
+4. Column Extension  
+   • Objective: Append additional data properties (e.g., id, name) as defined by integration parameters.  
+   • Technical Details:  
+    - Input: open_meteo_*.json  
+    - Output: Generates column_extended_{}.json  
+    - Extender ID: reconciledColumnExt  
+   • Docker Image: i2t-backendwithintertwino6-column-extension:latest
+
+5. Save Final Data  
+   • Objective: Consolidate and export the fully enriched dataset.  
+   • Technical Details:  
+    - Input: column_extended_*.json  
+    - Output: Final CSV file named enriched_data_{}.csv  
+    - Storage: Saved in the configured data directory (/app/data)  
+   • Docker Image: i2t-backendwithintertwino6-save:latest
+
+Infrastructure & Error Handling:  
+  • Uses shared volume mounting (DATA_DIR via environment variable)  
+  • Custom Docker network (app_network) covering dependencies such as MongoDB (port 27017) and Intertwino API (port 5005)  
+  • Error handling through Airflow task retries (default: 1) and auto-cleanup of containers
+
+Your LLM should generate a DAG that reflects this clear, end-to-end sequential process.

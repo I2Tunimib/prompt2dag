@@ -1,0 +1,150 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_fan_out_fan_in_00_multi_region_e_commerce_analytics.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** fan_out_fan_in  
+**Complexity Score:** 6/10  
+
+---
+
+[multi_region_ecommerce_analytics] - Comprehensive Pipeline Description
+
+Opening Summary:
+This pipeline performs multi-region ecommerce analytics by ingesting sales data from four geographic regions in parallel, converting regional currencies to USD, and aggregating the results into a global revenue report. The topology follows a clear fan-out/fan-in pattern with parallel ingestion and currency conversion stages followed by a single aggregation step. Key infrastructure features include PythonOperator-based data processing, XCom for inter-task data passing, and daily scheduled execution with email failure notifications.
+
+Pipeline Steps:
+
+Pre-Processing Stage (before parallel)
+
+1. start_pipeline
+  • Objective: Initialize the pipeline execution flow
+  • Technical Details:
+    - Input: None (pipeline entry point)
+    - Output: Triggers parallel ingestion tasks
+    - Integrations: None
+    - Key Parameters: None
+  • Operator or Mechanism: EmptyOperator
+  • Notes: Serves as pipeline entry marker
+
+Parallel Segment (4 parallel branches)
+
+2. ingest_us_east
+  • Objective: Extract sales data from US-East region for processing
+  • Technical Details:
+    - Input: None (source data implied)
+    - Output: sales_data_US-East via XCom to convert_currency_us_east
+    - Integrations: Regional data source (implied CSV files)
+    - Key Parameters: region='US-East'
+  • Operator or Mechanism: PythonOperator
+
+3. ingest_us_west
+  • Objective: Extract sales data from US-West region for processing
+  • Technical Details:
+    - Input: None (source data implied)
+    - Output: sales_data_US-West via XCom to convert_currency_us_west
+    - Integrations: Regional data source (implied CSV files)
+    - Key Parameters: region='US-West'
+  • Operator or Mechanism: PythonOperator
+
+4. ingest_eu
+  • Objective: Extract sales data from European region for processing
+  • Technical Details:
+    - Input: None (source data implied)
+    - Output: sales_data_EU via XCom to convert_currency_eu
+    - Integrations: Regional data source (implied CSV files)
+    - Key Parameters: region='EU'
+  • Operator or Mechanism: PythonOperator
+
+5. ingest_apac
+  • Objective: Extract sales data from APAC region for processing
+  • Technical Details:
+    - Input: None (source data implied)
+    - Output: sales_data_APAC via XCom to convert_currency_apac
+    - Integrations: Regional data source (implied CSV files)
+    - Key Parameters: region='APAC'
+  • Operator or Mechanism: PythonOperator
+
+6. convert_currency_us_east
+  • Objective: Convert US-East currency data to USD (no-op for USD regions)
+  • Technical Details:
+    - Input: XCom from ingest_us_east
+    - Output: converted_data_US-East via XCom to aggregate_global_revenue
+    - Integrations: None (mock conversion logic)
+    - Key Parameters: region='US-East', data from XCom template
+  • Operator or Mechanism: PythonOperator
+
+7. convert_currency_us_west
+  • Objective: Convert US-West currency data to USD (no-op for USD regions)
+  • Technical Details:
+    - Input: XCom from ingest_us_west
+    - Output: converted_data_US-West via XCom to aggregate_global_revenue
+    - Integrations: None (mock conversion logic)
+    - Key Parameters: region='US-West', data from XCom template
+  • Operator or Mechanism: PythonOperator
+
+8. convert_currency_eu
+  • Objective: Convert European currency (EUR) to USD using exchange rates
+  • Technical Details:
+    - Input: XCom from ingest_eu
+    - Output: converted_data_EU via XCom to aggregate_global_revenue
+    - Integrations: None (mock conversion with EUR→USD rate 1.08)
+    - Key Parameters: region='EU', data from XCom template
+  • Operator or Mechanism: PythonOperator
+
+9. convert_currency_apac
+  • Objective: Convert APAC currency (JPY) to USD using exchange rates
+  • Technical Details:
+    - Input: XCom from ingest_apac
+    - Output: converted_data_APAC via XCom to aggregate_global_revenue
+    - Integrations: None (mock conversion with JPY→USD rate 0.0067)
+    - Key Parameters: region='APAC', data from XCom template
+  • Operator or Mechanism: PythonOperator
+
+Synchronization/Join Stage (after parallel)
+
+10. aggregate_global_revenue
+  • Objective: Combine all regional converted data into unified global revenue report
+  • Technical Details:
+    - Input: XCom from all four convert_currency tasks
+    - Output: global_revenue_report_YYYYMMDD.csv via XCom
+    - Integrations: None (internal aggregation logic)
+    - Key Parameters: provide_context=True for XCom access
+  • Operator or Mechanism: PythonOperator
+
+11. end_pipeline
+  • Objective: Mark successful pipeline completion
+  • Technical Details:
+    - Input: Preceding aggregate_global_revenue task
+    - Output: None (pipeline terminus)
+    - Integrations: None
+    - Key Parameters: None
+  • Operator or Mechanism: EmptyOperator
+  • Notes: Serves as pipeline completion marker
+
+Orchestration & Scheduling:
+- Schedule: @daily
+- Start Date: 2024-01-01
+- Catchup: False
+- Default Args: owner=analytics_team, depends_on_past=False, retries=2, retry_delay=5 minutes, email_on_failure=True, email_on_retry=False
+- Tags: ecommerce, analytics, multi-region
+
+Infrastructure & Dependencies:
+- No sensors present
+- No external triggers or TaskGroups
+- XCom used extensively for data passing between tasks
+- Template variables used for XCom pulling in currency conversion tasks
+- Regional data sources implied but not explicitly defined
+
+Failure Handling & Alerts:
+- Email notifications on task failures (email_on_failure=True)
+- Automatic retry with 2 attempts and 5-minute delay between retries
+- No email on retry events
+
+Pattern-Specific Notes:
+- Fan-out width: 4 parallel branches (US-East, US-West, EU, APAC regions)
+- Join mechanism: All parallel currency conversion tasks feed into single aggregation task
+- Two-stage parallelism: ingestion → currency conversion → aggregation
+- Data flow: Regional extraction → Currency normalization → Global aggregation

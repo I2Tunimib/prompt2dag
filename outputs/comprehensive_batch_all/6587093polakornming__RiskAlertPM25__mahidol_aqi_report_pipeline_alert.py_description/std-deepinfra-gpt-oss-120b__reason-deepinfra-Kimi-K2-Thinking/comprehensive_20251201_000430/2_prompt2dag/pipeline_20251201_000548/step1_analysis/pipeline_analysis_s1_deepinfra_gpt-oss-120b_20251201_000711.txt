@@ -1,0 +1,154 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-01T00:07:11.615409
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__mahidol_aqi_report_pipeline_alert.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**PM2.5_Risk_Alert_Pipeline – Technical Report**  
+
+---
+
+### 1. Executive Summary  
+
+**Purpose**  
+The pipeline continuously monitors the Mahidol University Air‑Quality Index (AQI) webpage, extracts the latest PM2.5‑related metrics, stores the structured data in a PostgreSQL data‑warehouse, and issues email alerts when the measured values exceed predefined health thresholds.  
+
+**High‑level Flow**  
+1. **Extraction** – HTTP scrape of the Mahidol AQI HTML page.  
+2. **Transformation** – Parsing of the HTML, validation against existing records, and creation of a JSON payload.  
+3. **Loading** – Up‑sert of the JSON data into dimension and fact tables in PostgreSQL.  
+4. **Notification** – Conditional email alert via Gmail SMTP when the AQI crosses the alert threshold.  
+
+**Detected Patterns & Complexity**  
+- **Sequential core**: each step depends on the successful completion of the previous one.  
+- **Two conditional branches**: (a) duplicate‑data check determines whether the load step runs; (b) AQI‑threshold check determines whether the email notifier runs.  
+- **No parallelism or sensor‑type waiting**.  
+- **Overall complexity**: moderate – four components, simple branching, and straightforward Python‑based execution.
+
+---
+
+### 2. Pipeline Architecture  
+
+| Aspect | Description |
+|--------|-------------|
+| **Flow Patterns** | Primary linear progression (extract → transform) followed by two *conditional* branches (duplicate‑check → load, load → alert‑decision → notify). |
+| **Executor Type** | All components run using a **Python** executor. No container images, custom commands, or GPU resources are defined. |
+| **Component Categories** | • **Extractor** – `Extract Mahidol AQI HTML`  <br>• **Transformer** – `Transform Mahidol AQI to JSON`  <br>• **Loader** – `Load Mahidol AQI into PostgreSQL`  <br>• **Notifier** – `Notify PM2.5 Email Alert` |
+| **Flow Description** | 1. **Entry point** – `extract_mahidol_aqi_html`. <br>2. **Main sequence** – extraction → transformation. <br>3. **Branch 1** – after transformation, a conditional branch evaluates `data_is_new`. If true, execution proceeds to the loader; otherwise the pipeline terminates early. <br>4. **Branch 2** – after successful load, a second conditional branch evaluates `aqi_exceeds_threshold`. If true, the notifier runs; otherwise the pipeline ends. |
+
+---
+
+### 3. Detailed Component Analysis  
+
+#### 3.1 Extract Mahidol AQI HTML  
+- **Category / Purpose**: Extractor – fetches the raw HTML page from the Mahidol AQI website.  
+- **Executor**: Python (no container image). Environment variable `REQUEST_TIMEOUT=10` seconds.  
+- **Inputs**: HTTP endpoint `https://mahidol.ac.th/aqireport/`.  
+- **Outputs**: Local file `data/mahidol_aqi.html`.  
+- **Retry Policy**: No retries (`max_attempts = 0`).  
+- **Concurrency**: Parallel execution not supported.  
+- **Connections**: Uses connection `http_mahidol_aqi` (type = API, no authentication).  
+
+#### 3.2 Transform Mahidol AQI to JSON  
+- **Category / Purpose**: Transformer – parses the HTML, validates freshness against PostgreSQL, and writes a structured JSON file.  
+- **Executor**: Python. No special environment variables.  
+- **Inputs**: <br>• `data/mahidol_aqi.html` (file) <br>• `data/existing_mahidol.json` (file) <br>• `postgres_conn` (database connection).  
+- **Outputs**: `data/tmp_mahidol.json` (JSON file).  
+- **Retry Policy**: No retries.  
+- **Concurrency**: No parallelism.  
+- **Connections**: PostgreSQL connection `postgres_conn` (type = database, password‑based authentication).  
+
+#### 3.3 Load Mahidol AQI into PostgreSQL  
+- **Category / Purpose**: Loader – inserts the JSON payload into dimension and fact tables, handling primary‑key conflicts.  
+- **Executor**: Python. No extra environment variables.  
+- **Inputs**: <br>• `data/tmp_mahidol.json` (JSON file) <br>• Mapping file `/opt/airflow/config/mapping_main_pollution.json` (JSON) <br>• `postgres_conn` (database).  
+- **Outputs**: Four tables in PostgreSQL: `dimDateTimeTable`, `dimLocationTable`, `dimMainPollutionTable`, `factmahidolaqitable`.  
+- **Retry Policy**: No retries.  
+- **Concurrency**: No parallelism.  
+- **Connections**: Same PostgreSQL connection `postgres_conn`. Conflict handling strategy defaults to **DO NOTHING**.  
+
+#### 3.4 Notify PM2.5 Email Alert  
+- **Category / Purpose**: Notifier – sends email alerts via Gmail SMTP when AQI exceeds configured thresholds; otherwise skips execution.  
+- **Executor**: Python. Environment variables `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`.  
+- **Inputs**: <br>• `data/tmp_mahidol.json` (JSON file) <br>• `config.conf` (SMTP credentials) <br>• `pm25_alert_emails.txt` (recipient list).  
+- **Outputs**: Email notifications (delivered through connection `smtp_gmail`).  
+- **Retry Policy**: No retries.  
+- **Concurrency**: No parallelism.  
+- **Connections**: `smtp_gmail` (type = other, basic authentication using `SMTP_USERNAME` / `SMTP_PASSWORD`).  
+
+---
+
+### 4. Parameter Schema  
+
+| Scope | Parameter | Type | Default / Description |
+|-------|-----------|------|-----------------------|
+| **Pipeline** | `name` | string | **PM2.5_Risk_Alert_Pipeline** (required) |
+| | `description` | string | “Comprehensive Pipeline Description” |
+| | `tags` | array | empty |
+| **Schedule** | All fields (`enabled`, `cron_expression`, `start_date`, `end_date`, `timezone`, `catchup`, `batch_window`, `partitioning`) | – | Not defined – pipeline runs on demand or external trigger. |
+| **Execution** | `max_active_runs` | integer | not set |
+| | `timeout_seconds` | integer | not set |
+| | `retry_policy` | object | not set |
+| | `depends_on_past` | boolean | not set |
+| **Component‑specific** | `extract_mahidol_aqi_html.http_timeout_seconds` | integer | **10** seconds |
+| | `extract_mahidol_aqi_html.encoding` | string | **UTF‑8** |
+| | `transform_mahidol_aqi_json.datetime_format` | string | not set (uses internal defaults) |
+| | `load_mahidol_aqi_postgres.conflict_strategy` | string | **DO NOTHING** |
+| | `notify_pm25_email.aqi_thresholds` | object | thresholds: safe 0‑50, moderate 51‑100, unhealthy 101‑200, hazardous >200 |
+| | `notify_pm25_email.email_config_path` | string | `BASE_DIR/config/config.conf` |
+| | `notify_pm25_email.recipients_file` | string | `BASE_DIR/config/pm25_alert_emails.txt` |
+| **Environment Variables** | `POSTGRES_CONN` | string | identifier for PostgreSQL warehouse (used by loader) |
+| | `SMTP_SERVER` | string | **smtp.gmail.com** |
+| | `SMTP_PORT` | integer | **587** |
+| | `EMAIL_CREDENTIALS_PATH` | string | `BASE_DIR/config/config.conf` |
+| | `RECIPIENTS_FILE` | string | `BASE_DIR/config/pm25_alert_emails.txt` |
+
+---
+
+### 5. Integration Points  
+
+| External System | Connection ID | Type | Authentication | Role in Pipeline |
+|-----------------|---------------|------|----------------|------------------|
+| Mahidol University AQI website | `mahidol_aqi_website` | API (HTTPS) | None | Source of raw HTML (input to extractor). |
+| Local filesystem | `local_data_filesystem` | Filesystem | None | Stores intermediate files (HTML, JSON, config, mapping) and provides them to all components. |
+| PostgreSQL data warehouse | `postgres_warehouse` | Database (PostgreSQL) | Username/password (`POSTGRES_USER`, `POSTGRES_PASSWORD`) | Used by transformer for duplicate detection and by loader for inserts. |
+| Gmail SMTP server | `smtp_gmail` | Other (SMTP) | Basic (username/password via `SMTP_USERNAME`, `SMTP_PASSWORD`) | Destination for email alerts generated by notifier. |
+
+**Data Lineage**  
+- **Source** → Mahidol AQI HTML page.  
+- **Intermediate** → `data/mahidol_aqi.html` → `data/tmp_mahidol.json`.  
+- **Sink** → PostgreSQL tables (`dimDateTimeTable`, `dimLocationTable`, `dimMainPollutionTable`, `factmahidolaqitable`) **and** email notifications via Gmail SMTP.  
+
+---
+
+### 6. Implementation Notes  
+
+- **Complexity Assessment**: The pipeline is straightforward; the only logical complexity stems from the two conditional branches (duplicate detection and alert decision).  
+- **Upstream Dependency Policies**: All components use an **all_success** upstream policy, meaning a downstream component runs only when every immediate predecessor succeeded.  
+- **Retry & Timeout**: No retry logic is configured for any component. The only explicit timeout is the HTTP request timeout of 10 seconds. Lack of retries may increase susceptibility to transient network or database hiccups.  
+- **Potential Risks / Considerations**  
+  1. **Network reliability** – a single‑second HTTP timeout could cause premature failure if the Mahidol site experiences latency.  
+  2. **Duplicate detection** – relies on a database query; any schema change or connectivity issue could cause false positives/negatives.  
+  3. **Email credentials** – stored in a plain‑text config file; ensure proper secret management and file permissions.  
+  4. **Missing configuration files** – the loader and notifier expect mapping and credential files at fixed paths; missing files will cause immediate failure.  
+  5. **No parallelism** – while not required today, future scaling (e.g., processing multiple locations) would need redesign.  
+
+---
+
+### 7. Orchestrator Compatibility  
+
+| Orchestrator | Compatibility Highlights |
+|--------------|--------------------------|
+| **Airflow‑style** | Supports sequential execution, Python‑based tasks, and conditional branching via simple branching constructs. No need for parallel pools or sensors. |
+| **Prefect‑style** | Works with Prefect’s flow graph; the `all_success` upstream policy maps to Prefect’s default dependency handling, and conditional branches can be expressed with `if` blocks. |
+| **Dagster‑style** | Dagster’s solid‑based pipelines can model the same linear and conditional structure; the `branch` nodes correspond to conditional solids. All components are Python‑based, fitting Dagster’s execution model. |
+
+All three orchestrators can represent the identified patterns (sequential flow + two conditional branches) without requiring special features such as parallel execution or external sensors. The lack of container images or resource specifications simplifies deployment across these platforms.
+
+---
+
+### 8. Conclusion  
+
+The **PM2.5_Risk_Alert_Pipeline** provides a clear, maintainable ETL workflow that ingests AQI data, validates freshness, persists the information in a relational warehouse, and conditionally notifies stakeholders via email. Its architecture—purely Python‑executed, sequential with two logical branches—fits comfortably within the capabilities of major orchestration frameworks while remaining lightweight. Attention should be given to network timeouts, credential handling, and the absence of retry mechanisms to improve robustness for production use.

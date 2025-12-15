@@ -1,0 +1,148 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-01 09:28:43.829054
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_05_content_moderation_pipeline.py_description.txt
+  pipeline_name: Content Moderation Pipeline
+  pipeline_description: Scans user‑generated content for toxicity, branches based on a 0.7 threshold, and merges results
+    for audit logging.
+  orchestrator_specific: {}
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: local_csv_filesystem
+    conn_type: fs
+    description: Local CSV File System
+    config:
+      base_path: /data
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: content_mgmt_api
+    conn_type: http
+    description: Content Management System API
+    config:
+      base_path:
+      base_url:
+      host:
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: publishing_api
+    conn_type: http
+    description: Publishing System API
+    config:
+      base_path:
+      base_url:
+      host:
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: audit_logging_api
+    conn_type: http
+    description: Audit Logging System API
+    config:
+      base_path:
+      base_url:
+      host:
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: email_smtp
+    conn_type: generic
+    description: SMTP Email Server
+    config:
+      base_path:
+      base_url:
+      host:
+      port:
+      protocol: smtp
+      database:
+      schema:
+      bucket:
+      queue_name:
+tasks:
+  - task_id: extract_user_content
+    task_name: Extract User Content CSV
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_user_content
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: evaluate_toxicity
+    task_name: Evaluate Toxicity and Branch
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: evaluate_toxicity
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - extract_user_content
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: remove_and_flag_content
+    task_name: Remove Toxic Content and Flag Users
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: remove_and_flag_content
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - evaluate_toxicity
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: publish_content
+    task_name: Publish Safe Content
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: publish_content
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - evaluate_toxicity
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: audit_log
+    task_name: Create Consolidated Audit Log
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: audit_log
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - remove_and_flag_content
+      - publish_content
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

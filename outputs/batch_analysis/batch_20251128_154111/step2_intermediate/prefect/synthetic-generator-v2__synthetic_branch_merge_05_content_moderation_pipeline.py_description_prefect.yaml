@@ -1,0 +1,147 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-11-28 15:46:52.848016
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_05_content_moderation_pipeline.py_description.txt
+  pipeline_name: content_moderation_pipeline
+  pipeline_description: Content moderation pipeline that scans user-generated content for toxicity levels and routes 
+    processing based on a toxicity threshold, implementing a branch-merge pattern
+  orchestrator_specific:
+    flow_name: content_moderation_pipeline
+    deployment_name: content_moderation_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections: []
+tasks:
+  - task_id: scan_csv
+    task_name: Scan CSV Content
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: scan_csv
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: synthetic-generator-v2:latest
+          env: {}
+          cpu_count: '1'
+          mem_limit: 1Gi
+          auto_remove: true
+          stream_output: true
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: toxicity_check
+    task_name: Toxicity Check and Branching
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: toxicity_check
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: synthetic/synthetic_branch_merge_05_content_moderation_pipeline.py
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - scan_csv
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: remove_and_flag_content
+    task_name: Remove and Flag Toxic Content
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: remove_and_flag_content
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: synthetic-generator-v2:latest
+          env: {}
+          cpu_count: '1'
+          mem_limit: 1Gi
+          auto_remove: true
+          stream_output: true
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - toxicity_check
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: publish_content
+    task_name: Publish Safe Content
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: publish_content
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: synthetic-generator-v2:latest
+          env: {}
+          cpu_count: '1'
+          mem_limit: 1Gi
+          auto_remove: true
+          stream_output: true
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - toxicity_check
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: audit_log
+    task_name: Audit Log Consolidation
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: audit_log
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: synthetic-generator-v2:latest
+          env: {}
+          cpu_count: '1'
+          mem_limit: 1Gi
+          auto_remove: true
+          stream_output: true
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - remove_and_flag_content
+      - publish_content
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

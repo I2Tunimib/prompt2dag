@@ -1,0 +1,615 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-11-28T14:41:20.596535",
+    "source_file": "Pipeline_Description_Dataset/peterbull__bodhi-cast__log_cleanup.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "Qwen3-Coder",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "parallel"
+      ],
+      "task_executors_used": [
+        "bash"
+      ],
+      "has_branching": false,
+      "has_parallelism": true,
+      "has_sensors": false,
+      "total_components": 2,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Parallelism via TaskFlow API expand()"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "map() for parallel execution"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "DynamicOutput for fan-out"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "airflow-log-cleanup",
+    "description": "Comprehensive maintenance pipeline for cleaning up old Airflow log files to prevent disk space issues",
+    "flow_patterns": [
+      "sequential",
+      "parallel"
+    ],
+    "task_executors": [
+      "bash"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "start_cleanup_workflow",
+      "name": "Start Cleanup Workflow",
+      "category": "Orchestrator",
+      "description": "Initialize the log cleanup workflow as a starting point for all parallel workers",
+      "inputs": [
+        "dag_trigger"
+      ],
+      "outputs": [
+        "workflow_initialization_signal"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "dag_trigger",
+          "direction": "input",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "workflow_initialization_signal",
+          "direction": "output",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "none_failed",
+        "description": "Starts immediately upon DAG trigger",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 60,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "execute_log_cleanup",
+      "name": "Execute Log Cleanup",
+      "category": "Other",
+      "description": "Execute parallel log cleanup operations across multiple workers and directories using bash commands",
+      "inputs": [
+        "workflow_initialization_signal",
+        "directory_path"
+      ],
+      "outputs": [
+        "cleaned_directory_status"
+      ],
+      "executor_type": "bash",
+      "executor_config": {
+        "image": null,
+        "command": [
+          "bash",
+          "-c",
+          "find {{directory}} -type f -mtime +{{max_log_age}} -delete && find {{directory}} -type d -empty -delete"
+        ],
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "workflow_initialization_signal",
+          "direction": "input",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "directory_path",
+          "direction": "input",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "cleaned_directory_status",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "/tmp/cleanup_status_{{worker_id}}.json",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Executes after workflow initialization completes successfully",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 60,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": true,
+        "supports_dynamic_mapping": true,
+        "map_over_param": "directory_path",
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "local_filesystem",
+          "type": "filesystem",
+          "purpose": "Access and modify log directories"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "airflow_logs"
+        ],
+        "produces": []
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "parallel",
+    "entry_points": [
+      "start_cleanup_workflow"
+    ],
+    "nodes": {
+      "start_cleanup_workflow": {
+        "kind": "Task",
+        "component_type_id": "start_cleanup_workflow",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "execute_log_cleanup_parallel"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "execute_log_cleanup_parallel": {
+        "kind": "Parallel",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "parallel_config": {
+          "type": "static_parallel",
+          "map_over": "directory",
+          "map_source": "{{ params.directories_to_delete }}",
+          "max_parallelism": null,
+          "join_node": null
+        },
+        "branch_config": null,
+        "sensor_config": null
+      },
+      "execute_log_cleanup": {
+        "kind": "Task",
+        "component_type_id": "execute_log_cleanup",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "start_cleanup_workflow",
+        "to": "execute_log_cleanup_parallel"
+      },
+      {
+        "from": "execute_log_cleanup_parallel",
+        "to": "execute_log_cleanup",
+        "edge_type": "success",
+        "condition": "parallel_execution",
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "airflow-log-cleanup",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": "Comprehensive maintenance pipeline for cleaning up old Airflow log files to prevent disk space issues",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [
+          "teamclairvoyant",
+          "airflow-maintenance-dags"
+        ],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "days_ago(1)",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": "daily",
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": 1,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 1,
+          "retry_delay_seconds": 60
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      }
+    },
+    "components": {
+      "start_cleanup_workflow": {
+        "description": {
+          "description": "Description of the start cleanup workflow component",
+          "type": "string",
+          "default": "Initialize the log cleanup workflow as a starting point for all parallel workers",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "execute_log_cleanup": {
+        "directory": {
+          "description": "Target directory path for log cleanup",
+          "type": "string",
+          "default": null,
+          "required": true,
+          "constraints": "Must be a valid directory path from DIRECTORIES_TO_DELETE"
+        },
+        "sleep_time": {
+          "description": "Worker-specific delay for staggered execution",
+          "type": "integer",
+          "default": null,
+          "required": true,
+          "constraints": "Calculated as log_cleanup_id * 3 seconds"
+        },
+        "maxLogAgeInDays": {
+          "description": "Maximum age of log files to retain in days",
+          "type": "integer",
+          "default": null,
+          "required": false,
+          "constraints": "Defaults to value from Airflow Variables (airflow_log_cleanup__max_log_age_in_days) if not provided in DAG run conf"
+        },
+        "enable_delete_child_log": {
+          "description": "Flag to enable deletion of child process log directories",
+          "type": "boolean",
+          "default": null,
+          "required": false,
+          "constraints": "Defaults to value from Airflow Variables (airflow_log_cleanup__enable_delete_child_log) if not provided"
+        }
+      }
+    },
+    "environment": {
+      "BASE_LOG_FOLDER": {
+        "description": "Airflow base log folder path",
+        "type": "string",
+        "default": null,
+        "required": true,
+        "associated_component_id": "execute_log_cleanup"
+      },
+      "CHILD_PROCESS_LOG_DIRECTORY": {
+        "description": "Airflow scheduler child process log directory path",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "execute_log_cleanup"
+      },
+      "ALERT_EMAIL_ADDRESSES": {
+        "description": "Email addresses for failure alerts",
+        "type": "array",
+        "default": null,
+        "required": false,
+        "associated_component_id": null
+      },
+      "NUMBER_OF_WORKERS": {
+        "description": "Number of parallel workers for log cleanup",
+        "type": "integer",
+        "default": 1,
+        "required": false,
+        "associated_component_id": "execute_log_cleanup"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "airflow_base_log_folder",
+        "name": "Airflow Base Log Folder",
+        "type": "filesystem",
+        "config": {
+          "base_path": null,
+          "protocol": "file"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "execute_log_cleanup"
+        ],
+        "direction": "both",
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "airflow_logs"
+          ]
+        }
+      },
+      {
+        "id": "airflow_child_process_log_directory",
+        "name": "Airflow Child Process Log Directory",
+        "type": "filesystem",
+        "config": {
+          "base_path": null,
+          "protocol": "file"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "execute_log_cleanup"
+        ],
+        "direction": "both",
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "child_process_logs"
+          ]
+        }
+      },
+      {
+        "id": "airflow_dag_run_config",
+        "name": "Airflow DAG Run Configuration",
+        "type": "other",
+        "config": {
+          "base_path": null
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "execute_log_cleanup"
+        ],
+        "direction": "input",
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "maxLogAgeInDays_config"
+          ]
+        }
+      },
+      {
+        "id": "airflow_variables_store",
+        "name": "Airflow Variables Store",
+        "type": "other",
+        "config": {
+          "base_path": null
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "execute_log_cleanup"
+        ],
+        "direction": "input",
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "airflow_log_cleanup_configs"
+          ]
+        }
+      },
+      {
+        "id": "worker_lock_file",
+        "name": "Worker Lock File",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/tmp/airflow_log_cleanup_worker.lock",
+          "protocol": "file"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "execute_log_cleanup"
+        ],
+        "direction": "both",
+        "datasets": {
+          "produces": [
+            "lock_status"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "email_alert_system",
+        "name": "Email Alert System",
+        "type": "other",
+        "config": {
+          "base_path": null
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "execute_log_cleanup"
+        ],
+        "direction": "output",
+        "datasets": {
+          "produces": [
+            "failure_alerts"
+          ],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Airflow base log folder containing task execution logs",
+        "Airflow child process log directory with scheduler logs",
+        "DAG run configuration specifying maximum log age",
+        "Airflow Variables store with cleanup configuration parameters"
+      ],
+      "sinks": [
+        "Cleaned filesystem with old log files removed",
+        "Email alert system for failure notifications"
+      ],
+      "intermediate_datasets": [
+        "lock_file_status",
+        "log_files_marked_for_deletion",
+        "empty_directory_listings"
+      ]
+    }
+  }
+}

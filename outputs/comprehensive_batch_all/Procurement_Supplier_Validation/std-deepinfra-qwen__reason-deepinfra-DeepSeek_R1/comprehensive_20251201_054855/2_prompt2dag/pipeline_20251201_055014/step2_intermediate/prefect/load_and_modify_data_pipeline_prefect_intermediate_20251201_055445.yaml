@@ -1,0 +1,168 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-01 05:54:45.811094
+  source_analysis_file: Pipeline_Description_Dataset/Procurement_Supplier_Validation.txt
+  pipeline_name: load_and_modify_data_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    flow_name: load_and_modify_data_pipeline
+    deployment_name: load_and_modify_data_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir
+    conn_type: LocalFileSystem
+    description: Data Directory
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: data_dir
+      config:
+        base_path: ${DATA_DIR}
+        protocol: file
+  - conn_id: load_and_modify_service
+    conn_type: Secret
+    description: Load and Modify Service
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: load_and_modify_service
+      config:
+        base_url: http://localhost:3003
+        protocol: http
+  - conn_id: reconciliation_service
+    conn_type: Secret
+    description: Reconciliation Service
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: reconciliation_service
+      config:
+        base_url: http://localhost:3003
+        protocol: http
+  - conn_id: save_service
+    conn_type: Secret
+    description: Save Service
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: save_service
+      config:
+        base_url: http://localhost:3003
+        protocol: http
+  - conn_id: mongodb
+    conn_type: Secret
+    description: MongoDB
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: mongodb
+      config:
+        host: mongodb
+        port: 27017
+        protocol: mongodb
+  - conn_id: intertwino_api
+    conn_type: Secret
+    description: Intertwino API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: intertwino_api
+      config:
+        base_url: http://intertwino:5005
+        protocol: http
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: load_and_modify_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-load-and-modify:latest
+          command:
+            - python
+            - load_and_modify.py
+          env:
+            DATASET_ID: '2'
+            TABLE_NAME_PREFIX: JOT_
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: entity_reconciliation
+    task_name: Entity Reconciliation
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: entity_reconciliation
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-reconciliation:latest
+          command:
+            - python
+            - reconciliation.py
+          env:
+            PRIMARY_COLUMN: supplier_name
+            RECONCILIATOR_ID: wikidataEntity
+            DATASET_ID: '2'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: save_final_data
+    task_name: Save Final Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: save_final_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-save:latest
+          command:
+            - python
+            - save.py
+          env:
+            DATASET_ID: '2'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - entity_reconciliation
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []

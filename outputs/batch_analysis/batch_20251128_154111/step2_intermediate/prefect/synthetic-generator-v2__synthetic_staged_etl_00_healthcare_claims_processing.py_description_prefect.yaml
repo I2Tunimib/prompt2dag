@@ -1,0 +1,205 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-11-28 15:51:17.624302
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_staged_etl_00_healthcare_claims_processing.py_description.txt
+  pipeline_name: healthcare_claims_etl
+  pipeline_description: Comprehensive healthcare claims processing ETL pipeline implementing a staged ETL pattern with 
+    parallel extraction, followed by sequential transformation and parallel loading stages
+  orchestrator_specific:
+    flow_name: healthcare_claims_etl
+    deployment_name: healthcare_claims_etl_deployment
+    work_pool: default-agent-pool
+    task_runner: ConcurrentTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: claims_csv_source
+    conn_type: LocalFileSystem
+    description: Claims CSV Data Source
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: claims_csv_source
+      config:
+        base_path: /path/to/claims.csv
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: providers_csv_source
+    conn_type: LocalFileSystem
+    description: Providers CSV Data Source
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: providers_csv_source
+      config:
+        base_path: /path/to/providers.csv
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: healthcare_analytics_db
+    conn_type: Secret
+    description: Healthcare Analytics Database
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: healthcare_analytics_db
+      config:
+        base_path:
+        base_url:
+        host: localhost
+        port: 5432
+        protocol: postgresql
+        database: healthcare_analytics
+        schema: public
+        bucket:
+        queue_name:
+        username_secret_name: DB_USER
+        password_secret_name: DB_PASSWORD
+  - conn_id: power_bi_service
+    conn_type: Secret
+    description: Power BI Service
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: power_bi_service
+      config:
+        base_path:
+        base_url: https://api.powerbi.com/v1.0/myorg
+        host:
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: tableau_server
+    conn_type: Secret
+    description: Tableau Server
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: tableau_server
+      config:
+        base_path:
+        base_url: https://tableau.example.com/api/3.12
+        host:
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+        token_secret_name: TABLEAU_TOKEN
+tasks:
+  - task_id: extract_claims
+    task_name: Extract Claims Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: extract_claims
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: extract_providers
+    task_name: Extract Providers Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: extract_providers
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: transform_join
+    task_name: Transform and Join Claims with Providers
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: transform_join
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - extract_claims
+      - extract_providers
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: load_warehouse
+    task_name: Load Data to Analytics Warehouse
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: load_warehouse
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - transform_join
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: refresh_bi
+    task_name: Refresh BI Dashboards
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: refresh_bi
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - transform_join
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

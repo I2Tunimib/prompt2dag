@@ -1,0 +1,82 @@
+# DAG Documentation
+
+**Source Repository:** sivajik34/magento-airflow  
+**File Path:** src/example_dags/magento_customer_graphql.py  
+**Stars:** 3  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** unknown  
+**Complexity Score:** 3/10  
+
+---
+
+[Pipeline Name] - Comprehensive Pipeline Description
+
+Opening Summary:
+This pipeline performs sequential Magento customer management operations using GraphQL API calls. It creates a customer, generates an authentication token, and retrieves customer information in a linear workflow. The topology pattern is strictly sequential with data passing between tasks. Key infrastructure features include the custom MagentoGraphQLOperator for GraphQL operations, TaskFlow API decorators, and a Magento connection.
+
+Pipeline Steps:
+
+1. create_customer
+  • Objective: Create a new customer account in Magento with predefined customer details.
+  • Technical Details:
+    - Input: No external inputs; creates customer from hardcoded data
+    - Output: Customer email address passed to downstream task
+    - Integrations: Magento GraphQL API via magento_conn_id='magento_default'
+    - Key Parameters: 
+      - magento_conn_id: 'magento_default'
+      - Hardcoded customer data: firstname="John", lastname="Doe", email="john.doe@example.com", password="Airflow@123"
+  • Operator or Mechanism: @task decorated function with MagentoGraphQLOperator
+  • Notes: Returns customer email as dictionary {'customer_email': customer_email}
+
+2. generate_customer_token
+  • Objective: Generate authentication token for the created customer to enable authenticated API calls.
+  • Technical Details:
+    - Input: customer_email from create_customer task
+    - Output: Authentication token passed to downstream task
+    - Integrations: Magento GraphQL API via magento_conn_id='magento_default'
+    - Key Parameters:
+      - magento_conn_id: 'magento_default'
+      - Uses same hardcoded password "Airflow@123" for authentication
+  • Operator or Mechanism: @task decorated function with MagentoGraphQLOperator
+  • Notes: Validates for GraphQL errors in response before returning token
+
+3. get_customer_info
+  • Objective: Retrieve comprehensive customer information using the generated authentication token.
+  • Technical Details:
+    - Input: customer_token from generate_customer_token task
+    - Output: Complete customer profile data including addresses
+    - Integrations: Magento GraphQL API via magento_conn_id='magento_default'
+    - Key Parameters:
+      - magento_conn_id: 'magento_default'
+      - headers: {'Authorization': f'Bearer {customer_token}'}
+  • Operator or Mechanism: @task decorated function with MagentoGraphQLOperator
+  • Notes: Queries customer firstname, lastname, suffix, email, and address details with region information
+
+Orchestration & Scheduling:
+- schedule_interval: None (manually triggered)
+- start_date: datetime(2024, 8, 22)
+- catchup: False
+- default_args: 
+  - owner: 'airflow'
+  - depends_on_past: False
+  - email_on_failure: False
+  - email_on_retry: False
+  - retries: 1
+  - retry_delay: timedelta(minutes=5)
+
+Infrastructure & Dependencies:
+- Connections/IDs: magento_conn_id='magento_default' used across all GraphQL operations
+- Task grouping: Uses TaskFlow API (@task decorators) for Python function tasks
+- Data I/O hints: Customer data flows between tasks via XCom (customer_email, customer_token)
+
+Failure Handling & Alerts:
+- Retry policy: 1 retry with 5-minute delay between attempts
+- Email notifications disabled (email_on_failure: False, email_on_retry: False)
+- Comprehensive error logging with AirflowException handling in each task
+- GraphQL error validation in generate_customer_token and get_customer_info tasks
+
+Pattern-Specific Notes:
+- Sequential pattern: Strict linear dependency chain create_customer → generate_customer_token → get_customer_info
+- Data passing: Each task produces output consumed by the next task (email → token → customer info)
+- Authentication flow: Demonstrates complete customer lifecycle from creation to authenticated data retrieval

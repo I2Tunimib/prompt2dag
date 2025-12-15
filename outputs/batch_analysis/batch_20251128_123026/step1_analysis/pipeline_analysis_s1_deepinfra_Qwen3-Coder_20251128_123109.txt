@@ -1,0 +1,162 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-11-28T12:31:09.827441
+# Provider: deepinfra
+# Model: Qwen3-Coder
+# Source: Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__airvisual_pipeline_by_lat_long_review.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+# AirVisual Pipeline Lat Long v1 - Pipeline Analysis Report
+
+## 1. Executive Summary
+
+This pipeline extracts air quality and weather data from the AirVisual API using latitude/longitude coordinates, validates the retrieved data, and loads it into a PostgreSQL data warehouse using a dimensional model. The pipeline follows a strictly sequential execution pattern with three stages: data extraction, validation, and database loading.
+
+The pipeline demonstrates moderate complexity with API integration, file-based intermediate storage, and database operations. Key features include duplicate detection logic, data validation checkpoints, and idempotent database loading operations.
+
+## 2. Pipeline Architecture
+
+### Flow Patterns
+The pipeline follows a sequential execution pattern with no branching, parallelism, or sensor-based components. Each component executes only after successful completion of its upstream component.
+
+### Execution Characteristics
+All components utilize Python-based executors with no specialized infrastructure requirements. HTTP-based API calls are handled within Python execution contexts rather than dedicated HTTP executors.
+
+### Component Overview
+The pipeline consists of three component categories:
+- **Extractor**: Fetches data from AirVisual API and stores as JSON file
+- **QualityCheck**: Validates JSON data integrity 
+- **Loader**: Transforms and loads data into PostgreSQL dimensional model
+
+### Flow Description
+The pipeline begins with the AirVisual API extraction component, followed by JSON validation, and concludes with PostgreSQL data loading. Each component has a strict upstream dependency on the previous component's successful completion.
+
+## 3. Detailed Component Analysis
+
+### Extract AirVisual API Data (Extractor)
+**Purpose**: Fetches current air quality and weather data from AirVisual API using latitude/longitude coordinates and saves as JSON file with duplicate detection.
+
+**Executor Configuration**: Python-based execution with no specialized resource requirements.
+
+**Inputs/Outputs**:
+- Inputs: AirVisual API endpoint, API key, current timestamp
+- Outputs: JSON file at /opt/airflow/data/tmp_airvisual.json
+
+**Retry Policy**: Maximum 2 attempts with 300-second delay, retrying on timeout and network errors.
+
+**Connected Systems**: PostgreSQL database for duplicate detection, AirVisual API for data retrieval.
+
+### Validate AirVisual JSON Data (QualityCheck)
+**Purpose**: Validates and reads the JSON file created by extraction task to ensure data integrity before database loading.
+
+**Executor Configuration**: Python-based execution with no specialized resource requirements.
+
+**Inputs/Outputs**:
+- Inputs: JSON file from extract_airvisual_api component
+- Outputs: Validated JSON data structure
+
+**Retry Policy**: Maximum 2 attempts with 180-second delay, retrying on file not found and JSON parsing errors.
+
+**Connected Systems**: Local filesystem for JSON file access.
+
+### Load AirVisual Data to PostgreSQL (Loader)
+**Purpose**: Transforms JSON data into dimensional model and loads into PostgreSQL tables with proper referential integrity using ON CONFLICT DO NOTHING for idempotency.
+
+**Executor Configuration**: Python-based execution with no specialized resource requirements.
+
+**Inputs/Outputs**:
+- Inputs: Validated JSON data, pollution mapping file, weather mapping file
+- Outputs: Records in dimDateTimeTable, dimLocationTable, dimMainPollutionTable, factairvisualtable
+
+**Retry Policy**: Maximum 2 attempts with 180-second delay, retrying on database and transaction errors.
+
+**Connected Systems**: PostgreSQL database for data loading, configuration filesystem for mapping files.
+
+## 4. Parameter Schema
+
+### Pipeline-Level Parameters
+- **name**: "AirVisual Pipeline Lat Long v1" (default)
+- **description**: "Comprehensive Pipeline Description" (default)
+- **tags**: Empty array (default)
+
+### Schedule Configuration
+- **enabled**: false (default)
+- **start_date**: 2025-03-20T00:00:00
+- **timezone**: Asia/Bangkok
+- **catchup**: false
+
+### Execution Settings
+- **retry_policy**: 2 retries with 3-minute delay (default)
+- **depends_on_past**: false
+
+### Component-Specific Parameters
+**Extractor Component**:
+- latitude: 13.79059242 (required)
+- longitude: 100.32622308 (required)
+- timeout_seconds: 10
+- output_file_path: /opt/airflow/data/tmp_airvisual.json
+
+**Validator Component**:
+- input_file_path: /opt/airflow/data/tmp_airvisual.json (required)
+
+**Loader Component**:
+- input_file_path: /opt/airflow/data/tmp_airvisual.json (required)
+- pollution_mapping_file: /opt/airflow/config/mapping_main_pollution.json
+- weather_mapping_file: /opt/airflow/config/mapping_weather_code.json
+- on_conflict_strategy: DO NOTHING
+
+### Environment Variables
+- **AIRVISUAL_API_KEY**: Required for AirVisual API authentication
+- **POSTGRES_CONN**: Required for PostgreSQL database connection
+
+## 5. Integration Points
+
+### External Systems and Connections
+- **AirVisual API**: HTTP-based API for air quality data retrieval
+- **PostgreSQL Data Warehouse**: Database for data loading and duplicate detection
+- **Local Filesystem**: Storage for intermediate JSON files
+- **Configuration Filesystem**: Storage for mapping configuration files
+
+### Data Sources and Sinks
+**Sources**:
+- AirVisual API providing current air quality and weather data
+- Configuration files containing pollution and weather mappings
+
+**Sinks**:
+- PostgreSQL data warehouse with dimensional model tables
+
+### Authentication Methods
+- **Token-based**: AirVisual API key for API authentication
+- **Basic**: Username/password for PostgreSQL database access
+
+### Data Lineage
+Data flows from AirVisual API through a JSON intermediate file to PostgreSQL dimensional tables. The pipeline maintains data integrity through validation and implements duplicate detection to prevent redundant ingestion.
+
+## 6. Implementation Notes
+
+### Complexity Assessment
+The pipeline demonstrates moderate complexity with straightforward sequential execution. Key complexity comes from API integration, data validation requirements, and database operations with referential integrity constraints.
+
+### Upstream Dependency Policies
+All components follow an "all success" upstream policy, requiring successful completion of previous components before execution.
+
+### Retry and Timeout Configurations
+Components implement targeted retry policies with specific error conditions and delays. Timeout configurations are component-specific rather than pipeline-wide.
+
+### Potential Risks or Considerations
+- API rate limiting could impact data retrieval reliability
+- File-based intermediate storage creates potential points of failure
+- Database connection issues could halt the entire pipeline
+- Hardcoded file paths may limit portability across environments
+
+## 7. Orchestrator Compatibility
+
+### Assessment for Major Platforms
+The pipeline's sequential pattern and Python-based execution make it compatible with major pipeline orchestration platforms including Airflow, Prefect, and Dagster. The component structure and dependency patterns translate well across different orchestration systems.
+
+### Pattern-Specific Considerations
+The pipeline's linear execution pattern simplifies deployment across orchestration platforms. The file-based intermediate storage approach may require careful handling of file system access permissions in containerized environments.
+
+## 8. Conclusion
+
+This pipeline provides a robust solution for extracting air quality data from the AirVisual API and loading it into a PostgreSQL data warehouse. The sequential architecture ensures data integrity through validation checkpoints and implements appropriate error handling through targeted retry policies. The modular component design allows for maintainable and extensible implementation while the integration with PostgreSQL provides a solid foundation for analytical workloads.

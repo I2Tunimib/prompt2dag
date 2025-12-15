@@ -1,0 +1,82 @@
+# DAG Documentation
+
+**Source Repository:** technoavengers-com/airflow-training-private  
+**File Path:** dags/assignment_solution/assignment_template.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** unknown  
+**Complexity Score:** 3/10  
+
+---
+
+[Assignment Solution] - Comprehensive Pipeline Description
+
+Opening Summary:
+This pipeline fetches user data from an external API, processes the response, creates a PostgreSQL table, and inserts the processed data. The topology follows a sequential execution model with four tasks chained in linear order. Key infrastructure features include HTTP API integration, PostgreSQL database operations, XCom data passing between tasks, and custom operator templating.
+
+Pipeline Steps:
+
+1. get_user
+  • Objective: Fetch user data from external API endpoint for downstream processing
+  • Technical Details:
+    - Input: External API endpoint via HTTP connection
+    - Output: JSON user data pushed to XCom for downstream task consumption
+    - Integrations: HTTP API via 'reqres' connection ID, endpoint 'api/users/2'
+    - Key Parameters: http_conn_id='reqres', endpoint='api/users/2', method='GET', response_filter for JSON parsing
+  • Operator or Mechanism: SimpleHttpOperator
+  • Notes: Includes response filtering and JSON parsing, logs full response
+
+2. process_user
+  • Objective: Extract and transform user data from API response for database insertion
+  • Technical Details:
+    - Input: XCom data from get_user task containing raw user data
+    - Output: Processed user fields (firstname, lastname, email) pushed to XCom
+    - Integrations: XCom system for inter-task data passing
+    - Key Parameters: Python callable _process_user function
+  • Operator or Mechanism: PythonOperator
+  • Notes: Performs JSON parsing and string manipulation on user data
+
+3. create_table
+  • Objective: Create PostgreSQL table structure to store user data
+  • Technical Details:
+    - Input: Preceding task completion (process_user)
+    - Output: New PostgreSQL table 'users' with columns for firstname, lastname, email
+    - Integrations: PostgreSQL database via 'postgres' connection ID
+    - Key Parameters: postgres_conn_id='postgres', SQL DDL statement (to be defined via Airflow Variables)
+  • Operator or Mechanism: PostgresOperator
+  • Notes: SQL query configured through Airflow Variables system
+
+4. insert_data
+  • Objective: Insert processed user data into the newly created PostgreSQL table
+  • Technical Details:
+    - Input: XCom variables from process_user task (firstname, lastname, email), table from create_table
+    - Output: User record inserted into PostgreSQL users table
+    - Integrations: PostgreSQL database via 'postgres' connection ID
+    - Key Parameters: postgres_conn_id='postgres', dynamic parameters mapping XCom values to SQL placeholders
+  • Operator or Mechanism: CustomPostgresOperator
+  • Notes: Custom operator extends PostgresOperator with enhanced templating capabilities
+
+Orchestration & Scheduling:
+- Schedule: @daily execution
+- Start Date: days_ago(1) relative to DAG creation
+- Catchup: Not explicitly set (defaults to True)
+- Max Active Runs: Not explicitly set
+- Default Args: owner="Airflow", depends_on_past=False
+
+Infrastructure & Dependencies:
+- Connections: 'reqres' (HTTP API), 'postgres' (PostgreSQL database)
+- Custom Operators: CustomPostgresOperator with extended template_fields
+- Data Flow: XCom-based data passing between get_user → process_user → insert_data
+- External Systems: HTTP API (reqres endpoint), PostgreSQL database
+
+Failure Handling & Alerts:
+- Retry Policy: Not explicitly configured in default_args
+- Alerting: No email_on_failure or failure callbacks configured
+- Error Handling: Standard Airflow task retry mechanism applies
+
+Pattern-Specific Notes:
+- Sequential topology: Strict linear dependency chain get_user → process_user → create_table → insert_data
+- Data transformation pipeline: API extraction → data processing → table creation → data insertion
+- XCom-based data passing: User data flows through tasks via Airflow's XCom system
+- Dynamic SQL generation: SQL queries and parameters configured through templating and XCom values

@@ -1,0 +1,254 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T12:46:42.415615
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/Sequential_Pipeline_Prompt.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+**Overall Purpose and High-Level Flow:**
+The pipeline is designed to process raw CSV data through a series of sequential steps, transforming and enriching the data before saving the final output as a CSV file. The primary objective is to standardize and enrich the data with additional information, such as geocoding and weather data, to produce a comprehensive and usable dataset.
+
+**Key Patterns and Complexity:**
+- **Sequential Flow:** The pipeline follows a strictly sequential pattern, with each step dependent on the successful completion of the previous one.
+- **Docker Execution:** All tasks are executed within Docker containers, ensuring consistent and isolated environments.
+- **API Integrations:** The pipeline integrates with external APIs for data reconciliation and weather data enrichment.
+- **File System Operations:** Data is read from and written to a specified file system directory.
+
+### Pipeline Architecture
+
+**Flow Patterns:**
+- **Sequential:** The pipeline executes tasks in a linear sequence, with each task waiting for the previous one to complete successfully.
+
+**Execution Characteristics:**
+- **Task Executor Types:** All tasks are executed using Docker containers.
+
+**Component Overview:**
+- **Extractor:** Loads and modifies raw CSV data into JSON format.
+- **Reconciliator:** Standardizes and reconciles city names using an external geocoding service.
+- **Enricher:** Enriches the dataset with weather information from an external API.
+- **Transformer:** Appends additional data properties to the dataset.
+- **Loader:** Consolidates and saves the final enriched dataset as a CSV file.
+
+**Flow Description:**
+- **Entry Point:** The pipeline starts with the "Load and Modify Data" component.
+- **Main Sequence:** The main sequence of tasks is as follows:
+  1. **Load and Modify Data:** Ingests CSV files and converts them to JSON.
+  2. **Data Reconciliation:** Standardizes city names using the HERE geocoding service.
+  3. **OpenMeteo Data Extension:** Enriches the dataset with weather information.
+  4. **Column Extension:** Appends additional data properties.
+  5. **Save Final Data:** Consolidates and saves the final dataset as a CSV file.
+
+### Detailed Component Analysis
+
+**1. Load and Modify Data**
+- **Purpose and Category:** Extractor
+- **Executor Type and Configuration:** Docker
+  - **Image:** `i2t-backendwithintertwino6-load-and-modify:latest`
+  - **Command:** `python load_and_modify.py`
+  - **Environment:**
+    - `DATASET_ID`: 2
+    - `DATE_COLUMN`: Fecha_id
+    - `TABLE_NAMING_CONVENTION`: JOT_{}
+  - **Resources:** 1 CPU, 2Gi Memory
+  - **Network:** `app_network`
+- **Inputs:** CSV files from the data directory (`${DATA_DIR}/*.csv`)
+- **Outputs:** JSON files (`table_data_{}.json`)
+- **Retry Policy:** 1 attempt, 30-second delay, retries on timeout and network errors
+- **Connected Systems:** Filesystem (data directory)
+
+**2. Data Reconciliation**
+- **Purpose and Category:** Reconciliator
+- **Executor Type and Configuration:** Docker
+  - **Image:** `i2t-backendwithintertwino6-reconciliation:latest`
+  - **Command:** `python reconcile_data.py`
+  - **Environment:**
+    - `PRIMARY_COLUMN`: City
+    - `OPTIONAL_COLUMNS`: County, Country
+    - `RECONCILIATOR_ID`: geocodingHere
+    - `API_TOKEN`: your_api_token
+  - **Resources:** 1 CPU, 2Gi Memory
+  - **Network:** `app_network`
+- **Inputs:** JSON files (`table_data_*.json`)
+- **Outputs:** JSON files (`reconciled_table_{}.json`)
+- **Retry Policy:** 1 attempt, 30-second delay, retries on timeout and network errors
+- **Connected Systems:** HERE Geocoding API
+
+**3. OpenMeteo Data Extension**
+- **Purpose and Category:** Enricher
+- **Executor Type and Configuration:** Docker
+  - **Image:** `i2t-backendwithintertwino6-openmeteo-extension:latest`
+  - **Command:** `python extend_data.py`
+  - **Environment:**
+    - `WEATHER_ATTRIBUTES`: apparent_temperature_max, apparent_temperature_min, precipitation_sum, precipitation_hours
+    - `DATE_FORMAT`: your_date_format
+  - **Resources:** 1 CPU, 2Gi Memory
+  - **Network:** `app_network`
+- **Inputs:** JSON files (`reconciled_table_*.json`)
+- **Outputs:** JSON files (`open_meteo_{}.json`)
+- **Retry Policy:** 1 attempt, 30-second delay, retries on timeout and network errors
+- **Connected Systems:** OpenMeteo API
+
+**4. Column Extension**
+- **Purpose and Category:** Transformer
+- **Executor Type and Configuration:** Docker
+  - **Image:** `i2t-backendwithintertwino6-column-extension:latest`
+  - **Command:** `python extend_columns.py`
+  - **Environment:**
+    - `EXTENDER_ID`: reconciledColumnExt
+  - **Resources:** 1 CPU, 2Gi Memory
+  - **Network:** `app_network`
+- **Inputs:** JSON files (`open_meteo_*.json`)
+- **Outputs:** JSON files (`column_extended_{}.json`)
+- **Retry Policy:** 1 attempt, 30-second delay, retries on timeout and network errors
+- **Connected Systems:** None
+
+**5. Save Final Data**
+- **Purpose and Category:** Loader
+- **Executor Type and Configuration:** Docker
+  - **Image:** `i2t-backendwithintertwino6-save:latest`
+  - **Command:** `python save_data.py`
+  - **Environment:**
+    - `DATA_DIR`: /app/data
+  - **Resources:** 1 CPU, 2Gi Memory
+  - **Network:** `app_network`
+- **Inputs:** JSON files (`column_extended_*.json`)
+- **Outputs:** CSV file (`enriched_data_{}.csv`)
+- **Retry Policy:** 1 attempt, 30-second delay, retries on timeout and network errors
+- **Connected Systems:** Filesystem (data directory)
+
+### Parameter Schema
+
+**Pipeline-Level Parameters:**
+- **Name:** Pipeline identifier (required)
+- **Description:** Pipeline description (optional)
+- **Tags:** Classification tags (optional)
+
+**Schedule Configuration:**
+- **Enabled:** Whether the pipeline runs on schedule (optional)
+- **Cron Expression:** Cron or preset (optional)
+- **Start Date:** When to start scheduling (optional)
+- **End Date:** When to stop scheduling (optional)
+- **Timezone:** Schedule timezone (optional)
+- **Catchup:** Run missed intervals (optional)
+- **Batch Window:** Batch window parameter name (optional)
+- **Partitioning:** Data partitioning strategy (optional)
+
+**Execution Settings:**
+- **Max Active Runs:** Max concurrent pipeline runs (optional)
+- **Timeout Seconds:** Pipeline execution timeout (optional)
+- **Retry Policy:** Pipeline-level retry behavior (optional)
+- **Depends on Past:** Whether execution depends on previous run success (optional)
+
+**Component-Specific Parameters:**
+- **Load and Modify Data:**
+  - `dataset_id`: Dataset ID (default: 2)
+  - `date_column_name`: Date Column name (default: Fecha_id)
+  - `table_naming_convention`: Table naming convention (default: JOT_{})
+- **Data Reconciliation:**
+  - `primary_column`: Primary column (required)
+  - `optional_columns`: Optional columns (default: [County, Country])
+  - `reconciliator_id`: Reconciliator ID (required)
+  - `api_token`: API token for HERE geocoding service (required)
+- **OpenMeteo Data Extension:**
+  - `weather_attributes`: Weather attributes (default: [apparent_temperature_max, apparent_temperature_min, precipitation_sum, precipitation_hours])
+  - `date_format_separator`: Date formatting separator (optional)
+- **Column Extension:**
+  - `extender_id`: Extender ID (required)
+- **Save Final Data:**
+  - `output_directory`: Output directory for final CSV file (default: /app/data)
+
+**Environment Variables:**
+- **DATA_DIR:** Data directory for input and output files (required)
+- **API_TOKEN:** API token for HERE geocoding service (required)
+
+### Integration Points
+
+**External Systems and Connections:**
+- **Data Directory (Filesystem):**
+  - **Purpose:** Read input CSV files and save final CSV file
+  - **Base Path:** /app/data
+  - **Protocol:** file
+  - **Used by Components:** Load and Modify Data, Save Final Data
+- **Load and Modify Service (API):**
+  - **Purpose:** Convert CSV to JSON
+  - **Base URL:** http://load-and-modify-service:3003
+  - **Protocol:** http
+  - **Used by Component:** Load and Modify Data
+- **Reconciliation Service (API):**
+  - **Purpose:** Reconcile city names using HERE geocoding service
+  - **Base URL:** http://reconciliation-service:3003
+  - **Protocol:** http
+  - **Authentication:** Token (RECONCILIATION_API_TOKEN)
+  - **Used by Component:** Data Reconciliation
+- **OpenMeteo API (API):**
+  - **Purpose:** Fetch weather data
+  - **Base URL:** http://openmeteo-api:3003
+  - **Protocol:** http
+  - **Used by Component:** OpenMeteo Data Extension
+- **Column Extension Service (API):**
+  - **Purpose:** Append additional data properties
+  - **Base URL:** http://column-extension-service:3003
+  - **Protocol:** http
+  - **Used by Component:** Column Extension
+- **Docker Network:**
+  - **Purpose:** Network for Docker containers
+  - **Name:** app_network
+  - **Used by Components:** All components
+
+**Data Sources and Sinks:**
+- **Sources:** CSV files from the data directory (/app/data/*.csv)
+- **Sinks:** Final CSV file saved in the data directory (/app/data/enriched_data_{}.csv)
+- **Intermediate Datasets:**
+  - `table_data_{}.json`
+  - `reconciled_table_{}.json`
+  - `open_meteo_{}.json`
+  - `column_extended_{}.json`
+
+**Authentication Methods:**
+- **HERE Geocoding Service:** Token-based authentication
+
+**Data Lineage:**
+- **Sources:** CSV files from the data directory (/app/data/*.csv)
+- **Sinks:** Final CSV file saved in the data directory (/app/data/enriched_data_{}.csv)
+- **Intermediate Datasets:**
+  - `table_data_{}.json`
+  - `reconciled_table_{}.json`
+  - `open_meteo_{}.json`
+  - `column_extended_{}.json`
+
+### Implementation Notes
+
+**Complexity Assessment:**
+- The pipeline is relatively straightforward, with a clear and linear sequence of tasks.
+- The use of Docker containers ensures consistent execution environments, but it requires proper management of Docker images and configurations.
+
+**Upstream Dependency Policies:**
+- All tasks have an upstream policy of "all_success," meaning each task must wait for all its upstream tasks to complete successfully before starting.
+
+**Retry and Timeout Configurations:**
+- Each task has a retry policy with 1 attempt and a 30-second delay, retrying on timeout and network errors.
+- No specific timeout is set for the pipeline or individual tasks.
+
+**Potential Risks or Considerations:**
+- **API Rate Limits:** The pipeline relies on external APIs, which may have rate limits. Proper handling of rate limits and error retries is crucial.
+- **Data Volume:** The pipeline processes data sequentially, which may become a bottleneck with large datasets. Considerations for parallel processing or batch processing may be necessary for scalability.
+- **Docker Image Management:** Ensuring that Docker images are up-to-date and properly configured is essential for the pipeline's reliability.
+
+### Orchestrator Compatibility
+
+**Assessment for Airflow, Prefect, Dagster:**
+- **Airflow:** The sequential flow and Docker execution are well-supported. The pipeline can be easily mapped to Airflow tasks with appropriate operators.
+- **Prefect:** Prefect's flow-based approach and support for Docker tasks make it a suitable orchestrator. The sequential flow can be implemented using Prefect's task dependencies.
+- **Dagster:** Dagster's strong support for data lineage and Docker execution makes it a good fit. The pipeline can be represented as a series of solid definitions with appropriate dependencies.
+
+**Pattern-Specific Considerations:**
+- **Sequential Flow:** All orchestrators support sequential execution, making the pipeline straightforward to implement.
+- **Docker Execution:** All orchestrators have built-in support for Docker tasks, ensuring consistent execution environments.
+- **API Integrations:** Proper handling of API rate limits and retries is essential, which can be managed using orchestrator-specific features.
+
+### Conclusion
+
+The pipeline is designed to process and enrich raw CSV data through a series of sequential steps, ensuring data consistency and reliability. The use of Docker containers and external APIs adds flexibility and scalability. The pipeline's simplicity and clear flow make it compatible with various orchestrators, including Airflow, Prefect, and Dagster. Proper management of Docker images, API rate limits, and error handling will ensure the pipeline's robustness and reliability.

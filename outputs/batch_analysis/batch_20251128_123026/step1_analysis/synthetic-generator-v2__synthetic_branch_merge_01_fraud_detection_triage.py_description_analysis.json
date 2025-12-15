@@ -1,0 +1,963 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-11-28T12:35:54.602216",
+    "source_file": "Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_01_fraud_detection_triage.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "Qwen3-Coder",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "branching",
+        "hybrid"
+      ],
+      "task_executors_used": [
+        "python"
+      ],
+      "has_branching": true,
+      "has_parallelism": true,
+      "has_sensors": false,
+      "total_components": 5,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Branching via BranchPythonOperator",
+          "Parallelism via TaskFlow API expand()"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "Conditional logic via Python control flow",
+          "map() for parallel execution"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "Dynamic graphs or branching ops",
+          "DynamicOutput for fan-out"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "fraud_detection_triage",
+    "description": "Comprehensive fraud detection triage pipeline that processes daily transaction batches by analyzing CSV files, applying risk scoring, and conditionally routing transactions to manual review or auto-approval based on risk thresholds before merging for final notification.",
+    "flow_patterns": [
+      "sequential",
+      "branching",
+      "hybrid"
+    ],
+    "task_executors": [
+      "python"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "analyze_transactions",
+      "name": "Analyze Transactions",
+      "category": "Transformer",
+      "description": "Extracts and analyzes daily transaction CSV files to calculate risk scores for fraud detection.",
+      "inputs": [
+        "daily_transaction_csv"
+      ],
+      "outputs": [
+        "risk_score"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "fraud_detection_triage.analyze_transactions",
+        "environment": {},
+        "resources": {
+          "cpu": "1",
+          "memory": "2Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "daily_transaction_csv",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/data/transactions/{{ ds }}.csv",
+          "connection_id": "filesystem_conn"
+        },
+        {
+          "name": "risk_score",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful completion of data availability check",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "filesystem_conn",
+          "type": "filesystem",
+          "purpose": "Access to transaction CSV files"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "daily_transactions"
+        ],
+        "produces": [
+          "risk_scores"
+        ]
+      }
+    },
+    {
+      "id": "route_transaction",
+      "name": "Route Transaction",
+      "category": "Splitter",
+      "description": "Applies risk model and determines transaction routing path based on calculated risk score threshold.",
+      "inputs": [
+        "risk_score"
+      ],
+      "outputs": [
+        "routing_decision"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "fraud_detection_triage.route_transaction",
+        "environment": {},
+        "resources": {
+          "cpu": "0.5",
+          "memory": "1Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "risk_score",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "routing_decision",
+          "direction": "output",
+          "kind": "object",
+          "format": "string",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful completion of transaction analysis",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "risk_scores"
+        ],
+        "produces": [
+          "routing_decisions"
+        ]
+      }
+    },
+    {
+      "id": "route_to_manual_review",
+      "name": "Route to Manual Review",
+      "category": "Transformer",
+      "description": "Processes high-risk transactions (risk_score > 0.8) through manual review queue.",
+      "inputs": [
+        "routing_decision"
+      ],
+      "outputs": [
+        "manual_review_status"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "fraud_detection_triage.route_to_manual_review",
+        "environment": {},
+        "resources": {
+          "cpu": "1",
+          "memory": "2Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "routing_decision",
+          "direction": "input",
+          "kind": "object",
+          "format": "string",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "manual_review_status",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs when routing decision is 'route_to_manual_review'",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "routing_decisions"
+        ],
+        "produces": [
+          "manual_review_results"
+        ]
+      }
+    },
+    {
+      "id": "route_to_auto_approve",
+      "name": "Route to Auto Approve",
+      "category": "Transformer",
+      "description": "Processes low-risk transactions (risk_score ≤ 0.8) through automated approval for payment processing.",
+      "inputs": [
+        "routing_decision"
+      ],
+      "outputs": [
+        "auto_approve_status"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "fraud_detection_triage.route_to_auto_approve",
+        "environment": {},
+        "resources": {
+          "cpu": "1",
+          "memory": "2Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "routing_decision",
+          "direction": "input",
+          "kind": "object",
+          "format": "string",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "auto_approve_status",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs when routing decision is 'route_to_auto_approve'",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "routing_decisions"
+        ],
+        "produces": [
+          "auto_approval_results"
+        ]
+      }
+    },
+    {
+      "id": "send_notification",
+      "name": "Send Notification",
+      "category": "Notifier",
+      "description": "Sends final notification after both branch paths complete, indicating daily fraud triage process finished.",
+      "inputs": [
+        "manual_review_status",
+        "auto_approve_status"
+      ],
+      "outputs": [
+        "notification_sent"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "fraud_detection_triage.send_notification",
+        "environment": {},
+        "resources": {
+          "cpu": "0.5",
+          "memory": "1Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "manual_review_status",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "auto_approve_status",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "notification_sent",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "none_failed",
+        "description": "Runs after both manual review and auto approve branches complete (success or failure)",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "email_conn",
+          "type": "api",
+          "purpose": "Sending email notifications"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "manual_review_results",
+          "auto_approval_results"
+        ],
+        "produces": [
+          "fraud_triage_notifications"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "branching",
+    "entry_points": [
+      "analyze_transactions"
+    ],
+    "nodes": {
+      "analyze_transactions": {
+        "kind": "Task",
+        "component_type_id": "analyze_transactions",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "route_transaction"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "route_transaction": {
+        "kind": "Branch",
+        "component_type_id": "route_transaction",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "route_to_manual_review",
+          "route_to_auto_approve"
+        ],
+        "branch_config": {
+          "type": "conditional",
+          "branches": [
+            {
+              "label": "high_risk",
+              "condition": "risk_score > 0.8",
+              "next_node": "route_to_manual_review"
+            },
+            {
+              "label": "low_risk",
+              "condition": "risk_score <= 0.8",
+              "next_node": "route_to_auto_approve"
+            }
+          ]
+        },
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "route_to_manual_review": {
+        "kind": "Task",
+        "component_type_id": "route_to_manual_review",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "send_notification"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "route_to_auto_approve": {
+        "kind": "Task",
+        "component_type_id": "route_to_auto_approve",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "send_notification"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "send_notification": {
+        "kind": "Task",
+        "component_type_id": "send_notification",
+        "upstream_policy": {
+          "type": "none_failed",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "analyze_transactions",
+        "to": "route_transaction",
+        "edge_type": "success"
+      },
+      {
+        "from": "route_transaction",
+        "to": "route_to_manual_review",
+        "edge_type": "conditional",
+        "condition": "risk_score > 0.8"
+      },
+      {
+        "from": "route_transaction",
+        "to": "route_to_auto_approve",
+        "edge_type": "conditional",
+        "condition": "risk_score <= 0.8"
+      },
+      {
+        "from": "route_to_manual_review",
+        "to": "send_notification",
+        "edge_type": "success"
+      },
+      {
+        "from": "route_to_auto_approve",
+        "to": "send_notification",
+        "edge_type": "success"
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "fraud_detection_triage",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": "Comprehensive fraud detection triage pipeline that processes daily transaction batches by analyzing CSV files, applying risk scoring, and conditionally routing transactions to manual review or auto-approval based on risk thresholds before merging for final notification.",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [
+          "fraud-detection",
+          "branch-merge",
+          "daily"
+        ],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2024-01-01T00:00:00",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": "ds",
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": "daily",
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": 1,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 2,
+          "retry_delay_seconds": 300
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      }
+    },
+    "components": {
+      "analyze_transactions": {
+        "input_file_path": {
+          "description": "Path to daily transaction CSV files",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": "Path to directory containing CSV files"
+        }
+      },
+      "route_transaction": {
+        "risk_threshold": {
+          "description": "Risk score threshold for routing decisions",
+          "type": "float",
+          "default": 0.8,
+          "required": false,
+          "constraints": "Value between 0 and 1"
+        }
+      },
+      "route_to_manual_review": {
+        "review_queue_endpoint": {
+          "description": "Endpoint for manual review queue system",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "route_to_auto_approve": {
+        "payment_processing_endpoint": {
+          "description": "Endpoint for payment processing system",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "send_notification": {
+        "notification_recipients": {
+          "description": "Recipients for fraud detection notifications",
+          "type": "array",
+          "default": null,
+          "required": false,
+          "constraints": "List of email addresses"
+        },
+        "notification_message": {
+          "description": "Template for notification message",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      }
+    },
+    "environment": {
+      "EMAIL_ON_FAILURE": {
+        "description": "Enable email notifications on task failures",
+        "type": "boolean",
+        "default": true,
+        "required": false,
+        "associated_component_id": null
+      },
+      "EMAIL_ON_RETRY": {
+        "description": "Enable email notifications on task retries",
+        "type": "boolean",
+        "default": false,
+        "required": false,
+        "associated_component_id": null
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "transaction_csv_storage",
+        "name": "Transaction CSV Storage",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/data/transactions",
+          "protocol": "file",
+          "host": null,
+          "port": null,
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null,
+          "base_url": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "analyze_transactions"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "daily_transaction_files"
+          ]
+        }
+      },
+      {
+        "id": "manual_review_queue",
+        "name": "Manual Review Queue",
+        "type": "message_queue",
+        "config": {
+          "base_path": null,
+          "protocol": null,
+          "host": "review-queue.internal",
+          "port": 5672,
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": "manual_review_queue",
+          "base_url": null
+        },
+        "authentication": {
+          "type": "basic",
+          "token_env_var": null,
+          "username_env_var": "REVIEW_QUEUE_USER",
+          "password_env_var": "REVIEW_QUEUE_PASS",
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "route_to_manual_review"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": 10,
+          "burst": 20
+        },
+        "datasets": {
+          "produces": [
+            "high_risk_transactions"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "payment_processing_api",
+        "name": "Payment Processing API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "protocol": "https",
+          "host": "payments.internal",
+          "port": 443,
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null,
+          "base_url": "https://payments.internal/api/v1"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "PAYMENT_API_TOKEN",
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "route_to_auto_approve"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": 50,
+          "burst": 100
+        },
+        "datasets": {
+          "produces": [
+            "approved_transactions"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "notification_service",
+        "name": "Notification Service",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "protocol": "https",
+          "host": "notifications.internal",
+          "port": 443,
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null,
+          "base_url": "https://notifications.internal/api/v1"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "NOTIFICATION_API_TOKEN",
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "send_notification"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": 5,
+          "burst": 10
+        },
+        "datasets": {
+          "produces": [
+            "fraud_triage_completion_notifications"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "xcom_system",
+        "name": "XCom System",
+        "type": "cache",
+        "config": {
+          "base_path": null,
+          "protocol": null,
+          "host": "orchestrator-redis",
+          "port": 6379,
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null,
+          "base_url": null
+        },
+        "authentication": {
+          "type": "key_pair",
+          "token_env_var": null,
+          "username_env_var": "REDIS_USER",
+          "password_env_var": "REDIS_PASSWORD",
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "analyze_transactions",
+          "route_transaction"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": 1000,
+          "burst": 2000
+        },
+        "datasets": {
+          "produces": [
+            "risk_scores"
+          ],
+          "consumes": [
+            "risk_scores"
+          ]
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Daily transaction CSV files stored in /data/transactions",
+        "Risk scores calculated by analyze_transactions component"
+      ],
+      "sinks": [
+        "Manual review queue for high-risk transactions",
+        "Payment processing system for auto-approved transactions",
+        "Notification service for process completion alerts"
+      ],
+      "intermediate_datasets": [
+        "risk_scores",
+        "high_risk_transactions",
+        "approved_transactions",
+        "fraud_triage_completion_notifications"
+      ]
+    }
+  }
+}

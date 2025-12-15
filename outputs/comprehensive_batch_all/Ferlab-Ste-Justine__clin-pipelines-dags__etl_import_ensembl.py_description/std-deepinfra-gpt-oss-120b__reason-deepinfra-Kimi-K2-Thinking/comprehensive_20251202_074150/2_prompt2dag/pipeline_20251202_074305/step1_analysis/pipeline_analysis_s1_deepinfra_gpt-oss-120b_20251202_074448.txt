@@ -1,0 +1,174 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T07:44:48.990859
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_ensembl.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**ETL Pipeline Report – “etl_import_ensembl”**  
+
+---
+
+### 1. Executive Summary  
+
+- **Purpose** – The pipeline imports genomic mapping files from the Ensembl FTP server, stores the raw files in an S3‑based data lake, and then transforms them into structured tables using a Spark job executed on a Kubernetes cluster.  
+- **High‑level flow** – A manual start triggers a Slack notification, followed by a sequential download step and a Spark‑based transformation step. After the transformation, a conditional branch routes execution to either a success‑oriented Slack notification or a failure‑oriented Slack notification.  
+- **Key patterns & complexity** – The core data movement is a **sequential** pattern (download → transform). The overall pipeline exhibits a **hybrid** pattern because of the final outcome branch. No parallelism, dynamic mapping, or sensor components are present. The pipeline consists of six components, three of which are notifier components that interact with Slack.  
+
+---
+
+### 2. Pipeline Architecture  
+
+#### Flow Patterns  
+- **Sequential**: `notify_slack_start → check_and_download_ensembl_files → process_ensembl_mapping_spark`.  
+- **Branching (conditional)**: After the Spark step, execution follows an **outcome branch** that evaluates the overall success of the preceding tasks and routes to either `notify_slack_success` or `notify_slack_failure`.  
+
+#### Execution Characteristics  
+- **Executor Types**  
+  - **Python** – Used for the start‑up notifier and the FTP‑download component.  
+  - **Spark** – Used for the transformation component; runs on a Kubernetes cluster.  
+  - **Kubernetes** – Provides the runtime environment for the Spark job.  
+
+#### Component Overview  
+
+| Category      | Components (IDs)                                 | Role |
+|---------------|--------------------------------------------------|------|
+| Notifier      | `notify_slack_start`, `notify_slack_success`, `notify_slack_failure` | Emit Slack messages at pipeline start, on successful completion, and on any failure. |
+| Extractor     | `check_and_download_ensembl_files`               | Detect new Ensembl mapping files on FTP and copy them to the S3 raw landing zone. |
+| Transformer   | `process_ensembl_mapping_spark`                  | Run a Spark job to convert raw TSV files into processed Parquet/Hive tables in the data lake. |
+
+#### Flow Description  
+
+1. **Entry point** – Manual trigger initiates `notify_slack_start`.  
+2. **Download step** – `check_and_download_ensembl_files` contacts the Ensembl FTP server, compares file versions, and writes any new files to `s3://cqgc-{env}-app-datalake/raw/landing/ensembl/`.  
+3. **Transformation step** – `process_ensembl_mapping_spark` reads the newly landed TSV files from S3, executes the Spark class `bio.ferlab.datalake.spark3.publictables.ImportPublicTable` on Kubernetes, and writes processed tables (Parquet) to `s3://cqgc-{env}-app-datalake/processed/ensembl_mapping/`.  
+4. **Outcome branch** – An unconditional edge from the Spark step reaches a conditional branch:  
+   - If all upstream tasks succeeded → `notify_slack_success`.  
+   - If any upstream task failed → `notify_slack_failure`.  
+
+No sensors or parallel branches are defined; the only branching is the final success/failure decision.
+
+---
+
+### 3. Detailed Component Analysis  
+
+#### 3.1 `notify_slack_start` (Notifier)  
+- **Purpose** – Sends a Slack message when the pipeline is manually started.  
+- **Executor** – Python; script `notifications/slack_start.py`.  
+- **Resources** – 0.2 CPU, 256 MiB memory.  
+- **Inputs / Outputs** – Input: pipeline start event (internal trigger). Output: HTTP POST to Slack API (`https://slack.com/api/chat.postMessage`).  
+- **Retry Policy** – Single attempt, no retry.  
+- **Concurrency** – No parallelism; runs once per pipeline start.  
+- **Connections** – `slack_conn` (API, token‑based authentication).  
+
+#### 3.2 `check_and_download_ensembl_files` (Extractor)  
+- **Purpose** – Detects new Ensembl mapping TSV.GZ files and downloads them to the S3 raw landing zone.  
+- **Executor** – Python; script `tasks/check_and_download_ensembl.py`.  
+- **Resources** – 1 CPU, 2 GiB memory.  
+- **Inputs** – FTP source (`ftp://ftp.ensembl.org/pub/current_tsv/homo_sapiens/*.tsv.gz`) via connection `ftp_ensembl_conn`; existing S3 file versions for change detection.  
+- **Outputs** – Updated files written to `s3://cqgc-{env}-app-datalake/raw/landing/ensembl/{{filename}}`.  
+- **Retry Policy** – Up to 2 attempts, 5‑minute delay, exponential back‑off; retries on network errors and timeouts.  
+- **Concurrency** – Does not support parallelism; runs as a single instance.  
+- **Connections** – `ftp_ensembl_conn` (FTP, no authentication) and `s3_conn` (object storage, IAM).  
+
+#### 3.3 `process_ensembl_mapping_spark` (Transformer)  
+- **Purpose** – Transforms raw TSV files into structured tables (Parquet/Hive) using Spark.  
+- **Executor** – Spark on Kubernetes; entry point `bio.ferlab.datalake.spark3.publictables.ImportPublicTable`.  
+- **Environment Variables** – `TABLE_NAME=ensembl_mapping`, `CONFIG_FILE=config-etl-large`.  
+- **Resources** – 4 CPU, 8 GiB memory; network attached to `k8s_etl_network`.  
+- **Inputs** – TSV.GZ files from S3 landing zone (`s3://.../raw/landing/ensembl/*.tsv.gz`).  
+- **Outputs** – Processed tables stored as Parquet under `s3://.../processed/ensembl_mapping/`.  
+- **Retry Policy** – Up to 3 attempts, 10‑minute delay, exponential back‑off; retries on timeouts and resource exhaustion.  
+- **Concurrency** – Supports parallelism (Spark can parallelize internally), though the component itself is invoked as a single job.  
+- **Connections** – `s3_conn` (read/write) and `k8s_etl_context` (Kubernetes execution context).  
+
+#### 3.4 `notify_slack_success` (Notifier)  
+- **Purpose** – Sends a Slack message on successful pipeline completion.  
+- **Executor** – Python; script `notifications/slack_success.py`.  
+- **Resources** – 0.2 CPU, 256 MiB memory.  
+- **Inputs / Outputs** – Triggered after all upstream components succeed; posts to Slack API.  
+- **Retry Policy** – No retries (single attempt).  
+- **Connections** – `slack_conn`.  
+
+#### 3.5 `notify_slack_failure` (Notifier)  
+- **Purpose** – Sends a Slack alert when any component fails.  
+- **Executor** – Python; script `notifications/slack_failure.py`.  
+- **Resources** – 0.2 CPU, 256 MiB memory.  
+- **Inputs / Outputs** – Triggered by failure callbacks; posts to Slack API.  
+- **Retry Policy** – No retries.  
+- **Connections** – `slack_conn`.  
+
+---
+
+### 4. Parameter Schema  
+
+| Scope | Parameter | Type | Default | Required | Notes |
+|-------|-----------|------|---------|----------|-------|
+| **Pipeline** | `name` | string | `etl_import_ensembl` | Yes | Identifier used in monitoring and logs. |
+| | `description` | string | `Comprehensive Pipeline Description` | Yes | Human‑readable description. |
+| | `tags` | array | `[]` | No | Optional classification tags. |
+| **Schedule** | `enabled` | boolean | `false` | No | Pipeline is manually triggered; no recurring schedule. |
+| | `cron_expression` | string | `null` | No | Not applicable (manual run). |
+| | `start_date` | datetime | `2022‑01‑01T00:00:00Z` | No | Baseline for potential future scheduling. |
+| **Execution** | `max_active_runs` | integer | `null` | No | No explicit limit; defaults to orchestrator’s global setting. |
+| | `timeout_seconds` | integer | `null` | No | No global timeout defined. |
+| **Component – check_and_download_ensembl_files** | `mapping_types` | array | `null` | No | List of Ensembl mapping types (canonical, ena, entrez, refseq, uniprot). |
+| | `s3_bucket_format` | string | `null` | No | Pattern `cqgc-{env}-app-datalake`. |
+| | `s3_key_path` | string | `null` | No | Prefix `raw/landing/ensembl/`. |
+| | `ftp_base_path` | string | `null` | No | FTP base directory for Ensembl files. |
+| | `s3_conn_id` | string | `null` | No | Identifier for the S3 connection. |
+| **Component – process_ensembl_mapping_spark** | `spark_class` | string | `null` | No | Fully qualified Spark class to execute. |
+| | `config_file` | string | `null` | No | Spark configuration file (e.g., `config-etl-large`). |
+| | `table_name` | string | `null` | No | Target table name (`ensembl_mapping`). |
+| | `steps` | string | `null` | No | Identifier for processing steps (default). |
+| | `kubernetes_context` | string | `null` | No | Kubernetes context for Spark execution. |
+| **Notifier components** | – | – | – | – | No component‑specific parameters defined. |
+| **Environment** | – | – | – | – | No additional environment variables beyond those listed in component specs. |
+
+---
+
+### 5. Integration Points  
+
+| External System | Connection ID | Direction | Purpose | Authentication |
+|-----------------|---------------|-----------|---------|-----------------|
+| **Ensembl FTP Server** | `ensembl_ftp` (also `ftp_ensembl_conn`) | Input | Retrieve genomic mapping TSV.GZ files. | None (anonymous FTP). |
+| **AWS S3 Data Lake** | `s3_data_lake` (also `s3_conn`) | Both (read/write) | Store raw landing files and processed tables. | IAM role / instance profile. |
+| **Slack API** | `slack_api` (also `slack_conn`) | Output | Send start, success, and failure notifications. | Token‑based (`SLACK_BOT_TOKEN`). |
+| **Kubernetes ETL Cluster** | `kubernetes_etl` (also `k8s_etl_context`) | Input (execution environment) | Provide runtime for Spark job. | Certificate‑based kubeconfig. |
+
+**Data Lineage**  
+- **Source** – Ensembl FTP provides five TSV.GZ files (canonical, ena, entrez, refseq, uniprot).  
+- **Intermediate** – Files are landed in `s3://.../raw/landing/ensembl/`. Spark may generate temporary tables/parquet files during processing.  
+- **Sink** – Final processed tables are persisted as Parquet (or Hive) under `s3://.../processed/ensembl_mapping/`.  
+
+---
+
+### 6. Implementation Notes  
+
+- **Complexity Assessment** – The pipeline is low‑to‑moderate in complexity: a linear data flow with a single conditional branch for outcome handling. The most resource‑intensive step is the Spark transformation, which runs on a dedicated Kubernetes cluster.  
+- **Upstream Dependency Policies** – All core components (`check_and_download_ensembl_files`, `process_ensembl_mapping_spark`) require **all_success** upstream policies, ensuring strict ordering. The outcome branch uses an **all_done** policy to guarantee execution regardless of success or failure.  
+- **Retry & Timeout** – Component‑level retries are defined (2 attempts for download, 3 for Spark). No global timeout is set; individual components rely on their own retry/back‑off strategies.  
+- **Potential Risks / Considerations**  
+  - **FTP Availability** – The download step depends on anonymous FTP; network interruptions trigger retries but prolonged outages could delay the pipeline.  
+  - **Spark Resource Exhaustion** – The Spark job retries on `resource_exhausted`; ensure the Kubernetes cluster can provision the requested 4 CPU / 8 GiB per executor.  
+  - **Slack Rate Limits** – Although not explicitly limited, excessive failure notifications could approach Slack API rate limits; monitor for throttling.  
+  - **Manual Trigger** – Since scheduling is disabled, operational teams must remember to invoke the pipeline when new Ensembl releases are expected.  
+
+---
+
+### 7. Orchestrator Compatibility  
+
+| Orchestrator | Compatibility Assessment |
+|--------------|--------------------------|
+| **Airflow** | Supports Python, Spark, and Kubernetes executors; can model the sequential flow and conditional branch using standard task dependencies and trigger rules. |
+| **Prefect** | Provides native Python tasks, Spark flow blocks, and Kubernetes run configurations; conditional branching can be expressed with `if` logic in the flow. |
+| **Dagster** | Allows definition of solids (components) with resource‑based executors; the outcome branch can be modeled with `@graph` and conditional outputs. |
+
+*All three orchestrators can represent the described components, dependencies, retries, and resource specifications without requiring tool‑specific terminology.*  
+
+---
+
+### 8. Conclusion  
+
+The “etl_import_ensembl” pipeline delivers a focused, reliable ingestion and transformation workflow for Ensembl genomic mapping data. Its architecture—simple sequential processing capped by a clear success/failure notification branch—makes it straightforward to maintain and extend. Key strengths include explicit retry policies, clear resource allocations, and well‑defined integration points (FTP, S3, Slack, Kubernetes). With modest operational oversight (manual triggering) and attention to the identified risk areas, the pipeline can reliably keep the data lake synchronized with the latest Ensembl releases.

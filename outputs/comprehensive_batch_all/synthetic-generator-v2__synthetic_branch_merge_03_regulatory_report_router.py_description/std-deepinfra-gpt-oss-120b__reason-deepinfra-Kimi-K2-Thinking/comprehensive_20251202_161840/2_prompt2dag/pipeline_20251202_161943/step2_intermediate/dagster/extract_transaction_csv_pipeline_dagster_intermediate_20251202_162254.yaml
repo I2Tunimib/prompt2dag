@@ -1,0 +1,260 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 16:22:54.221706
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_03_regulatory_report_router.py_description.txt
+  pipeline_name: extract_transaction_csv_pipeline
+  pipeline_description: Comprehensive Pipeline Description
+  orchestrator_specific:
+    job_name: extract_transaction_csv_pipeline
+    description: Comprehensive Pipeline Description
+    executor_type: multiprocess_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - conn_secure_archive
+      - conn_local_fs
+      - conn_fatca_system
+      - conn_irs_system
+schedule:
+  enabled: false
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: local_filesystem_csv
+    conn_type: fs_io_manager
+    description: Local CSV File System
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: local_filesystem_csv
+      config:
+        base_path: /data/transactions
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: fatca_system
+    conn_type: resource
+    description: FATCA Regulatory System
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: fatca_system
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: irs_system
+    conn_type: resource
+    description: IRS Regulatory System
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: irs_system
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: secure_archive_storage
+    conn_type: s3_resource
+    description: Secure Archive Storage
+    config:
+      resource_type: s3_resource
+      resource_module: dagster_aws.s3
+      resource_key: secure_archive_storage
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: s3
+        database:
+        schema:
+        bucket: regulatory-archive
+        queue_name:
+tasks:
+  - task_id: extract_transaction_csv
+    task_name: Extract Transaction CSV
+    operator_class: Op
+    operator_module: dagster
+    component_ref: extract_transaction_csv
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - conn_local_fs
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: transaction_csv_files
+          dagster_type: String
+          description: /data/transactions/*.csv
+      outs:
+        - name: processed_transaction_data
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: branch_account_type_check
+    task_name: Account Type Branch Check
+    operator_class: Op
+    operator_module: dagster
+    component_ref: branch_account_type_check
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys: []
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: processed_transaction_data
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: account_routing_decision
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - extract_transaction_csv
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: generate_fatca_report
+    task_name: Generate FATCA Report
+    operator_class: Op
+    operator_module: dagster
+    component_ref: generate_fatca_report
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - conn_fatca_system
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: international_transaction_data
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: fatca_xml_report
+          dagster_type: String
+          description: Output to conn_fatca_system
+    upstream_task_ids:
+      - branch_account_type_check
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: generate_irs_report
+    task_name: Generate IRS Report
+    operator_class: Op
+    operator_module: dagster
+    component_ref: generate_irs_report
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - conn_irs_system
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: domestic_transaction_data
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: irs_1099_report
+          dagster_type: String
+          description: Output to conn_irs_system
+    upstream_task_ids:
+      - branch_account_type_check
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: archive_regulatory_reports
+    task_name: Archive Regulatory Reports
+    operator_class: Op
+    operator_module: dagster
+    component_ref: archive_regulatory_reports
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - conn_secure_archive
+        - conn_fatca_system
+        - conn_irs_system
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: fatca_xml_report
+          dagster_type: String
+          description: /reports/fatca/{{ ds }}.xml
+        - name: irs_1099_report
+          dagster_type: String
+          description: /reports/irs/{{ ds }}.json
+      outs:
+        - name: archived_reports
+          dagster_type: String
+          description: Output to conn_secure_archive
+    upstream_task_ids:
+      - generate_fatca_report
+      - generate_irs_report
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

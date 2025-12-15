@@ -1,0 +1,81 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_sensor_gated_00_upstream_etl_dependency.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** sensor_gated  
+**Complexity Score:** 3/10  
+
+---
+
+[executive_sales_dashboard] - Comprehensive Pipeline Description
+
+Opening Summary:
+This sensor-gated pipeline waits for the completion of an external daily sales aggregation DAG before loading the aggregated sales data and generating an executive dashboard. The topology follows a linear sequential pattern with an initial sensor gate that blocks execution until upstream dependencies are satisfied. Key infrastructure features include an ExternalTaskSensor for cross-DAG dependency management, daily scheduling, and email alerting on failures.
+
+Pipeline Steps:
+
+1. wait_for_sales_aggregation
+  • Objective: Gate pipeline execution until the upstream daily sales aggregation DAG completes successfully
+  • Technical Details:
+    - Input: External DAG 'daily_sales_aggregation' completion status
+    - Output: Unlocks downstream data loading task when external DAG succeeds
+    - Integrations: External DAG dependency on 'daily_sales_aggregation'
+    - Key Parameters: 
+      - external_dag_id: 'daily_sales_aggregation'
+      - external_task_id: None (waits for entire DAG)
+      - allowed_states: ['success']
+      - failed_states: ['failed', 'skipped']
+      - mode: 'reschedule'
+      - timeout: 3600 seconds
+      - poke_interval: 60 seconds
+  • Operator or Mechanism: ExternalTaskSensor
+  • Notes: Uses reschedule mode to free up worker slot during waiting periods
+
+2. load_sales_csv
+  • Objective: Load and validate aggregated sales CSV data produced by the upstream DAG
+  • Technical Details:
+    - Input: Completion of wait_for_sales_aggregation sensor
+    - Output: Validated sales data ready for dashboard generation
+    - Integrations: CSV data files from daily_sales_aggregation DAG output
+    - Key Parameters: python_callable=load_aggregated_sales
+  • Operator or Mechanism: PythonOperator
+
+3. generate_dashboard
+  • Objective: Create executive dashboard with sales metrics and visualizations
+  • Technical Details:
+    - Input: Validated sales data from load_sales_csv
+    - Output: Executive dashboard with revenue trends, product performance, and regional analysis
+    - Integrations: Sales data processing and visualization systems
+    - Key Parameters: python_callable=generate_executive_dashboard
+  • Operator or Mechanism: PythonOperator
+
+Orchestration & Scheduling:
+- Schedule: @daily
+- Start Date: January 1, 2024
+- Catchup: False
+- Default Args: 
+  - Owner: data_engineering
+  - Depends_on_past: False
+  - Retries: 2
+  - Retry_delay: 5 minutes
+  - Email_on_failure: True
+  - Email_on_retry: False
+
+Infrastructure & Dependencies:
+- Sensors: ExternalTaskSensor monitoring 'daily_sales_aggregation' DAG completion
+- External triggers: Dependency on external DAG 'daily_sales_aggregation'
+- Connections/IDs: External DAG dependency with full DAG completion check
+- Data I/O hints: Aggregated sales CSV data from daily_sales_aggregation DAG output
+
+Failure Handling & Alerts:
+- Email notifications on task failures (email_on_failure: True)
+- Automatic retry with 2 attempts and 5-minute delay between retries
+- No email on retry events (email_on_retry: False)
+
+Pattern-Specific Notes:
+- Sensor-gated: Pipeline execution is blocked by ExternalTaskSensor until upstream 'daily_sales_aggregation' DAG completes successfully
+- Downstream unlock: Once sensor condition is met, data loading and dashboard generation proceed sequentially
+- Linear flow: wait → load → generate with no parallelization or branching

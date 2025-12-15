@@ -1,0 +1,140 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-01 08:14:12.769854
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_01_fraud_detection_triage.py_description.txt
+  pipeline_name: fraud_detection_triage
+  pipeline_description: No description provided.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: transaction_csv_files
+    conn_type: fs
+    description: Daily Transaction CSV Files
+    config:
+      base_path: /data/transactions/daily
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: manual_review_queue
+    conn_type: rabbitmq
+    description: Manual Review Queue
+    config:
+      base_path:
+      base_url:
+      host: mq.example.com
+      port: 5672
+      protocol: amqp
+      database:
+      schema:
+      bucket:
+      queue_name: manual_review
+      login: MQ_USER
+      password: MQ_PASSWORD
+  - conn_id: payment_processing_api
+    conn_type: http
+    description: Payment Processing API
+    config:
+      base_path:
+      base_url: https://payment.example.com/api
+      host: payment.example.com
+      port: 443
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+      extra:
+        token_env_var: PAYMENT_API_TOKEN
+  - conn_id: notification_service
+    conn_type: http
+    description: Fraud Detection Notification Service
+    config:
+      base_path:
+      base_url: smtp://mail.example.com
+      host: mail.example.com
+      port: 587
+      protocol: smtp
+      database:
+      schema:
+      bucket:
+      queue_name:
+      login: SMTP_USER
+      password: SMTP_PASSWORD
+tasks:
+  - task_id: analyze_transactions
+    task_name: Analyze Transactions
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: analyze_transactions
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: route_transaction
+    task_name: Route Transaction
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: route_transaction
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - analyze_transactions
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: process_manual_review
+    task_name: Process Manual Review
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: process_manual_review
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - route_transaction
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: process_auto_approve
+    task_name: Process Auto Approval
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: process_auto_approve
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - route_transaction
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: send_notification
+    task_name: Send Notification
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: send_notification
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - process_manual_review
+      - process_auto_approve
+    trigger_rule: none_failed
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

@@ -1,0 +1,94 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T05:43:17.795113
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__airvisual_pipeline_by_lat_long_review.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**1. Executive Summary**  
+- **Purpose** – The pipeline retrieves current air‑quality and weather information for a fixed latitude/longitude from the AirVisual API, validates the received JSON payload, and loads the data into a PostgreSQL data‑warehouse using a dimensional model.  
+- **High‑level flow** – A strictly linear sequence of three components: extraction → validation → loading.  
+- **Key patterns & complexity** – Only a *sequential* execution pattern is detected. All three components run with a Python‑based executor and do not employ branching, parallelism, or sensors. The overall logical complexity is low (three steps), but the extraction component includes duplicate‑record detection and atomic file handling, adding modest operational nuance.  
+
+---
+
+**2. Pipeline Architecture**  
+
+| Aspect | Description |
+|--------|-------------|
+| **Flow Patterns** | Pure sequential flow: `extract_airvisual_data` → `validate_airvisual_json` → `load_airvisual_to_postgresql`. No branching, parallel branches, or sensor‑driven waits. |
+| **Execution Characteristics** | All components use a *python* executor type. No container images, custom commands, or resource limits are defined. |
+| **Component Overview** | 1. **Extractor** – *Extract AirVisual Data* – pulls data from an external API and writes a temporary JSON file. <br>2. **QualityCheck** – *Validate AirVisual JSON* – reads the file and checks structural integrity. <br>3. **Loader** – *Load AirVisual Data to PostgreSQL* – transforms the validated payload and performs idempotent inserts into dimension and fact tables. |
+| **Flow Description** | • **Entry point** – `extract_airvisual_data` (root component, no upstream dependencies). <br>• **Main sequence** – Upon successful extraction, the pipeline proceeds to validation; after a successful validation, it moves to loading. <br>• **Branching / Parallelism / Sensors** – None present. |
+
+---
+
+**3. Detailed Component Analysis**  
+
+| Component | Purpose & Category | Executor & Config | Inputs | Outputs | Retry Policy | Concurrency | Connected Systems |
+|-----------|-------------------|-------------------|--------|---------|--------------|-------------|-------------------|
+| **extract_airvisual_data** | Extractor – fetches current air‑quality data from the AirVisual API, performs duplicate detection against PostgreSQL, and writes the response atomically to a JSON file. | Python executor; no container image, command, or resource limits defined. | • API endpoint `http://api.airvisual.com/v2/nearest_city` (parameterised with LATITUDE, LONGITUDE, API_KEY). <br>• API key from configuration (environment variable). <br>• Current timestamp (runtime). | `/opt/airflow/data/tmp_airvisual.json` (JSON file). | Max 2 attempts, 300 s delay between attempts, retries on *timeout* and *network_error*. No exponential back‑off. | Parallelism not supported; dynamic mapping not used. | • **airvisual_api** (API connection, token‑based auth). <br>• **postgres_conn** (PostgreSQL, used for duplicate‑record query). <br>• **local_filesystem** (filesystem for temporary JSON). |
+| **validate_airvisual_json** | QualityCheck – reads the JSON file produced by the extractor and validates its schema and content before downstream processing. | Python executor; default configuration. | `/opt/airflow/data/tmp_airvisual.json` (JSON file). | In‑memory validated JSON object (no persisted file). | No retries configured (max 0). | Parallelism not supported. | • **local_filesystem** (read access to the temporary JSON file). |
+| **load_airvisual_to_postgresql** | Loader – transforms the validated JSON into a dimensional model and inserts rows into PostgreSQL dimension and fact tables with idempotent logic. | Python executor; default configuration. | • Validated JSON object (in‑memory). <br>• Mapping file `mapping_main_pollution.json`. <br>• Mapping file `mapping_weather_code.json`. | Inserts into PostgreSQL tables: `dimDateTimeTable`, `dimLocationTable`, `dimMainPollutionTable`, `factairvisualtable`. | No retries configured (max 0). | Parallelism not supported. | • **postgres_conn** (PostgreSQL target for inserts). <br>• **local_filesystem** (read access to the two mapping JSON files). |
+
+*Dataset lineage per component* –  
+- Extractor consumes `airvisual_api_response` and produces `airvisual_raw_json`.  
+- Validator consumes `airvisual_raw_json` and produces `airvisual_validated_json`.  
+- Loader consumes `airvisual_validated_json`, `pollution_mapping`, `weather_mapping` and produces the four warehouse tables.
+
+---
+
+**4. Parameter Schema**  
+
+| Scope | Parameters | Details |
+|-------|------------|---------|
+| **Pipeline‑level** | `name` (string, required, default *AirVisual_Pipeline_Lat_Long_v1*) <br> `description` (string, optional) <br> `tags` (array, optional) | Identify and document the pipeline. |
+| **Schedule** | `enabled` (bool) <br> `cron_expression` (string) <br> `start_date` (datetime, default *2025‑03‑20T00:00:00Z*) <br> `end_date` (datetime) <br> `timezone` (string) <br> `catchup` (bool, default *false*) <br> `batch_window` (string) <br> `partitioning` (string) | No schedule values are set; the pipeline can be triggered manually or later configured. |
+| **Execution** | `max_active_runs` (int) <br> `timeout_seconds` (int) <br> `retry_policy` (object: `retries` = 2, `retry_delay_seconds` = 180) <br> `depends_on_past` (bool) | Pipeline‑wide retry defaults differ from component‑level policies; component‑specific overrides apply. |
+| **Component‑specific** | *extract_airvisual_data* – `LATITUDE` (float, default 13.79059242), `LONGITUDE` (float, default 100.32622308), `timeout` (int, default 10 s). <br> *validate_airvisual_json* – `file_path` (string, default */opt/airflow/data/tmp_airvisual.json*). <br> *load_airvisual_to_postgresql* – `mapping_main_pollution_path` (string, default */opt/airflow/config/mapping_main_pollution.json*), `mapping_weather_code_path` (string, default */opt/airflow/config/mapping_weather_code.json*). |
+| **Environment Variables** | None defined at pipeline level; component *extract_airvisual_data* expects `AIRVISUAL_API_KEY` for token authentication. |
+
+---
+
+**5. Integration Points**  
+
+| External System | Connection ID | Type | Authentication | Role in Pipeline |
+|-----------------|---------------|------|----------------|------------------|
+| AirVisual API (nearest_city endpoint) | `airvisual_api` | API | Token via env‑var `AIRVISUAL_API_KEY` | Source of raw air‑quality JSON. |
+| PostgreSQL Data Warehouse | `postgresql_warehouse` (also referenced as `postgres_conn`) | Database | None defined (assumed trusted network) | Duplicate‑record check (extractor) and final dimensional/fact inserts (loader). |
+| Local Filesystem (temporary JSON) | `local_tmp_json` | Filesystem | None | Stores intermediate JSON file (`tmp_airvisual.json`). |
+| Mapping Files – Main Pollution & Weather Code | `mapping_main_pollution`, `mapping_weather_code` | Filesystem | None | Provide lookup tables for transformation in the loader. |
+
+*Data lineage* – Source → API response → temporary JSON file → validated JSON → transformed rows → PostgreSQL tables. All intermediate artifacts are stored locally on the same host, ensuring a simple, traceable flow.
+
+---
+
+**6. Implementation Notes**  
+
+- **Complexity Assessment** – Logical complexity is low (three sequential steps). Operational complexity arises from the duplicate‑record detection logic in the extractor and the need for atomic file writes to avoid partial data exposure.  
+- **Upstream Dependency Policies** – Each component uses an *all_success* upstream policy, meaning a downstream step runs only when the immediate predecessor finishes without error. No timeout constraints are defined at the component level.  
+- **Retry & Timeout** – Extraction component retries twice with a 5‑minute pause, targeting transient network issues. Loader and validator have no retries, implying that failures will halt the pipeline and require manual intervention. The extractor also defines a per‑call timeout of 10 seconds.  
+- **Potential Risks / Considerations**  
+  - Missing or invalid `AIRVISUAL_API_KEY` will cause immediate failure; ensure the environment variable is set securely.  
+  - Duplicate‑record detection relies on PostgreSQL queries; schema changes could break the skip logic.  
+  - No parallelism means the pipeline cannot scale horizontally; if the API latency grows, overall run time will increase linearly.  
+  - Absence of explicit resource limits may lead to uncontrolled memory/CPU usage on the host, especially during JSON parsing or transformation.  
+
+---
+
+**7. Orchestrator Compatibility**  
+
+| Orchestrator | Compatibility Observations |
+|--------------|----------------------------|
+| **Airflow** | Supports sequential execution, Python‑based tasks, and retry policies matching the component definitions. The lack of branching or parallelism simplifies DAG construction. |
+| **Prefect** | Prefect flows can model the same linear sequence with `Task` objects using the Python executor. Retry and timeout settings map directly to Prefect’s task policies. |
+| **Dagster** | Dagster’s `@op` definitions can represent each component; the linear dependency graph aligns with Dagster’s `Job` structure. Retry configurations can be expressed via `RetryPolicy`. |
+
+*Pattern‑specific considerations* – Because the pipeline is purely sequential and does not require dynamic mapping, any orchestrator that can express linear dependencies and Python execution will handle it without special configuration. The only nuance is ensuring that the orchestrator’s retry mechanism respects the component‑level policies (e.g., two retries only for the extractor).
+
+---
+
+**8. Conclusion**  
+
+The AirVisual pipeline is a concise, three‑step process that ingests external air‑quality data, validates it, and loads it into a PostgreSQL warehouse using a dimensional schema. Its strictly sequential design, Python‑only execution, and modest retry logic make it straightforward to implement across major orchestration platforms. Key operational focus areas should include secure handling of the API token, monitoring of the duplicate‑record detection logic, and potential future scaling considerations if data volume or latency increases.

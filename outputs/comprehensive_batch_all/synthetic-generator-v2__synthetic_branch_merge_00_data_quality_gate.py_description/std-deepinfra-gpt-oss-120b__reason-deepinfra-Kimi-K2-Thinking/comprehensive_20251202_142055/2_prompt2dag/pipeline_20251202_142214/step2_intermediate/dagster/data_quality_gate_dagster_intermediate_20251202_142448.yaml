@@ -1,0 +1,291 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 14:24:48.686148
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_00_data_quality_gate.py_description.txt
+  pipeline_name: data_quality_gate
+  pipeline_description: Comprehensive Pipeline Description
+  orchestrator_specific:
+    job_name: data_quality_gate
+    description: Comprehensive Pipeline Description
+    executor_type: multiprocess_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - smtp_email
+      - quarantine_storage
+      - fs_cleanup
+      - fs_raw_data
+      - prod_db
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: raw_csv_fs
+    conn_type: fs_io_manager
+    description: Raw CSV File System
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: raw_csv_fs
+      config:
+        base_path: /data/raw/
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: prod_db
+    conn_type: resource
+    description: Production Database
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: prod_db
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: jdbc
+        database: production_db
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: quarantine_fs
+    conn_type: fs_io_manager
+    description: Quarantine Storage
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: quarantine_fs
+      config:
+        base_path: /data/quarantine/
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: smtp_email
+    conn_type: resource
+    description: SMTP Email Service
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: smtp_email
+      config:
+        base_path:
+        base_url: smtp://mail.company.com
+        host: mail.company.com
+        port: 587
+        protocol: smtp
+        database:
+        schema:
+        bucket:
+        queue_name:
+tasks:
+  - task_id: ingest_csv
+    task_name: Ingest Customer CSV
+    operator_class: Op
+    operator_module: dagster
+    component_ref: ingest_csv
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - fs_raw_data
+      retry_policy:
+        max_retries: 1
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: raw_customer_csv_files
+          dagster_type: String
+          description: /data/raw/*.csv
+      outs:
+        - name: csv_file_metadata
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: quality_check
+    task_name: Assess Data Quality
+    operator_class: Op
+    operator_module: dagster
+    component_ref: quality_check
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys: []
+      retry_policy:
+        max_retries: 1
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: csv_file_metadata
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: quality_decision
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - ingest_csv
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: production_load
+    task_name: Load High‑Quality Data to Production
+    operator_class: Op
+    operator_module: dagster
+    component_ref: production_load
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - prod_db
+      retry_policy:
+        max_retries: 1
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: quality_decision
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: production_load_status
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - quality_check_branch
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: quarantine_and_alert
+    task_name: Quarantine Low‑Quality Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: quarantine_and_alert
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - quarantine_storage
+      retry_policy:
+        max_retries: 1
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: quality_decision
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: quarantine_status
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - quality_check_branch
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: send_alert_email
+    task_name: Send Quality Alert Email
+    operator_class: Op
+    operator_module: dagster
+    component_ref: send_alert_email
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - smtp_email
+      retry_policy:
+        max_retries: 1
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: quarantine_status
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: alert_email_status
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - quarantine_and_alert
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: cleanup
+    task_name: Final Cleanup
+    operator_class: Op
+    operator_module: dagster
+    component_ref: cleanup
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - fs_cleanup
+      retry_policy:
+        max_retries: 1
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: production_load_status
+          dagster_type: Any
+          description: ''
+        - name: alert_email_status
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: cleanup_status
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - production_load
+      - send_alert_email
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []

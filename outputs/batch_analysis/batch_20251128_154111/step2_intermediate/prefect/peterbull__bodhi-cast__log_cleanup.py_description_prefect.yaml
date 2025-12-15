@@ -1,0 +1,109 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-11-28 15:45:20.234256
+  source_analysis_file: Pipeline_Description_Dataset/peterbull__bodhi-cast__log_cleanup.py_description.txt
+  pipeline_name: airflow-log-cleanup
+  pipeline_description: Comprehensive maintenance pipeline that periodically cleans up old Airflow log files to prevent 
+    disk space issues
+  orchestrator_specific:
+    flow_name: airflow-log-cleanup
+    deployment_name: airflow-log-cleanup_deployment
+    work_pool: default-agent-pool
+    task_runner: ConcurrentTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: days_ago(1)
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: airflow_base_log_folder
+    conn_type: LocalFileSystem
+    description: Airflow Base Log Folder
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: airflow_base_log_folder
+      config:
+        base_path:
+        protocol: file
+  - conn_id: airflow_child_process_log_dir
+    conn_type: LocalFileSystem
+    description: Airflow Child Process Log Directory
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: airflow_child_process_log_dir
+      config:
+        base_path:
+        protocol: file
+  - conn_id: worker_lock_file
+    conn_type: LocalFileSystem
+    description: Worker Lock File
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: worker_lock_file
+      config:
+        base_path: /tmp/airflow_log_cleanup_worker.lock
+        protocol: file
+  - conn_id: airflow_variables_store
+    conn_type: Secret
+    description: Airflow Variables Store
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: airflow_variables_store
+      config:
+        base_path:
+        protocol:
+  - conn_id: email_alert_system
+    conn_type: Secret
+    description: Email Alert System
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: email_alert_system
+      config:
+        base_path:
+        protocol:
+tasks:
+  - task_id: start_log_cleanup
+    task_name: Start Log Cleanup
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: start_log_cleanup
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 1
+      retry_delay_seconds: 60
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: cleanup_log_directory
+    task_name: Cleanup Log Directory
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: cleanup_log_directory
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config:
+          shell: /bin/bash
+      retries: 1
+      retry_delay_seconds: 60
+      task_runner: ConcurrentTaskRunner
+    upstream_task_ids:
+      - start_log_cleanup
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []

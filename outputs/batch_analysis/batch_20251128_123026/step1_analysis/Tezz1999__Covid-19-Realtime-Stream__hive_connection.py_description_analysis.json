@@ -1,0 +1,452 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-11-28T12:33:55.760302",
+    "source_file": "Pipeline_Description_Dataset/Tezz1999__Covid-19-Realtime-Stream__hive_connection.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "Qwen3-Coder",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential"
+      ],
+      "task_executors_used": [
+        "bash",
+        "sql"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": false,
+      "total_components": 2,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "Comprehensive Pipeline",
+    "description": "This is a simple linear data pipeline that executes Hive database operations for COVID-19 realtime streaming data. The pipeline follows a sequential topology pattern with two tasks executing in strict order.",
+    "flow_patterns": [
+      "sequential"
+    ],
+    "task_executors": [
+      "bash",
+      "sql"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "run_system_check",
+      "name": "Run System Check",
+      "category": "Other",
+      "description": "Execute a system command to identify the executing user context before Hive operations. Uses image default entrypoint",
+      "inputs": [],
+      "outputs": [
+        "system_command_output"
+      ],
+      "executor_type": "bash",
+      "executor_config": {
+        "image": null,
+        "command": [
+          "echo",
+          "`whoami`"
+        ],
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "0.5",
+          "memory": "512Mi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "system_command_output",
+          "direction": "output",
+          "kind": "stream",
+          "format": "text",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "none_failed",
+        "description": "Runs first in the pipeline, no upstream dependencies",
+        "timeout_seconds": 300
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "execute_hive_script",
+      "name": "Execute Hive Script",
+      "category": "SQLTransform",
+      "description": "Execute HiveQL script to create database and table, then insert test data. Uses image default entrypoint",
+      "inputs": [
+        "system_command_output"
+      ],
+      "outputs": [
+        "hive_database_created",
+        "hive_table_created",
+        "test_data_inserted"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "apache/hive:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "1",
+          "memory": "2Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "hiveql_script",
+          "direction": "input",
+          "kind": "file",
+          "format": "sql",
+          "path_pattern": "/scripts/hive_operations.sql",
+          "connection_id": "hive_local"
+        },
+        {
+          "name": "hive_database_created",
+          "direction": "output",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": "mydb",
+          "connection_id": "hive_local"
+        },
+        {
+          "name": "hive_table_created",
+          "direction": "output",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": "mydb.test_af",
+          "connection_id": "hive_local"
+        },
+        {
+          "name": "test_data_inserted",
+          "direction": "output",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": "mydb.test_af.test=2",
+          "connection_id": "hive_local"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs only after successful completion of system check",
+        "timeout_seconds": 600
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 30,
+        "exponential_backoff": true,
+        "retry_on": [
+          "timeout",
+          "database_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "hive_local",
+          "type": "database",
+          "purpose": "Hive database connection for executing HiveQL scripts"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "mydb",
+          "mydb.test_af"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sequential",
+    "entry_points": [
+      "run_system_check"
+    ],
+    "nodes": {
+      "run_system_check": {
+        "kind": "Task",
+        "component_type_id": "run_system_check",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "execute_hive_script"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "execute_hive_script": {
+        "kind": "Task",
+        "component_type_id": "execute_hive_script",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "run_system_check",
+        "to": "execute_hive_script",
+        "edge_type": "success",
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "Comprehensive Pipeline",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Description of the pipeline",
+        "type": "string",
+        "default": "This is a simple linear data pipeline that executes Hive database operations for COVID-19 realtime streaming data. The pipeline follows a sequential topology pattern with two tasks executing in strict order.",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [
+          "COVID-19",
+          "Hive",
+          "Realtime Streaming",
+          "Linear Topology"
+        ],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "00 1 * * *",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": "daily",
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": null,
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "run_system_check": {
+        "bash_command": {
+          "description": "System command to execute",
+          "type": "string",
+          "default": "echo `whoami`",
+          "required": true,
+          "constraints": null
+        }
+      },
+      "execute_hive_script": {
+        "hql": {
+          "description": "HiveQL script to execute",
+          "type": "string",
+          "default": null,
+          "required": true,
+          "constraints": "Must contain valid HiveQL statements for database and table creation, and data insertion"
+        },
+        "hive_cli_conn_id": {
+          "description": "Hive CLI connection identifier",
+          "type": "string",
+          "default": "hive_local",
+          "required": true,
+          "constraints": null
+        }
+      }
+    },
+    "environment": {
+      "HIVE_CLI_CONN_ID": {
+        "description": "Hive CLI connection identifier environment variable",
+        "type": "string",
+        "default": "hive_local",
+        "required": false,
+        "associated_component_id": "execute_hive_script"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "hive_local_database",
+        "name": "Hive Local Database Connection",
+        "type": "database",
+        "config": {
+          "host": null,
+          "port": null,
+          "protocol": "jdbc",
+          "database": "mydb",
+          "schema": null,
+          "base_path": null,
+          "base_url": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "execute_hive_script"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "mydb.test_af"
+          ],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "System user context from bash command execution"
+      ],
+      "sinks": [
+        "Hive database 'mydb' with table 'test_af' containing inserted test data"
+      ],
+      "intermediate_datasets": [
+        "mydb.test_af"
+      ]
+    }
+  }
+}

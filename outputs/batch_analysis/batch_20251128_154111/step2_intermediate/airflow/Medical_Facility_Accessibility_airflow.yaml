@@ -1,0 +1,251 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 15:43:35.230904
+  source_analysis_file: Pipeline_Description_Dataset/Medical_Facility_Accessibility.txt
+  pipeline_name: medical_facility_accessibility_pipeline
+  pipeline_description: Assesses medical facility accessibility by geocoding locations and calculating distances to key 
+    infrastructure like public transport and residential areas.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir_filesystem
+    conn_type: fs
+    description: Data Directory Filesystem
+    config:
+      base_path: ${DATA_DIR}
+      protocol: file
+      host:
+      port:
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_url:
+  - conn_id: load_modify_service_api
+    conn_type: http
+    description: Load and Modify Service API
+    config:
+      base_url: http://localhost:3003
+      protocol: http
+      host: localhost
+      port: 3003
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_path:
+  - conn_id: reconciliation_service_api
+    conn_type: http
+    description: Reconciliation Service API
+    config:
+      base_url: http://localhost:3003
+      protocol: http
+      host: localhost
+      port: 3003
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_path:
+      extra:
+        token_env_var: HERE_API_TOKEN
+  - conn_id: column_extension_service_api
+    conn_type: http
+    description: Column Extension Service API
+    config:
+      base_url: http://localhost:3003
+      protocol: http
+      host: localhost
+      port: 3003
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_path:
+  - conn_id: save_service_api
+    conn_type: http
+    description: Save Service API
+    config:
+      base_url: http://localhost:3003
+      protocol: http
+      host: localhost
+      port: 3003
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_path:
+  - conn_id: mongodb_database
+    conn_type: mongo
+    description: MongoDB Database
+    config:
+      host: localhost
+      port: 27017
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_path:
+      base_url:
+      protocol: mongodb
+  - conn_id: intertwino_api
+    conn_type: http
+    description: Intertwino API
+    config:
+      base_url: http://localhost:5005
+      protocol: http
+      host: localhost
+      port: 5005
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_path:
+  - conn_id: transport_stops_geojson
+    conn_type: fs
+    description: Transport Stops GeoJSON
+    config:
+      base_path: /app/data/transport_stops.geojson
+      protocol: file
+      host:
+      port:
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_url:
+  - conn_id: residential_areas_geojson
+    conn_type: fs
+    description: Residential Areas GeoJSON
+    config:
+      base_path: /app/data/residential_areas.geojson
+      protocol: file
+      host:
+      port:
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_url:
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: load_and_modify_data
+    config:
+      image: i2t-backendwithintertwino6-load-and-modify:latest
+      environment:
+        DATASET_ID: '2'
+        TABLE_NAME_PREFIX: JOT_
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: reconcile_geocode_here
+    task_name: Reconcile Geocode HERE
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: reconcile_geocode_here
+    config:
+      image: i2t-backendwithintertwino6-reconciliation:latest
+      environment:
+        PRIMARY_COLUMN: address
+        RECONCILIATOR_ID: geocodingHere
+        API_TOKEN: '[HERE API token]'
+        DATASET_ID: '2'
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: calculate_distance_public_transport
+    task_name: Calculate Distance to Public Transport
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: calculate_distance_public_transport
+    config:
+      image: i2t-backendwithintertwino6-column-extension:latest
+      environment:
+        EXTENDER_ID: spatialDistanceCalculator
+        LAT_COLUMN: latitude
+        LON_COLUMN: longitude
+        TARGET_LAYER: public_transport
+        TARGET_DATA_SOURCE: /app/data/transport_stops.geojson
+        OUTPUT_COLUMN: distance_to_pt
+        DATASET_ID: '2'
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - reconcile_geocode_here
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: calculate_distance_residential_areas
+    task_name: Calculate Distance to Residential Areas
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: calculate_distance_residential_areas
+    config:
+      image: i2t-backendwithintertwino6-column-extension:latest
+      environment:
+        EXTENDER_ID: spatialDistanceCalculator
+        LAT_COLUMN: latitude
+        LON_COLUMN: longitude
+        TARGET_LAYER: residential_areas
+        TARGET_DATA_SOURCE: /app/data/residential_areas.geojson
+        OUTPUT_COLUMN: distance_to_residential
+        DATASET_ID: '2'
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - calculate_distance_public_transport
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: save_final_data
+    task_name: Save Final Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: save_final_data
+    config:
+      image: i2t-backendwithintertwino6-save:latest
+      environment:
+        DATASET_ID: '2'
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - calculate_distance_residential_areas
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

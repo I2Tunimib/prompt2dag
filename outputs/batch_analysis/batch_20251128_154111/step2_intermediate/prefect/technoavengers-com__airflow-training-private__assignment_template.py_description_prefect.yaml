@@ -1,0 +1,134 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-11-28 15:51:37.078627
+  source_analysis_file: 
+    Pipeline_Description_Dataset/technoavengers-com__airflow-training-private__assignment_template.py_description.txt
+  pipeline_name: assignment_solution
+  pipeline_description: Fetches user data from an external API, processes the response, creates a PostgreSQL table, and 
+    inserts the processed data
+  orchestrator_specific:
+    flow_name: assignment_solution
+    deployment_name: assignment_solution_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: days_ago(1)
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: reqres_api
+    conn_type: Secret
+    description: Reqres API Connection
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: reqres_api
+      config:
+        base_url: https://reqres.in
+        host:
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: postgres_db
+    conn_type: Secret
+    description: PostgreSQL Database
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: postgres_db
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: jdbc
+        database:
+        schema:
+        bucket:
+        queue_name:
+        username_secret_name: POSTGRES_USER
+        password_secret_name: POSTGRES_PASSWORD
+tasks:
+  - task_id: fetch_user_data
+    task_name: Fetch User Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: fetch_user_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config: {}
+      retries: 0
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: process_user_info
+    task_name: Process User Info
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: process_user_info
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: _process_user
+      retries: 0
+    upstream_task_ids:
+      - fetch_user_data
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: create_users_table
+    task_name: Create Users Table
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: create_users_table
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: postgres:13
+          env: {}
+          auto_remove: true
+          stream_output: true
+      retries: 0
+    upstream_task_ids:
+      - process_user_info
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: insert_user_data
+    task_name: Insert User Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: insert_user_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: custom_postgres_operator.insert_data
+      retries: 0
+    upstream_task_ids:
+      - create_users_table
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

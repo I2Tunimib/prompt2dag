@@ -1,0 +1,307 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-01 06:20:28.059175
+  source_analysis_file: Pipeline_Description_Dataset/Sequential_Pipeline_Prompt.txt
+  pipeline_name: load_and_modify_data_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    job_name: load_and_modify_data_pipeline
+    description: No description provided.
+    executor_type: docker_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - openmeteo_api
+      - geocoding_api
+      - data_directory
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_directory
+    conn_type: fs_io_manager
+    description: Data Directory
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: data_directory
+      config:
+        base_path: /app/data
+        protocol: file
+  - conn_id: load_and_modify_service
+    conn_type: resource
+    description: Load and Modify Service
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: load_and_modify_service
+      config:
+        base_url: http://load-and-modify-service:3003
+        protocol: http
+  - conn_id: reconciliation_service
+    conn_type: resource
+    description: Reconciliation Service
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: reconciliation_service
+      config:
+        base_url: http://reconciliation-service:3003
+        protocol: http
+        token: EnvVar('RECONCILIATION_SERVICE_TOKEN')
+  - conn_id: openmeteo_api
+    conn_type: resource
+    description: OpenMeteo API
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: openmeteo_api
+      config:
+        base_url: https://api.open-meteo.com
+        protocol: https
+  - conn_id: docker_network
+    conn_type: resource
+    description: Docker Network
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: docker_network
+      config:
+        name: app_network
+  - conn_id: shared_volume
+    conn_type: fs_io_manager
+    description: Shared Volume
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: shared_volume
+      config:
+        base_path: /app/data
+        protocol: file
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: load_and_modify_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-load-and-modify:latest
+          container_kwargs:
+            command:
+              - python
+              - load_and_modify.py
+            environment:
+              DATASET_ID: '2'
+              DATE_COLUMN: Fecha_id
+              TABLE_NAMING_CONVENTION: JOT_{}
+            network_mode: app_network
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - data_directory
+      retry_policy:
+        max_retries: 1
+        delay: 60
+        backoff: CONSTANT
+      ins:
+        - name: data_directory
+          dagster_type: String
+          description: ${DATA_DIR}/*.csv
+      outs:
+        - name: json_data
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: reconcile_data
+    task_name: Data Reconciliation
+    operator_class: Op
+    operator_module: dagster
+    component_ref: reconcile_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-reconciliation:latest
+          container_kwargs:
+            command:
+              - python
+              - reconcile_data.py
+            environment:
+              PRIMARY_COLUMN: City
+              OPTIONAL_COLUMNS: County,Country
+              RECONCILIATOR_ID: geocodingHere
+              API_TOKEN: your_api_token
+            network_mode: app_network
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - geocoding_api
+      retry_policy:
+        max_retries: 1
+        delay: 60
+        backoff: CONSTANT
+      ins:
+        - name: json_data
+          dagster_type: String
+          description: ${DATA_DIR}/table_data_*.json
+      outs:
+        - name: reconciled_data
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: extend_with_weather_data
+    task_name: OpenMeteo Data Extension
+    operator_class: Op
+    operator_module: dagster
+    component_ref: extend_with_weather_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-openmeteo-extension:latest
+          container_kwargs:
+            command:
+              - python
+              - extend_with_weather.py
+            environment:
+              DATE_FORMAT: your_date_format
+            network_mode: app_network
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - openmeteo_api
+      retry_policy:
+        max_retries: 1
+        delay: 60
+        backoff: CONSTANT
+      ins:
+        - name: reconciled_data
+          dagster_type: String
+          description: ${DATA_DIR}/reconciled_table_*.json
+      outs:
+        - name: weather_data
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - reconcile_data
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: extend_columns
+    task_name: Column Extension
+    operator_class: Op
+    operator_module: dagster
+    component_ref: extend_columns
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-column-extension:latest
+          container_kwargs:
+            command:
+              - python
+              - extend_columns.py
+            environment:
+              EXTENDER_ID: reconciledColumnExt
+            network_mode: app_network
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys: []
+      retry_policy:
+        max_retries: 1
+        delay: 60
+        backoff: CONSTANT
+      ins:
+        - name: weather_data
+          dagster_type: String
+          description: ${DATA_DIR}/open_meteo_*.json
+      outs:
+        - name: column_extended_data
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - extend_with_weather_data
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: save_final_data
+    task_name: Save Final Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: save_final_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-save:latest
+          container_kwargs:
+            command:
+              - python
+              - save_final_data.py
+            network_mode: app_network
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - data_directory
+      retry_policy:
+        max_retries: 1
+        delay: 60
+        backoff: CONSTANT
+      ins:
+        - name: column_extended_data
+          dagster_type: String
+          description: ${DATA_DIR}/column_extended_*.json
+      outs:
+        - name: final_csv
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - extend_columns
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []

@@ -1,0 +1,99 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 15:51:36.814391
+  source_analysis_file: 
+    Pipeline_Description_Dataset/technoavengers-com__airflow-training-private__assignment_template.py_description.txt
+  pipeline_name: assignment_solution
+  pipeline_description: Fetches user data from an external API, processes the response, creates a PostgreSQL table, and 
+    inserts the processed data
+  orchestrator_specific: {}
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: days_ago(1)
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: reqres_api
+    conn_type: http
+    description: Reqres API Connection
+    config:
+      base_url: https://reqres.in
+      host:
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: postgres_db
+    conn_type: generic
+    description: PostgreSQL Database
+    config:
+      base_path:
+      base_url:
+      host:
+      port:
+      protocol: jdbc
+      database:
+      schema:
+      bucket:
+      queue_name:
+      login: POSTGRES_USER
+      password: POSTGRES_PASSWORD
+tasks:
+  - task_id: fetch_user_data
+    task_name: Fetch User Data
+    operator_class: SimpleHttpOperator
+    operator_module: airflow.providers.http.operators.http
+    component_ref: fetch_user_data
+    config: {}
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: process_user_info
+    task_name: Process User Info
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: process_user_info
+    config:
+      python_callable: _process_user
+    upstream_task_ids:
+      - fetch_user_data
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: create_users_table
+    task_name: Create Users Table
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: create_users_table
+    config:
+      image: postgres:13
+      environment: {}
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+    upstream_task_ids:
+      - process_user_info
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: insert_user_data
+    task_name: Insert User Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: insert_user_data
+    config:
+      python_callable: custom_postgres_operator.insert_data
+    upstream_task_ids:
+      - create_users_table
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

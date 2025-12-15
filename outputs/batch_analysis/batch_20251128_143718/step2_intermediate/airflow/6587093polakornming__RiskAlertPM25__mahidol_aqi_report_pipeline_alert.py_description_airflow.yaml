@@ -1,0 +1,137 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 14:38:09.914430
+  source_analysis_file: 
+    Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__mahidol_aqi_report_pipeline_alert.py_description.txt
+  pipeline_name: PM2.5_Risk_Alert_Pipeline
+  pipeline_description: Comprehensive ETL pipeline that scrapes Mahidol University AQI data, processes HTML to extract 
+    air quality metrics, loads structured data into PostgreSQL, and sends email alerts when PM2.5 levels exceed safe 
+    thresholds
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: mahidol_aqi_website
+    conn_type: http
+    description: Mahidol University AQI Website
+    config:
+      base_url: https://mahidol.ac.th/aqireport/
+      host:
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_path:
+  - conn_id: local_filesystem_data
+    conn_type: fs
+    description: Local Data Directory
+    config:
+      base_path: data
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: postgres_data_warehouse
+    conn_type: generic
+    description: PostgreSQL Data Warehouse
+    config:
+      base_path:
+      base_url:
+      host:
+      port:
+      protocol: jdbc
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: local_config_files
+    conn_type: fs
+    description: Local Configuration Files
+    config:
+      base_path: /opt/airflow/config
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: gmail_smtp_server
+    conn_type: http
+    description: Gmail SMTP Server
+    config:
+      base_url:
+      host: smtp.gmail.com
+      port: 587
+      protocol: smtp
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_path:
+      login: EMAIL_USERNAME
+      password: EMAIL_PASSWORD
+tasks:
+  - task_id: extract_mahidol_aqi
+    task_name: Extract Mahidol AQI Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_mahidol_aqi
+    config:
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 3
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: parse_mahidol_aqi_html
+    task_name: Parse Mahidol AQI HTML
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: parse_mahidol_aqi_html
+    config:
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - extract_mahidol_aqi
+    trigger_rule: all_success
+    retries: 3
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: load_mahidol_aqi_postgres
+    task_name: Load Mahidol AQI to PostgreSQL
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: load_mahidol_aqi_postgres
+    config:
+      retry_delay: timedelta(seconds=60)
+    upstream_task_ids:
+      - parse_mahidol_aqi_html
+    trigger_rule: all_success
+    retries: 3
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: send_pm25_alert_email
+    task_name: Send PM2.5 Alert Email
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: send_pm25_alert_email
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - load_mahidol_aqi_postgres
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

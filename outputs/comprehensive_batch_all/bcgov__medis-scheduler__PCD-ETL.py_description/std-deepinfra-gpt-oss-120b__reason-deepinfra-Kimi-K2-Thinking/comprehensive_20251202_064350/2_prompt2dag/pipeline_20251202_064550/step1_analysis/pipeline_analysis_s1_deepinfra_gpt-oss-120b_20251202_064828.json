@@ -1,0 +1,1095 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T06:48:28.481880",
+    "source_file": "Pipeline_Description_Dataset/bcgov__medis-scheduler__PCD-ETL.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "gpt-oss-120b",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "parallel",
+        "hybrid"
+      ],
+      "task_executors_used": [
+        "kubernetes",
+        "http",
+        "python"
+      ],
+      "has_branching": false,
+      "has_parallelism": true,
+      "has_sensors": false,
+      "total_components": 5,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Parallelism via TaskFlow API expand()"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "map() for parallel execution"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "DynamicOutput for fan-out"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "check_pcd_sftp_folder_pipeline",
+    "description": "Staged ETL pipeline for Primary Care Data processing",
+    "flow_patterns": [
+      "sequential",
+      "parallel",
+      "hybrid"
+    ],
+    "task_executors": [
+      "kubernetes",
+      "http",
+      "python"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "check_pcd_sftp_folder",
+      "name": "Check PCD SFTP Folder",
+      "category": "Sensor",
+      "description": "Verifies the availability and contents of the SFTP folder before the ETL pipeline starts.",
+      "inputs": [],
+      "outputs": [
+        "sftp_folder_status"
+      ],
+      "executor_type": "kubernetes",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "0.5",
+          "memory": "512Mi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "sftp_folder_status",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": "sftp_conn"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "First step, no upstream dependencies.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 30,
+        "exponential_backoff": true,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "sftp_conn",
+          "type": "filesystem",
+          "purpose": "access SFTP folder"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "sftp_folder_status"
+        ]
+      }
+    },
+    {
+      "id": "check_pcd_shared_folder",
+      "name": "Check PCD Shared Folder",
+      "category": "Sensor",
+      "description": "Validates accessibility of the shared folder after the SFTP check.",
+      "inputs": [
+        "sftp_folder_status"
+      ],
+      "outputs": [
+        "shared_folder_status"
+      ],
+      "executor_type": "kubernetes",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "0.5",
+          "memory": "512Mi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "shared_folder_status",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": "shared_folder_conn"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful SFTP folder check.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 30,
+        "exponential_backoff": true,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "shared_folder_conn",
+          "type": "filesystem",
+          "purpose": "access shared folder"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "sftp_folder_status"
+        ],
+        "produces": [
+          "shared_folder_status"
+        ]
+      }
+    },
+    {
+      "id": "extract_pcd_api",
+      "name": "Extract PCD API Data",
+      "category": "Extractor",
+      "description": "Sends POST requests to multiple PCD‑related HTTP endpoints in parallel and validates that each response returns status code 200.",
+      "inputs": [
+        "shared_folder_status"
+      ],
+      "outputs": [
+        "pcd_api_responses"
+      ],
+      "executor_type": "http",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "1",
+          "memory": "1Gi",
+          "gpu": null
+        },
+        "network": null,
+        "method": "POST",
+        "response_check": "status_code == 200"
+      },
+      "io_spec": [
+        {
+          "name": "pcd_api_responses",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "api_responses/{{api_endpoint}}.json",
+          "connection_id": "pcd_api_conn"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Triggered after shared folder validation completes.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 20,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "http_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": true,
+        "supports_dynamic_mapping": true,
+        "map_over_param": "api_endpoint",
+        "max_parallel_instances": 18
+      },
+      "connections": [
+        {
+          "id": "pcd_api_conn",
+          "type": "api",
+          "purpose": "call PCD HTTP endpoints"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "shared_folder_status"
+        ],
+        "produces": [
+          "pcd_api_responses"
+        ]
+      }
+    },
+    {
+      "id": "upload_pcd_data",
+      "name": "Process and Upload PCD Data",
+      "category": "Loader",
+      "description": "Runs a Kubernetes job that processes all extracted API data and uploads the resulting PCD dataset to the target storage.",
+      "inputs": [
+        "pcd_api_responses"
+      ],
+      "outputs": [
+        "processed_pcd_dataset"
+      ],
+      "executor_type": "kubernetes",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "2",
+          "memory": "4Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "processed_pcd_dataset",
+          "direction": "output",
+          "kind": "file",
+          "format": "parquet",
+          "path_pattern": "output/pcd_dataset.parquet",
+          "connection_id": "pcd_storage_conn"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Executes after all API extraction tasks have completed successfully.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "pcd_storage_conn",
+          "type": "object_storage",
+          "purpose": "store processed PCD dataset"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "pcd_api_responses"
+        ],
+        "produces": [
+          "processed_pcd_dataset"
+        ]
+      }
+    },
+    {
+      "id": "send_etl_notification",
+      "name": "Send ETL Notification Email",
+      "category": "Notifier",
+      "description": "Sends an email summarizing the ETL run, indicating success or failure and listing any failed tasks.",
+      "inputs": [
+        "run_status",
+        "failed_task_details"
+      ],
+      "outputs": [
+        "notification_email_sent"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": "notifications/send_etl_email.py",
+        "entry_point": "notifications.send_etl_email.main",
+        "environment": {},
+        "resources": {
+          "cpu": "0.2",
+          "memory": "256Mi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "run_status",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "failed_task_details",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "notification_email_sent",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": "email_service_conn"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_done",
+        "description": "Executes regardless of success or failure of upstream tasks.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 60,
+        "exponential_backoff": false,
+        "retry_on": [
+          "network_error",
+          "smtp_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "email_service_conn",
+          "type": "api",
+          "purpose": "send email notifications"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "notification_email_sent"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "hybrid",
+    "entry_points": [
+      "check_pcd_sftp_folder"
+    ],
+    "nodes": {
+      "check_pcd_sftp_folder": {
+        "kind": "Task",
+        "component_type_id": "check_pcd_sftp_folder",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "check_pcd_shared_folder"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "check_pcd_shared_folder": {
+        "kind": "Task",
+        "component_type_id": "check_pcd_shared_folder",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "start_pcd_extract_1"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "start_pcd_extract_1": {
+        "kind": "Virtual",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "extract_pcd_api_parallel"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "extract_pcd_api_parallel": {
+        "kind": "Parallel",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "start_pcd_extract_2"
+        ],
+        "parallel_config": {
+          "type": "dynamic_map",
+          "map_over": "api_endpoints",
+          "map_source": [
+            "financial_expense",
+            "upcc_financial_reporting",
+            "chc_financial_reporting",
+            "pcn_financial_reporting",
+            "nppcc_financial_reporting",
+            "fiscal_year_reporting_dates",
+            "upcc_primary_care_patient_services",
+            "chc_primary_care_patient_services",
+            "practitioner_role_mapping",
+            "status_tracker",
+            "hr_records",
+            "provincial_risk_tracking",
+            "decision_log",
+            "ha_hierarchy",
+            "uppc_budget",
+            "chc_budget",
+            "pcn_budget",
+            "nppcc_budget"
+          ],
+          "max_parallelism": null,
+          "join_node": "start_pcd_extract_2"
+        },
+        "branch_config": null,
+        "sensor_config": null
+      },
+      "start_pcd_extract_2": {
+        "kind": "Virtual",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "upload_pcd_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "upload_pcd_data": {
+        "kind": "Task",
+        "component_type_id": "upload_pcd_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "send_etl_notification"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "send_etl_notification": {
+        "kind": "Task",
+        "component_type_id": "send_etl_notification",
+        "upstream_policy": {
+          "type": "all_done",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "check_pcd_sftp_folder",
+        "to": "check_pcd_shared_folder",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "check_pcd_shared_folder",
+        "to": "start_pcd_extract_1",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "start_pcd_extract_1",
+        "to": "extract_pcd_api_parallel",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "extract_pcd_api_parallel",
+        "to": "start_pcd_extract_2",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "start_pcd_extract_2",
+        "to": "upload_pcd_data",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "upload_pcd_data",
+        "to": "send_etl_notification",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Overall description of the pipeline",
+        "type": "string",
+        "default": "Staged ETL pipeline for Primary Care Data processing",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [
+          "etl",
+          "pcd"
+        ],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2021-01-01T00:00:00Z",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": 3600,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": null,
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "check_pcd_sftp_folder": {
+        "job_template_file": {
+          "description": "Path to Kubernetes job template for SFTP folder check (Airflow Variable pcd_emtysftp_job)",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "wait_until_job_complete": {
+          "description": "Flag to wait for the Kubernetes job to finish before proceeding",
+          "type": "boolean",
+          "default": true,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "check_pcd_shared_folder": {
+        "job_template_file": {
+          "description": "Path to Kubernetes job template for shared folder check (Airflow Variable pcd_emtydir_job)",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "wait_until_job_complete": {
+          "description": "Flag to wait for the Kubernetes job to finish before proceeding",
+          "type": "boolean",
+          "default": true,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "extract_pcd_api": {
+        "method": {
+          "description": "HTTP method used for API calls",
+          "type": "string",
+          "default": "POST",
+          "required": false,
+          "constraints": null
+        },
+        "response_check": {
+          "description": "Expression to validate that HTTP response status code equals 200",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "endpoint_url": {
+          "description": "API endpoint URL (provided via Airflow Variable pcd_*_url)",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "payload": {
+          "description": "Standardized JSON payload containing health authority data",
+          "type": "object",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "upload_pcd_data": {
+        "job_template_file": {
+          "description": "Path to Kubernetes job template for main PCD data processing (Airflow Variable pcd_job)",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "send_etl_notification": {
+        "trigger_rule": {
+          "description": "Trigger rule ensuring the task runs regardless of upstream success/failure",
+          "type": "string",
+          "default": "all_done",
+          "required": false,
+          "constraints": null
+        },
+        "email_success_list": {
+          "description": "Variable name for email recipients on successful ETL runs (PCD_ETL_email_list_success)",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "email_failure_list": {
+          "description": "Variable name for email recipients on ETL failure alerts (ETL_email_list_alerts)",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      }
+    },
+    "environment": {
+      "PCD_ETL_SCHEDULE": {
+        "description": "Airflow Variable controlling dynamic schedule for the pipeline",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": null
+      },
+      "PCD_EMTYSFTP_JOB": {
+        "description": "Job template file for SFTP folder check",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "check_pcd_sftp_folder"
+      },
+      "PCD_EMTYDIR_JOB": {
+        "description": "Job template file for shared folder check",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "check_pcd_shared_folder"
+      },
+      "PCD_JOB": {
+        "description": "Job template file for main PCD data processing",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "upload_pcd_data"
+      },
+      "PCD_ETL_EMAIL_LIST_SUCCESS": {
+        "description": "Email distribution list for successful ETL runs",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "send_etl_notification"
+      },
+      "ETL_EMAIL_LIST_ALERTS": {
+        "description": "Email distribution list for ETL failure alerts",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "send_etl_notification"
+      },
+      "ENVIRONMENT": {
+        "description": "Environment identifier (e.g., dev, prod)",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": null
+      },
+      "AIRFLOW_URL": {
+        "description": "Base URL for Airflow UI",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": null
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "sftp_folder_conn",
+        "name": "PCD SFTP Folder",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/remote/sftp/pcd",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "sftp",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "check_pcd_sftp_folder"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "sftp_folder_status"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "shared_folder_conn",
+        "name": "PCD Shared Folder",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/mnt/shared/pcd",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "check_pcd_shared_folder"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "shared_folder_status"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "pcd_api_conn",
+        "name": "PCD HTTP API Endpoints",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "{{ var.value.pcd_*_url }}",
+          "host": null,
+          "port": null,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "extract_pcd_api"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "raw_financial_expense",
+            "raw_upcc_financial_reporting",
+            "raw_chc_financial_reporting",
+            "raw_pcn_financial_reporting",
+            "raw_nppcc_financial_reporting",
+            "raw_fiscal_year_reporting_dates",
+            "raw_upcc_primary_care_patient_services",
+            "raw_chc_primary_care_patient_services",
+            "raw_practitioner_role_mapping",
+            "raw_status_tracker",
+            "raw_hr_records",
+            "raw_provincial_risk_tracking",
+            "raw_decision_log",
+            "raw_ha_hierarchy",
+            "raw_uppc_budget",
+            "raw_chc_budget",
+            "raw_pcn_budget",
+            "raw_nppcc_budget"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "kubernetes_job_conn",
+        "name": "Kubernetes Job Execution",
+        "type": "other",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": "kubernetes.cluster.local",
+          "port": 443,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "iam",
+          "token_env_var": "K8S_SERVICE_ACCOUNT_TOKEN",
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": "/var/run/secrets/kubernetes.io/serviceaccount"
+        },
+        "used_by_components": [
+          "check_pcd_sftp_folder",
+          "check_pcd_shared_folder",
+          "upload_pcd_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "folder_check_job_status",
+            "pcd_processing_job_status"
+          ],
+          "consumes": [
+            "emtysftp_job_template",
+            "emtydir_job_template",
+            "pcd_job_template"
+          ]
+        }
+      },
+      {
+        "id": "email_smtp_conn",
+        "name": "ETL Notification Email Service",
+        "type": "other",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": "smtp.email.provider.com",
+          "port": 587,
+          "protocol": "smtp",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "basic",
+          "token_env_var": null,
+          "username_env_var": "SMTP_USER",
+          "password_env_var": "SMTP_PASSWORD",
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "send_etl_notification"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "etl_notification_email_content"
+          ]
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "PCD SFTP folder containing raw source files",
+        "PCD shared folder used for intermediate staging",
+        "18 distinct PCD‑related HTTP API endpoints delivering JSON payloads"
+      ],
+      "sinks": [
+        "Target storage location (e.g., object storage bucket) where the processed PCD dataset is uploaded"
+      ],
+      "intermediate_datasets": [
+        "Folder check job status artifacts",
+        "Raw API response files (JSON) for each of the 18 endpoints",
+        "Processed PCD dataset generated by the Kubernetes ETL job",
+        "ETL run notification email content"
+      ]
+    }
+  }
+}

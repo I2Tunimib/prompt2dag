@@ -1,0 +1,51 @@
+[etl_import_ensembl] - Comprehensive Pipeline Description
+
+Opening Summary:
+This ETL pipeline imports genomic mapping data from Ensembl's FTP server to an S3 data lake and processes it with Spark. The pipeline follows a sequential linear topology pattern with two main stages: file download/version checking and Spark table processing. Key infrastructure features include S3 integration, Slack notifications, and Kubernetes execution context for Spark jobs. The pipeline is manually triggered (no schedule) and includes failure handling with Slack alerts.
+
+Pipeline Steps:
+
+1. file
+  • Objective: Check for new versions of Ensembl genomic mapping files and download updated versions to S3 landing zone.
+  • Technical Details:
+    - Input: Ensembl FTP server (ftp.ensembl.org/pub/current_tsv/homo_sapiens), existing S3 file versions
+    - Output: Updated genomic mapping files in S3 raw landing zone, triggers downstream table processing
+    - Integrations: HTTP FTP server, AWS S3 (conn_id: config.s3_conn_id), Slack notifications
+    - Key Parameters: Five mapping types (canonical, ena, entrez, refseq, uniprot), S3 bucket format (cqgc-{env}-app-datalake), S3 key path (raw/landing/ensembl/)
+  • Operator or Mechanism: PythonOperator
+  • Notes: Uses AirflowSkipException if no new versions found; Slack notification on DAG start
+
+2. table
+  • Objective: Process the downloaded Ensembl mapping files using Spark to create structured tables in the data lake.
+  • Technical Details:
+    - Input: Files from S3 landing zone placed by 'file' task
+    - Output: Processed Ensembl mapping tables in the data lake
+    - Integrations: Spark on Kubernetes (K8sContext.ETL), Slack notifications
+    - Key Parameters: Spark class (bio.ferlab.datalake.spark3.publictables.ImportPublicTable), config file, table name (ensembl_mapping), steps (default)
+  • Operator or Mechanism: SparkOperator
+  • Notes: Uses large ETL Spark config; Slack notification on DAG completion
+
+Orchestration & Scheduling:
+- Schedule: None (manual trigger only)
+- Start Date: January 1, 2022
+- Default Args: on_failure_callback=Slack.notify_task_failure
+- No catchup or max_active_runs specified
+
+Infrastructure & Dependencies:
+- Connections/IDs: S3 connection (config.s3_conn_id)
+- Kubernetes: ETL context for Spark execution
+- Spark: Large ETL configuration (config-etl-large)
+- Data I/O: Ensembl FTP server, S3 bucket (cqgc-{env}-app-datalake), S3 key path (raw/landing/ensembl/)
+- File Types: Five genomic mapping types (canonical, ena, entrez, refseq, uniprot) in TSV.GZ format
+
+Failure Handling & Alerts:
+- Slack notifications on task failure (on_failure_callback)
+- Slack notification on DAG start (on_execute_callback for file task)
+- Slack notification on DAG completion (on_success_callback for table task)
+- AirflowSkipException used when no new file versions detected
+
+Pattern-Specific Notes:
+- Linear sequential pattern: file download → Spark processing
+- Simple two-stage ETL: Extract from FTP → Load to S3 → Transform with Spark
+- Manual execution only (schedule=None)
+- Version-aware: Checks for new file versions before downloading and processing

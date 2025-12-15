@@ -1,0 +1,264 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-02 09:52:30.595931
+  source_analysis_file: Pipeline_Description_Dataset/M4TTRX__data-eng-project__global_dag.py_description.txt
+  pipeline_name: extract_death_records_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: days_ago(0)
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_gouv_fr_api
+    conn_type: http
+    description: data.gouv.fr API
+    config:
+      base_url: https://data.gouv.fr/api/1
+      protocol: https
+      extra:
+        token_env_var: DATA_GOUV_FR_API_TOKEN
+  - conn_id: static_data_gouv_fr
+    conn_type: http
+    description: static.data.gouv.fr
+    config:
+      base_url: https://static.data.gouv.fr
+      protocol: https
+  - conn_id: redis
+    conn_type: generic
+    description: Redis
+    config:
+      host: redis
+      port: 6379
+      protocol: redis
+  - conn_id: postgresql
+    conn_type: generic
+    description: PostgreSQL
+    config:
+      host: localhost
+      port: 5432
+      database: etl_pipeline
+      schema: public
+      protocol: jdbc
+      login: POSTGRES_USER
+      password: POSTGRES_PASSWORD
+  - conn_id: ingestion_directory
+    conn_type: fs
+    description: Ingestion Directory
+    config:
+      base_path: /opt/airflow/dags/data/ingestion/
+      protocol: file
+  - conn_id: staging_directory
+    conn_type: fs
+    description: Staging Directory
+    config:
+      base_path: /opt/airflow/dags/data/staging/
+      protocol: file
+  - conn_id: sql_tmp_directory
+    conn_type: fs
+    description: SQL Temporary Directory
+    config:
+      base_path: /opt/airflow/dags/sql/tmp/
+      protocol: file
+tasks:
+  - task_id: extract_death_records
+    task_name: Extract Death Records
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_death_records
+    config:
+      python_callable: path/to/get_death_resources.py
+      retry_delay: timedelta(seconds=10)
+    upstream_task_ids:
+      - ingestion_pipeline_start
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: extract_nuclear_plants
+    task_name: Extract Nuclear Plants
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_nuclear_plants
+    config:
+      python_callable: path/to/get_nuclear_data.py
+      retry_delay: timedelta(seconds=10)
+    upstream_task_ids:
+      - ingestion_pipeline_start
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: extract_thermal_plants
+    task_name: Extract Thermal Plants
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_thermal_plants
+    config:
+      python_callable: path/to/get_thermal_data.py
+      retry_delay: timedelta(seconds=10)
+    upstream_task_ids:
+      - ingestion_pipeline_start
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: extract_city_geo_data
+    task_name: Extract City Geo Data
+    operator_class: BashOperator
+    operator_module: airflow.operators.bash
+    component_ref: extract_city_geo_data
+    config:
+      bash_command:
+        - curl
+        - -o
+        - /opt/airflow/dags/data/ingestion/city_geo_loc.csv
+        - CITY_GEO_DATASET_URL
+      retry_delay: timedelta(seconds=10)
+    upstream_task_ids:
+      - ingestion_pipeline_start
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: create_death_table
+    task_name: Create Death Table
+    operator_class: SQLExecuteQueryOperator
+    operator_module: airflow.providers.common.sql.operators.sql
+    component_ref: create_death_table
+    config:
+      sql: /opt/airflow/dags/sql/create_death_table.sql
+      retry_delay: timedelta(seconds=10)
+    upstream_task_ids:
+      - staging_pipeline_start
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: create_power_plant_table
+    task_name: Create Power Plant Table
+    operator_class: SQLExecuteQueryOperator
+    operator_module: airflow.providers.common.sql.operators.sql
+    component_ref: create_power_plant_table
+    config:
+      sql: /opt/airflow/dags/sql/create_power_plant_table.sql
+      retry_delay: timedelta(seconds=10)
+    upstream_task_ids:
+      - staging_pipeline_start
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: load_death_records_to_redis
+    task_name: Load Death Records to Redis
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: load_death_records_to_redis
+    config:
+      python_callable: path/to/load_data_from_ingestion.py
+      retry_delay: timedelta(seconds=10)
+    upstream_task_ids:
+      - staging_pipeline_start
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: cleanse_death_data
+    task_name: Cleanse Death Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: cleanse_death_data
+    config:
+      python_callable: path/to/cleanse_death_data.py
+      retry_delay: timedelta(seconds=10)
+    upstream_task_ids:
+      - load_death_records_to_redis
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: cleanse_power_plant_data
+    task_name: Cleanse Power Plant Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: cleanse_power_plant_data
+    config:
+      python_callable: path/to/import_thermal_clean_data.py
+      retry_delay: timedelta(seconds=10)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: generate_plant_insert_queries
+    task_name: Generate Plant Insert Queries
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: generate_plant_insert_queries
+    config:
+      python_callable: path/to/create_plant_persist_sql_query.py
+      retry_delay: timedelta(seconds=10)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: check_death_data_emptiness
+    task_name: Check Death Data Emptiness
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: check_death_data_emptiness
+    config:
+      python_callable: path/to/death_emptiness_check.py
+      retry_delay: timedelta(seconds=10)
+    upstream_task_ids:
+      - cleanse_death_data
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: store_deaths_in_postgres
+    task_name: Store Deaths in PostgreSQL
+    operator_class: SQLExecuteQueryOperator
+    operator_module: airflow.providers.common.sql.operators.sql
+    component_ref: store_deaths_in_postgres
+    config:
+      sql: /opt/airflow/dags/sql/tmp/death_insertion_queries.sql
+      retry_delay: timedelta(seconds=10)
+    upstream_task_ids:
+      - check_death_data_emptiness
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: store_plants_in_postgres
+    task_name: Store Plants in PostgreSQL
+    operator_class: SQLExecuteQueryOperator
+    operator_module: airflow.providers.common.sql.operators.sql
+    component_ref: store_plants_in_postgres
+    config:
+      sql: /opt/airflow/dags/sql/tmp/plant_insertion_queries.sql
+      retry_delay: timedelta(seconds=10)
+    upstream_task_ids:
+      - staging_pipeline_end
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: clean_tmp_death_files
+    task_name: Clean Temporary Death Files
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: clean_tmp_death_files
+    config:
+      python_callable: path/to/clean_tmp_death_files.py
+      retry_delay: timedelta(seconds=10)
+    upstream_task_ids:
+      - store_plants_in_postgres
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []

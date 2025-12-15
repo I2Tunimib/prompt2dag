@@ -1,0 +1,103 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-02 07:36:42.789674
+  source_analysis_file: 
+    Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_ensembl.py_description.txt
+  pipeline_name: check_and_download_ensembl_files_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    flow_name: check_and_download_ensembl_files_pipeline
+    deployment_name: check_and_download_ensembl_files_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: '2022-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: ensembl_ftp
+    conn_type: LocalFileSystem
+    description: Ensembl FTP Server
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: ensembl_ftp
+      config:
+        base_path: /pub/current_tsv/homo_sapiens
+        protocol: ftp
+        host: ftp.ensembl.org
+  - conn_id: s3_datalake
+    conn_type: S3Bucket
+    description: S3 Data Lake
+    config:
+      block_type: S3Bucket
+      block_module: prefect_aws.s3
+      block_name: s3_datalake
+      config:
+        base_path: raw/landing/ensembl/
+        protocol: s3
+        bucket: cqgc-{env}-app-datalake
+  - conn_id: slack_notifications
+    conn_type: Secret
+    description: Slack Notifications
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: slack_notifications
+      config:
+        base_url: https://slack.com/api
+        protocol: https
+        token_secret_name: SLACK_BOT_TOKEN
+  - conn_id: k8s_etl_context
+    conn_type: Secret
+    description: Kubernetes ETL Context
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: k8s_etl_context
+      config:
+        host:
+        port:
+        protocol:
+tasks:
+  - task_id: check_and_download_ensembl_files
+    task_name: Check and Download Ensembl Files
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: check_and_download_ensembl_files
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: path/to/check_and_download_ensembl_files.py
+      retries: 3
+      retry_delay_seconds: 60
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 3
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: process_ensembl_files_with_spark
+    task_name: Process Ensembl Files with Spark
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: process_ensembl_files_with_spark
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config: {}
+      retries: 3
+      retry_delay_seconds: 60
+      task_runner: ConcurrentTaskRunner
+    upstream_task_ids:
+      - check_and_download_ensembl_files
+    trigger_rule: wait_for='all'
+    retries: 3
+    retry_delay_seconds: 60
+    validation_warnings: []

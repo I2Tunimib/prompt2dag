@@ -1,0 +1,109 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T11:43:21.608602
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/nazzang49__gcp-tutorials__airflow_db_cleanup.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**1. Executive Summary**  
+
+- **Purpose** – The pipeline implements a routine maintenance workflow that removes stale metadata rows from the Airflow MetaStore database. By calculating a retention threshold (`max_date`) and applying configurable deletion rules, it prevents uncontrolled growth of the metadata tables.  
+- **High‑level flow** – Execution follows a simple linear sequence of two components:  
+  1. *Load Cleanup Configuration* – reads runtime parameters and computes the retention date.  
+  2. *Cleanup Airflow MetaDB* – deletes rows older than the computed date according to the supplied object‑level policies.  
+- **Key patterns & complexity** – The pipeline exhibits a **sequential** pattern with no branching, parallelism, or sensors. Both components run with a Python executor and each has a single‑attempt retry policy. The overall complexity is low (only two components, straightforward data flow, limited configuration).
+
+---
+
+**2. Pipeline Architecture**  
+
+| Aspect | Details |
+|--------|---------|
+| **Flow Patterns** | Pure sequential execution: component A → component B. No conditional branches, parallel branches, or sensor‑driven waits. |
+| **Execution Characteristics** | All components use a **Python** executor type. No container images, custom commands, or resource limits are defined. |
+| **Component Overview** | 1. **Load Cleanup Configuration** – *Extractor* that gathers configuration and produces `max_date`. <br>2. **Cleanup Airflow MetaDB** – *Transformer* that consumes `max_date` and a list of database objects, performs deletions, and emits a summary. |
+| **Flow Description** | - **Entry point**: *Load Cleanup Configuration* runs first, with no upstream dependencies. <br>- **Main sequence**: Upon successful completion, the `max_date` value is passed via a metadata channel (XCom) to *Cleanup Airflow MetaDB*. <br>- **Termination**: The pipeline ends after the cleanup component finishes, producing a deletion summary. No sensors or parallel branches are present. |
+
+---
+
+**3. Detailed Component Analysis**  
+
+| Component | Purpose & Category | Executor & Configuration | I/O |
+|----------|--------------------|--------------------------|----|
+| **load_cleanup_configuration** | *Extractor* – reads runtime configuration (DAG run config) and an Airflow Variable (`airflow_db_cleanup__max_db_entry_age_in_days`), validates them, and calculates the retention threshold (`max_date`). | Python executor; no container image, command, or resource limits defined. Environment is empty. | **Inputs**: <br>• `dag_run_config` (JSON object) <br>• `airflow_variable` (JSON object from variable store) <br>**Outputs**: <br>• `max_date` (JSON object) stored in XCom metadata channel. |
+| **cleanup_airflow_metadb** | *Transformer* – deletes rows from multiple Airflow MetaStore tables that are older than `max_date`, respecting the `DATABASE_OBJECTS` retention rules. | Python executor; same minimal configuration as above. | **Inputs**: <br>• `max_date` (from XCom) <br>• `DATABASE_OBJECTS` (JSON array defining objects & retention policies) <br>**Outputs**: <br>• `deletion_summary` (JSON object) summarising rows removed. |
+
+**Retry & Concurrency** – Both components allow **one attempt** (`max_attempts = 1`) with a 60‑second delay before a retry, though retries are effectively disabled by the single‑attempt limit. Parallelism is not supported; each component runs in isolation.  
+
+**Upstream Policies** –  
+- *Load Cleanup Configuration*: `all_success` with no upstream dependencies.  
+- *Cleanup Airflow MetaDB*: `all_success` dependent on the successful completion of the configuration loader.  
+
+**Connected Systems** –  
+
+| Component | Connections | Datasets Consumed | Datasets Produced |
+|-----------|-------------|-------------------|-------------------|
+| load_cleanup_configuration | • `airflow_variables` (type: variable) – reads retention variable <br>• `xcom` (type: metadata) – publishes `max_date` | `airflow_cleanup_config` | `max_date_xcom` |
+| cleanup_airflow_metadb | • `airflow_metastore` (type: database) – accesses MetaStore tables via SQLAlchemy <br>• `xcom` – receives `max_date` | `max_date_xcom`, `airflow_metastore` | `airflow_metastore_cleanup` (deletion summary) |
+
+---
+
+**4. Parameter Schema**  
+
+| Scope | Parameters |
+|-------|------------|
+| **Pipeline‑level** | `name` (default: “Airflow Database Cleanup”), `description`, `tags` (array). |
+| **Schedule** | `enabled` (default = true), `cron_expression` (default = “@daily”), optional `start_date`, `end_date`, `timezone`, `catchup` (default = false), `batch_window`, `partitioning`. |
+| **Execution** | `max_active_runs`, `timeout_seconds`, pipeline‑level `retry_policy` (`retries` = 1, `delay_seconds` = 60), `depends_on_past`. |
+| **Component – load_cleanup_configuration** | `max_db_entry_age_in_days` (integer, positive), `provide_context` (boolean). |
+| **Component – cleanup_airflow_metadb** | `DATABASE_OBJECTS` (array of object‑level retention definitions), `ENABLE_DELETE` (boolean – when false, performs a dry‑run). |
+| **Environment** | `ALERT_EMAIL_ADDRESSES` – comma‑separated list of recipients for failure alerts. |
+
+---
+
+**5. Integration Points**  
+
+| External System | Connection ID | Type | Authentication | Direction | Datasets |
+|-----------------|---------------|------|----------------|-----------|----------|
+| Airflow MetaStore Database | `airflow_metastore_db` | database (PostgreSQL) | Basic auth via env vars `AIRFLOW_DB_USER` / `AIRFLOW_DB_PASSWORD` | Both read & write | Consumes: variable `airflow_db_cleanup__max_db_entry_age_in_days`, all MetaStore tables (DagRun, TaskInstance, Log, XCom, etc.). Produces: deleted rows from those tables. |
+| SMTP Email Alert Service | `smtp_email_alert` | other (SMTP) | Basic auth via env vars `SMTP_USER` / `SMTP_PASSWORD` | Output only | Produces: failure notification emails (`email_alerts.failure_notifications`). |
+| Airflow Variables Store | (implicit) | variable | – | Read | Consumes: `airflow_db_cleanup__max_db_entry_age_in_days`. |
+| XCom Metadata Channel | (implicit) | metadata | – | Read/Write | Exchanges `max_date` between the two components. |
+
+**Data Lineage** –  
+
+- **Sources**: DAG run configuration, Airflow Variable (`airflow_db_cleanup__max_db_entry_age_in_days`), existing rows in MetaStore tables.  
+- **Intermediate**: `max_date` (XCom key) and in‑memory `DATABASE_OBJECTS` configuration.  
+- **Sinks**: Deleted rows from MetaStore tables; failure alert emails sent via SMTP.
+
+---
+
+**6. Implementation Notes**  
+
+- **Complexity Assessment** – Low. The pipeline consists of two straightforward Python components with a single data hand‑off. No branching, parallelism, or external orchestration logic adds complexity.  
+- **Upstream Dependency Policies** – Strict “all_success” policy ensures the cleanup step never runs without a valid retention date. This protects against accidental deletions if configuration loading fails.  
+- **Retry & Timeout** – Both components are limited to a single execution attempt; the defined retry delay is ineffective because `max_attempts` is 1. Consider increasing `max_attempts` if transient failures (e.g., temporary DB connectivity issues) are expected. No explicit per‑component timeout is set; pipeline‑level timeout can be defined if needed.  
+- **Potential Risks / Considerations** –  
+  - **Accidental Data Loss**: If `ENABLE_DELETE` is true and `max_date` is mis‑calculated, legitimate rows could be removed. A dry‑run mode (setting `ENABLE_DELETE` = false) is advisable for initial runs.  
+  - **Variable Availability**: Missing or malformed `airflow_db_cleanup__max_db_entry_age_in_days` will cause the first component to fail, halting the pipeline. Validation logic should enforce positivity.  
+  - **Database Load**: Deleting large volumes of rows may impact MetaStore performance; consider scheduling during low‑traffic windows.  
+  - **Alerting**: Ensure `ALERT_EMAIL_ADDRESSES` is populated; otherwise failure notifications will not be delivered.  
+
+---
+
+**7. Orchestrator Compatibility**  
+
+| Orchestrator | Compatibility Assessment |
+|--------------|--------------------------|
+| **Airflow** | The pipeline’s sequential pattern, Python executor, XCom‑style metadata exchange, and use of Airflow Variables align naturally with Airflow’s native capabilities. No DAG‑specific constructs are required beyond the basic sequential ordering. |
+| **Prefect** | Prefect supports sequential flows, Python tasks, and context passing via results. The XCom‑like metadata channel can be mapped to Prefect’s result objects or a shared storage block. Variable retrieval can be implemented via Prefect’s Parameter or Secret blocks. |
+| **Dagster** | Dagster’s solid (component) model and sequential pipelines can represent the two steps. The XCom exchange maps to Dagster’s `Output`/`Input` system. Variable access can be handled via resources or config schemas. |
+
+*Pattern‑specific considerations*: Because the pipeline does not use branching, parallelism, or sensors, all three orchestrators can implement it with minimal configuration. The primary focus is ensuring that the metadata hand‑off (`max_date`) and the database connection are correctly provided to each component via the orchestrator’s parameter or resource mechanisms.
+
+---
+
+**8. Conclusion**  
+
+The pipeline delivers a concise, reliable maintenance routine for cleaning stale entries from the Airflow MetaStore. Its linear architecture, limited component count, and straightforward configuration make it easy to adopt across multiple orchestration platforms. By adhering to the defined upstream policies, retry settings, and alerting mechanisms, operators can safely schedule daily executions to keep the metadata store healthy while retaining flexibility for dry‑run testing and parameter adjustments.

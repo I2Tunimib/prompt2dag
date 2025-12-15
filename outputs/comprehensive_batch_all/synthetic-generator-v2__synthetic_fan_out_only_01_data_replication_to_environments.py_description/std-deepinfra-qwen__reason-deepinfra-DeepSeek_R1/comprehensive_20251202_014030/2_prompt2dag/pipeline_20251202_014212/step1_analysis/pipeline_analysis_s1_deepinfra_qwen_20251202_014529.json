@@ -1,0 +1,795 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T01:45:29.791247",
+    "source_file": "Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_fan_out_only_01_data_replication_to_environments.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "qwen",
+    "analysis_results": {
+      "detected_patterns": [
+        "parallel"
+      ],
+      "task_executors_used": [
+        "bash"
+      ],
+      "has_branching": false,
+      "has_parallelism": true,
+      "has_sensors": false,
+      "total_components": 4,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Parallelism via TaskFlow API expand()"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "map() for parallel execution"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "DynamicOutput for fan-out"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "dump_prod_csv_pipeline",
+    "description": "No description provided.",
+    "flow_patterns": [
+      "parallel"
+    ],
+    "task_executors": [
+      "bash"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "dump_prod_csv",
+      "name": "Dump Production CSV",
+      "category": "Extractor",
+      "description": "Creates a CSV snapshot of the production database for replication to downstream environments.",
+      "inputs": [
+        "Production database"
+      ],
+      "outputs": [
+        "/tmp/prod_snapshot_$(date +%Y%m%d).csv"
+      ],
+      "executor_type": "bash",
+      "executor_config": {
+        "command": [
+          "bash",
+          "dump_script.sh"
+        ],
+        "environment": {},
+        "resources": {},
+        "network": null,
+        "image": null,
+        "entry_point": null,
+        "script_path": null
+      },
+      "io_spec": [
+        {
+          "name": "prod_snapshot",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/tmp/prod_snapshot_$(date +%Y%m%d).csv",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_done",
+        "description": "Starts the task when the pipeline is triggered.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "local_filesystem",
+          "type": "filesystem",
+          "purpose": "CSV output"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "prod_snapshot"
+        ]
+      }
+    },
+    {
+      "id": "copy_dev",
+      "name": "Copy to Development",
+      "category": "Loader",
+      "description": "Loads the production CSV snapshot into the Development environment database.",
+      "inputs": [
+        "/tmp/prod_snapshot_$(date +%Y%m%d).csv"
+      ],
+      "outputs": [
+        "Dev_DB"
+      ],
+      "executor_type": "bash",
+      "executor_config": {
+        "command": [
+          "bash",
+          "load_dev_script.sh"
+        ],
+        "environment": {},
+        "resources": {},
+        "network": null,
+        "image": null,
+        "entry_point": null,
+        "script_path": null
+      },
+      "io_spec": [
+        {
+          "name": "prod_snapshot",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/tmp/prod_snapshot_$(date +%Y%m%d).csv",
+          "connection_id": null
+        },
+        {
+          "name": "dev_db",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "Dev_DB",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Starts the task after the dump_prod_csv task completes successfully.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "dev_db",
+          "type": "database",
+          "purpose": "Load data into Development environment"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "prod_snapshot"
+        ],
+        "produces": [
+          "dev_db"
+        ]
+      }
+    },
+    {
+      "id": "copy_staging",
+      "name": "Copy to Staging",
+      "category": "Loader",
+      "description": "Loads the production CSV snapshot into the Staging environment database.",
+      "inputs": [
+        "/tmp/prod_snapshot_$(date +%Y%m%d).csv"
+      ],
+      "outputs": [
+        "Staging_DB"
+      ],
+      "executor_type": "bash",
+      "executor_config": {
+        "command": [
+          "bash",
+          "load_staging_script.sh"
+        ],
+        "environment": {},
+        "resources": {},
+        "network": null,
+        "image": null,
+        "entry_point": null,
+        "script_path": null
+      },
+      "io_spec": [
+        {
+          "name": "prod_snapshot",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/tmp/prod_snapshot_$(date +%Y%m%d).csv",
+          "connection_id": null
+        },
+        {
+          "name": "staging_db",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "Staging_DB",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Starts the task after the dump_prod_csv task completes successfully.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "staging_db",
+          "type": "database",
+          "purpose": "Load data into Staging environment"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "prod_snapshot"
+        ],
+        "produces": [
+          "staging_db"
+        ]
+      }
+    },
+    {
+      "id": "copy_qa",
+      "name": "Copy to QA",
+      "category": "Loader",
+      "description": "Loads the production CSV snapshot into the QA environment database.",
+      "inputs": [
+        "/tmp/prod_snapshot_$(date +%Y%m%d).csv"
+      ],
+      "outputs": [
+        "QA_DB"
+      ],
+      "executor_type": "bash",
+      "executor_config": {
+        "command": [
+          "bash",
+          "load_qa_script.sh"
+        ],
+        "environment": {},
+        "resources": {},
+        "network": null,
+        "image": null,
+        "entry_point": null,
+        "script_path": null
+      },
+      "io_spec": [
+        {
+          "name": "prod_snapshot",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/tmp/prod_snapshot_$(date +%Y%m%d).csv",
+          "connection_id": null
+        },
+        {
+          "name": "qa_db",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "QA_DB",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Starts the task after the dump_prod_csv task completes successfully.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "qa_db",
+          "type": "database",
+          "purpose": "Load data into QA environment"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "prod_snapshot"
+        ],
+        "produces": [
+          "qa_db"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "parallel",
+    "entry_points": [
+      "dump_prod_csv"
+    ],
+    "nodes": {
+      "dump_prod_csv": {
+        "kind": "Task",
+        "component_type_id": "dump_prod_csv",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "copy_dev",
+          "copy_staging",
+          "copy_qa"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "copy_dev": {
+        "kind": "Task",
+        "component_type_id": "copy_dev",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "copy_staging": {
+        "kind": "Task",
+        "component_type_id": "copy_staging",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "copy_qa": {
+        "kind": "Task",
+        "component_type_id": "copy_qa",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "dump_prod_csv",
+        "to": "copy_dev",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "dump_prod_csv",
+        "to": "copy_staging",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "dump_prod_csv",
+        "to": "copy_qa",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": null,
+        "required": true,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2024-01-01T00:00:00Z",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": "daily",
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 2,
+          "retry_delay_seconds": 300
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "dump_prod_csv": {
+        "output_file_path": {
+          "description": "Path to the output CSV file",
+          "type": "string",
+          "default": "/tmp/prod_snapshot_$(date +%Y%m%d).csv",
+          "required": false
+        }
+      },
+      "copy_dev": {
+        "input_file_path": {
+          "description": "Path to the input CSV file",
+          "type": "string",
+          "default": "/tmp/prod_snapshot_$(date +%Y%m%d).csv",
+          "required": false
+        },
+        "target_database": {
+          "description": "Target database for the Development environment",
+          "type": "string",
+          "default": "Dev_DB",
+          "required": false
+        }
+      },
+      "copy_staging": {
+        "input_file_path": {
+          "description": "Path to the input CSV file",
+          "type": "string",
+          "default": "/tmp/prod_snapshot_$(date +%Y%m%d).csv",
+          "required": false
+        },
+        "target_database": {
+          "description": "Target database for the Staging environment",
+          "type": "string",
+          "default": "Staging_DB",
+          "required": false
+        }
+      },
+      "copy_qa": {
+        "input_file_path": {
+          "description": "Path to the input CSV file",
+          "type": "string",
+          "default": "/tmp/prod_snapshot_$(date +%Y%m%d).csv",
+          "required": false
+        },
+        "target_database": {
+          "description": "Target database for the QA environment",
+          "type": "string",
+          "default": "QA_DB",
+          "required": false
+        }
+      }
+    },
+    "environment": {
+      "CSV_OUTPUT_PATH": {
+        "description": "Path to the output CSV file",
+        "type": "string",
+        "default": "/tmp/prod_snapshot_$(date +%Y%m%d).csv",
+        "required": false,
+        "associated_component_id": "dump_prod_csv"
+      },
+      "DEV_DB": {
+        "description": "Target database for the Development environment",
+        "type": "string",
+        "default": "Dev_DB",
+        "required": false,
+        "associated_component_id": "copy_dev"
+      },
+      "STAGING_DB": {
+        "description": "Target database for the Staging environment",
+        "type": "string",
+        "default": "Staging_DB",
+        "required": false,
+        "associated_component_id": "copy_staging"
+      },
+      "QA_DB": {
+        "description": "Target database for the QA environment",
+        "type": "string",
+        "default": "QA_DB",
+        "required": false,
+        "associated_component_id": "copy_qa"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "local_filesystem",
+        "name": "Local Filesystem",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/tmp",
+          "protocol": "file"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "dump_prod_csv",
+          "copy_dev",
+          "copy_staging",
+          "copy_qa"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "prod_snapshot_$(date +%Y%m%d).csv"
+          ],
+          "consumes": [
+            "prod_snapshot_$(date +%Y%m%d).csv"
+          ]
+        }
+      },
+      {
+        "id": "prod_db",
+        "name": "Production Database",
+        "type": "database",
+        "config": {
+          "host": "prod-db-host",
+          "port": 5432,
+          "database": "prod_db",
+          "schema": "public"
+        },
+        "authentication": {
+          "type": "basic",
+          "username_env_var": "PROD_DB_USERNAME",
+          "password_env_var": "PROD_DB_PASSWORD"
+        },
+        "used_by_components": [
+          "dump_prod_csv"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      },
+      {
+        "id": "dev_db",
+        "name": "Development Database",
+        "type": "database",
+        "config": {
+          "host": "dev-db-host",
+          "port": 5432,
+          "database": "dev_db",
+          "schema": "public"
+        },
+        "authentication": {
+          "type": "basic",
+          "username_env_var": "DEV_DB_USERNAME",
+          "password_env_var": "DEV_DB_PASSWORD"
+        },
+        "used_by_components": [
+          "copy_dev"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "prod_snapshot_$(date +%Y%m%d).csv"
+          ]
+        }
+      },
+      {
+        "id": "staging_db",
+        "name": "Staging Database",
+        "type": "database",
+        "config": {
+          "host": "staging-db-host",
+          "port": 5432,
+          "database": "staging_db",
+          "schema": "public"
+        },
+        "authentication": {
+          "type": "basic",
+          "username_env_var": "STAGING_DB_USERNAME",
+          "password_env_var": "STAGING_DB_PASSWORD"
+        },
+        "used_by_components": [
+          "copy_staging"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "prod_snapshot_$(date +%Y%m%d).csv"
+          ]
+        }
+      },
+      {
+        "id": "qa_db",
+        "name": "QA Database",
+        "type": "database",
+        "config": {
+          "host": "qa-db-host",
+          "port": 5432,
+          "database": "qa_db",
+          "schema": "public"
+        },
+        "authentication": {
+          "type": "basic",
+          "username_env_var": "QA_DB_USERNAME",
+          "password_env_var": "QA_DB_PASSWORD"
+        },
+        "used_by_components": [
+          "copy_qa"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "prod_snapshot_$(date +%Y%m%d).csv"
+          ]
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Production database (prod_db)"
+      ],
+      "sinks": [
+        "Development database (dev_db)",
+        "Staging database (staging_db)",
+        "QA database (qa_db)"
+      ],
+      "intermediate_datasets": [
+        "/tmp/prod_snapshot_$(date +%Y%m%d).csv"
+      ]
+    }
+  }
+}

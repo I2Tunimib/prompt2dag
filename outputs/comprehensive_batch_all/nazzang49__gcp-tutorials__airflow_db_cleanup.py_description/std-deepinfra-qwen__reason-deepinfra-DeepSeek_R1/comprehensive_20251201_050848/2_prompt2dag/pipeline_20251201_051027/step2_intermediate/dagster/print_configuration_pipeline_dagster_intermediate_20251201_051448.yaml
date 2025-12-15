@@ -1,0 +1,125 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-01 05:14:48.676977
+  source_analysis_file: Pipeline_Description_Dataset/nazzang49__gcp-tutorials__airflow_db_cleanup.py_description.txt
+  pipeline_name: print_configuration_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    job_name: print_configuration_pipeline
+    description: No description provided.
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - airflow_metadb
+      - airflow_variables
+      - xcom
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: airflow_metastore
+    conn_type: resource
+    description: Airflow MetaStore Database
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: airflow_metastore
+      config:
+        host: localhost
+        port: 5432
+        protocol: jdbc
+        database: airflow
+        schema: public
+  - conn_id: airflow_variables
+    conn_type: resource
+    description: Airflow Variables
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: airflow_variables
+      config:
+        base_url: http://localhost:8080/api/v1/variables
+        protocol: http
+        token: EnvVar('AIRFLOW_API_TOKEN')
+  - conn_id: email_alerts
+    conn_type: resource
+    description: Email Alerts
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: email_alerts
+      config:
+        base_url: http://localhost:8080/api/v1/email
+        protocol: http
+        token: EnvVar('AIRFLOW_API_TOKEN')
+tasks:
+  - task_id: print_configuration
+    task_name: Print Configuration
+    operator_class: Op
+    operator_module: dagster
+    component_ref: print_configuration
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: module.function
+      config_schema: {}
+      required_resource_keys:
+        - airflow_variables
+        - xcom
+      retry_policy:
+        max_retries: 1
+        delay: 60
+        backoff: CONSTANT
+      ins: []
+      outs:
+        - name: max_date
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: cleanup_airflow_metadb
+    task_name: Cleanup Airflow MetaDB
+    operator_class: Op
+    operator_module: dagster
+    component_ref: cleanup_airflow_metadb
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: module.function
+      config_schema: {}
+      required_resource_keys:
+        - airflow_metadb
+        - xcom
+      retry_policy:
+        max_retries: 1
+        delay: 60
+        backoff: CONSTANT
+      ins:
+        - name: max_date
+          dagster_type: Any
+          description: XCom
+      outs:
+        - name: airflow_metadb
+          dagster_type: String
+          description: Output to airflow_metadb
+    upstream_task_ids:
+      - print_configuration
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []

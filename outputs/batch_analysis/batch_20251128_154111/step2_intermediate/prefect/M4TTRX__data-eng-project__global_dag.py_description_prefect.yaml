@@ -1,0 +1,425 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-11-28 15:44:03.226157
+  source_analysis_file: Pipeline_Description_Dataset/M4TTRX__data-eng-project__global_dag.py_description.txt
+  pipeline_name: global_dag
+  pipeline_description: Comprehensive ETL pipeline processing French government death records and power plant data 
+    through staged ETL pattern with mixed topology
+  orchestrator_specific:
+    flow_name: global_dag
+    deployment_name: global_dag_deployment
+    work_pool: default-agent-pool
+    task_runner: ConcurrentTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_gouv_api
+    conn_type: Secret
+    description: data.gouv.fr API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: data_gouv_api
+      config:
+        base_url: https://data.gouv.fr/api
+        host:
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_path:
+  - conn_id: static_data_gouv_api
+    conn_type: Secret
+    description: static.data.gouv.fr API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: static_data_gouv_api
+      config:
+        base_url: https://static.data.gouv.fr
+        host:
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_path:
+  - conn_id: ingestion_filesystem
+    conn_type: LocalFileSystem
+    description: Ingestion Filesystem Storage
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: ingestion_filesystem
+      config:
+        base_path: /opt/airflow/dags/data/ingestion/
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: staging_filesystem
+    conn_type: LocalFileSystem
+    description: Staging Filesystem Storage
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: staging_filesystem
+      config:
+        base_path: /opt/airflow/dags/data/staging/
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: sql_query_filesystem
+    conn_type: LocalFileSystem
+    description: SQL Query Filesystem Storage
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: sql_query_filesystem
+      config:
+        base_path: /opt/airflow/dags/sql/tmp/
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: redis_cache
+    conn_type: Secret
+    description: Redis Cache
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: redis_cache
+      config:
+        base_path:
+        base_url:
+        host: redis
+        port: 6379
+        protocol:
+        database: '0'
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: postgres_database
+    conn_type: Secret
+    description: PostgreSQL Database
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: postgres_database
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: jdbc
+        database:
+        schema:
+        bucket:
+        queue_name:
+tasks:
+  - task_id: extract_city_geo_data
+    task_name: Extract City Geographic Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: extract_city_geo_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config:
+          command:
+            - curl
+            - -o
+            - city_geo_loc.csv
+            - CITY_GEO_DATASET_URL
+          shell: /bin/bash
+      retries: 1
+      retry_delay_seconds: 10
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: extract_nuclear_plant_data
+    task_name: Extract Nuclear Plant Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: extract_nuclear_plant_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config:
+          command:
+            - curl
+            - -o
+            - nuclear_plants.json
+            - data.gouv.fr/nuclear_datasets/NUCLEAR_DATASET_ID
+          shell: /bin/bash
+      retries: 1
+      retry_delay_seconds: 10
+    upstream_task_ids:
+      - extract_city_geo_data
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: extract_thermal_plant_data
+    task_name: Extract Thermal Plant Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: extract_thermal_plant_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config:
+          command:
+            - curl
+            - -o
+            - thermal_plants.json
+            - data.gouv.fr/thermal_datasets/THERMAL_DATASET_ID
+          shell: /bin/bash
+      retries: 1
+      retry_delay_seconds: 10
+    upstream_task_ids:
+      - extract_city_geo_data
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: extract_death_records
+    task_name: Extract Death Records
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: extract_death_records
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: /opt/airflow/dags/scripts/extract_death_records.py
+      retries: 1
+      retry_delay_seconds: 10
+    upstream_task_ids:
+      - extract_city_geo_data
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: create_death_table
+    task_name: Create Death Table
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: create_death_table
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config: {}
+      retries: 1
+      retry_delay_seconds: 10
+    upstream_task_ids:
+      - extract_nuclear_plant_data
+      - extract_thermal_plant_data
+      - extract_death_records
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: create_power_plants_table
+    task_name: Create Power Plants Table
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: create_power_plants_table
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config: {}
+      retries: 1
+      retry_delay_seconds: 10
+    upstream_task_ids:
+      - extract_nuclear_plant_data
+      - extract_thermal_plant_data
+      - extract_death_records
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: load_death_data_to_redis
+    task_name: Load Death Data to Redis
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: load_death_data_to_redis
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: /opt/airflow/dags/scripts/load_death_to_redis.py
+      retries: 1
+      retry_delay_seconds: 10
+    upstream_task_ids:
+      - create_death_table
+      - create_power_plants_table
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: cleanse_death_data
+    task_name: Cleanse Death Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: cleanse_death_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: /opt/airflow/dags/scripts/cleanse_death_data.py
+      retries: 1
+      retry_delay_seconds: 10
+    upstream_task_ids:
+      - load_death_data_to_redis
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: cleanse_power_plant_data
+    task_name: Cleanse Power Plant Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: cleanse_power_plant_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: /opt/airflow/dags/scripts/cleanse_power_plant_data.py
+      retries: 1
+      retry_delay_seconds: 10
+    upstream_task_ids:
+      - create_death_table
+      - create_power_plants_table
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: generate_plant_sql_queries
+    task_name: Generate Plant SQL Queries
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: generate_plant_sql_queries
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: /opt/airflow/dags/scripts/generate_plant_sql.py
+      retries: 1
+      retry_delay_seconds: 10
+    upstream_task_ids:
+      - cleanse_power_plant_data
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: check_death_data_emptiness
+    task_name: Check Death Data Emptiness
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: check_death_data_emptiness
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: /opt/airflow/dags/scripts/check_death_emptiness.py
+      retries: 1
+      retry_delay_seconds: 10
+    upstream_task_ids:
+      - cleanse_death_data
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: store_deaths_in_postgres
+    task_name: Store Deaths in PostgreSQL
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: store_deaths_in_postgres
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config: {}
+      retries: 1
+      retry_delay_seconds: 10
+    upstream_task_ids:
+      - check_death_data_emptiness
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: store_plants_in_postgres
+    task_name: Store Plants in PostgreSQL
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: store_plants_in_postgres
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config: {}
+      retries: 1
+      retry_delay_seconds: 10
+    upstream_task_ids:
+      - generate_plant_sql_queries
+      - staging_end
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: clean_tmp_death_files
+    task_name: Clean Temporary Death Files
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: clean_tmp_death_files
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: /opt/airflow/dags/scripts/clean_tmp_death_files.py
+      retries: 1
+      retry_delay_seconds: 10
+    upstream_task_ids:
+      - store_deaths_in_postgres
+      - store_plants_in_postgres
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []

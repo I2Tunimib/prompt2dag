@@ -1,0 +1,194 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T14:37:26.027780
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_01_fraud_detection_triage.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+**Overall Purpose and High-Level Flow:**
+The fraud detection triage pipeline processes daily transaction batches by analyzing CSV files, calculating risk scores, and conditionally routing transactions to either manual review or auto-approval based on risk thresholds. The pipeline concludes with a final notification indicating the completion of the fraud triage process. The topology follows a branch-merge pattern, incorporating sequential, branching, and parallel execution patterns.
+
+**Key Patterns and Complexity:**
+- **Branching:** Conditional routing based on risk scores.
+- **Sequential:** Linear execution of tasks where each task depends on the successful completion of its upstream tasks.
+- **Parallel:** Two paths (manual review and auto-approval) run concurrently after the branching decision.
+- **Merge:** A final task that waits for both parallel paths to complete before sending a notification.
+
+### Pipeline Architecture
+
+**Flow Patterns:**
+- **Sequential:** The pipeline starts with the `analyze_transactions` task, which processes daily transaction CSV files.
+- **Branching:** The `route_transaction` task branches the flow based on the calculated risk score.
+- **Parallel:** Two parallel paths (`route_to_manual_review` and `route_to_auto_approve`) are executed based on the risk score.
+- **Merge:** The `send_notification` task merges the results from the parallel paths and sends a final notification.
+
+**Execution Characteristics:**
+- **Task Executor Types:** Python is the only executor type used for all tasks.
+
+**Component Overview:**
+- **Transformer:** Processes and transforms data.
+- **Reconciliator:** Applies logic to determine the next step in the pipeline.
+- **Notifier:** Sends notifications.
+
+**Flow Description:**
+- **Entry Points:** The pipeline starts with the `analyze_transactions` task.
+- **Main Sequence:** 
+  1. `analyze_transactions` reads daily transaction CSV files and calculates risk scores.
+  2. `route_transaction` applies a risk model and determines the next task based on the risk score.
+  3. **Branching/Parallelism:**
+     - If the risk score is greater than 0.8, the transaction is routed to `route_to_manual_review`.
+     - If the risk score is 0.8 or less, the transaction is routed to `route_to_auto_approve`.
+  4. **Merge:** `send_notification` waits for both parallel paths to complete and sends a final notification.
+
+### Detailed Component Analysis
+
+**Analyze Transactions:**
+- **Purpose and Category:** Extracts and analyzes daily transaction CSV files to calculate risk scores for fraud detection.
+- **Executor Type and Configuration:** Python, with the entry point `synthetic_branch_merge_01_fraud_detection_triage.analyze_transactions`.
+- **Inputs and Outputs:**
+  - **Input:** `daily_transaction_csv` (CSV file from the file system).
+  - **Output:** `risk_score` (JSON object).
+- **Retry Policy and Concurrency Settings:**
+  - **Retry Policy:** 2 attempts with a 300-second delay, retrying on timeout and network errors.
+  - **Concurrency:** Does not support parallelism.
+- **Connected Systems:** File system for reading daily transaction CSV files.
+
+**Route Transaction:**
+- **Purpose and Category:** Applies a risk model and determines the transaction routing path based on the calculated risk score threshold.
+- **Executor Type and Configuration:** Python, with the entry point `synthetic_branch_merge_01_fraud_detection_triage.route_transaction`.
+- **Inputs and Outputs:**
+  - **Input:** `risk_score` (JSON object).
+  - **Output:** `next_task_id` (JSON object).
+- **Retry Policy and Concurrency Settings:**
+  - **Retry Policy:** 2 attempts with a 300-second delay, retrying on timeout and network errors.
+  - **Concurrency:** Does not support parallelism.
+- **Connected Systems:** None.
+
+**Route to Manual Review:**
+- **Purpose and Category:** Processes high-risk transactions (risk score > 0.8) through a manual review queue.
+- **Executor Type and Configuration:** Python, with the entry point `synthetic_branch_merge_01_fraud_detection_triage.route_to_manual_review`.
+- **Inputs and Outputs:**
+  - **Input:** `next_task_id` (JSON object).
+  - **Output:** `manual_review_completion` (JSON object).
+- **Retry Policy and Concurrency Settings:**
+  - **Retry Policy:** 2 attempts with a 300-second delay, retrying on timeout and network errors.
+  - **Concurrency:** Does not support parallelism.
+- **Connected Systems:** Manual review queue API for processing high-risk transactions.
+
+**Route to Auto Approve:**
+- **Purpose and Category:** Processes low-risk transactions (risk score ≤ 0.8) through automated approval for payment processing.
+- **Executor Type and Configuration:** Python, with the entry point `synthetic_branch_merge_01_fraud_detection_triage.route_to_auto_approve`.
+- **Inputs and Outputs:**
+  - **Input:** `next_task_id` (JSON object).
+  - **Output:** `auto_approve_completion` (JSON object).
+- **Retry Policy and Concurrency Settings:**
+  - **Retry Policy:** 2 attempts with a 300-second delay, retrying on timeout and network errors.
+  - **Concurrency:** Does not support parallelism.
+- **Connected Systems:** Payment processing system API for processing low-risk transactions.
+
+**Send Notification:**
+- **Purpose and Category:** Sends a final notification after both branch paths complete, indicating the daily fraud triage process is finished.
+- **Executor Type and Configuration:** Python, with the entry point `synthetic_branch_merge_01_fraud_detection_triage.send_notification`.
+- **Inputs and Outputs:**
+  - **Inputs:** `manual_review_completion` and `auto_approve_completion` (JSON objects).
+  - **Output:** `notification` (JSON object).
+- **Retry Policy and Concurrency Settings:**
+  - **Retry Policy:** 2 attempts with a 300-second delay, retrying on timeout and network errors.
+  - **Concurrency:** Does not support parallelism.
+- **Connected Systems:** Notification system API for sending the final notification.
+
+### Parameter Schema
+
+**Pipeline-Level Parameters:**
+- **Name:** Pipeline identifier (required, string).
+- **Description:** Pipeline description (optional, string).
+- **Tags:** Classification tags (optional, array).
+
+**Schedule Configuration:**
+- **Enabled:** Whether the pipeline runs on schedule (optional, boolean, default: true).
+- **Cron Expression:** Schedule expression (optional, string, default: @daily).
+- **Start Date:** When to start scheduling (optional, datetime, default: 2024-01-01T00:00:00Z).
+- **End Date:** When to stop scheduling (optional, datetime).
+- **Timezone:** Schedule timezone (optional, string).
+- **Catchup:** Run missed intervals (optional, boolean, default: false).
+- **Batch Window:** Batch window parameter name (optional, string).
+- **Partitioning:** Data partitioning strategy (optional, string, default: daily).
+
+**Execution Settings:**
+- **Max Active Runs:** Maximum concurrent pipeline runs (optional, integer).
+- **Timeout Seconds:** Pipeline execution timeout (optional, integer).
+- **Retry Policy:** Pipeline-level retry behavior (optional, object, default: { retries: 2, retry_delay_seconds: 300 }).
+- **Depends on Past:** Whether execution depends on previous run success (optional, boolean).
+
+**Component-Specific Parameters:**
+- **Analyze Transactions:** `python_callable` (required, string).
+- **Route Transaction:** `python_callable` (required, string).
+- **Route to Manual Review:** `python_callable` (required, string).
+- **Route to Auto Approve:** `python_callable` (required, string).
+- **Send Notification:** `python_callable` (required, string), `trigger_rule` (optional, string, default: none_failed).
+
+**Environment Variables:**
+- **EMAIL_ON_FAILURE:** Whether to send email on task failure (optional, boolean, default: true).
+- **EMAIL_ON_RETRY:** Whether to send email on task retry (optional, boolean, default: false).
+
+### Integration Points
+
+**External Systems and Connections:**
+- **Transaction CSV Files:** File system for reading daily transaction CSV files.
+- **Manual Review Queue:** Message queue for processing high-risk transactions.
+- **Payment Processing System:** API for processing low-risk transactions.
+- **Notification System:** API for sending final notifications.
+
+**Data Sources and Sinks:**
+- **Sources:** Daily transaction CSV files located at `/path/to/transaction/csv/files`.
+- **Sinks:** 
+  - Manual review queue for high-risk transactions.
+  - Payment processing system for low-risk transactions.
+  - Notification system for final fraud triage process completion.
+
+**Authentication Methods:**
+- **Manual Review Queue:** Basic authentication using environment variables `MANUAL_REVIEW_QUEUE_USERNAME` and `MANUAL_REVIEW_QUEUE_PASSWORD`.
+- **Payment Processing System:** Token-based authentication using environment variable `PAYMENT_PROCESSING_SYSTEM_TOKEN`.
+- **Notification System:** Basic authentication using environment variables `NOTIFICATION_SYSTEM_USERNAME` and `NOTIFICATION_SYSTEM_PASSWORD`.
+
+**Data Lineage:**
+- **Sources:** Daily transaction CSV files.
+- **Intermediate Datasets:** Risk scores calculated from transaction CSV files, high-risk transactions routed to manual review, low-risk transactions routed to auto-approval.
+- **Sinks:** Final notification indicating the completion of the fraud triage process.
+
+### Implementation Notes
+
+**Complexity Assessment:**
+- The pipeline incorporates branching and parallel execution, which adds complexity but is well-managed through conditional routing and merge tasks.
+- The use of a single executor type (Python) simplifies the implementation.
+
+**Upstream Dependency Policies:**
+- All tasks execute after all upstream tasks succeed, ensuring data integrity and consistency.
+
+**Retry and Timeout Configurations:**
+- Each task has a retry policy with 2 attempts and a 300-second delay, retrying on timeout and network errors.
+- The pipeline-level retry policy is also defined, providing a consistent approach to handling failures.
+
+**Potential Risks or Considerations:**
+- **Data Integrity:** Ensure that the CSV files are correctly formatted and accessible.
+- **Rate Limiting:** The payment processing system and notification system have rate limits that must be respected to avoid API throttling.
+- **Authentication:** Securely manage and store authentication credentials for external systems.
+
+### Orchestrator Compatibility
+
+**Assessment for Airflow, Prefect, Dagster:**
+- **Airflow:** The pipeline's branching and merging patterns are well-supported by Airflow's branching and trigger rules.
+- **Prefect:** Prefect's dynamic task mapping and conditional execution features align well with the pipeline's branching and parallel execution requirements.
+- **Dagster:** Dagster's support for dynamic graphs and conditional execution makes it a suitable choice for implementing the pipeline's branching and merging logic.
+
+**Pattern-Specific Considerations:**
+- **Branching:** Ensure that the orchestrator supports conditional branching based on task outputs.
+- **Parallelism:** Verify that the orchestrator can handle parallel execution of tasks and merge their results.
+- **Merge:** The final merge task should wait for all parallel paths to complete without failure.
+
+### Conclusion
+
+The fraud detection triage pipeline is a well-structured and efficient process that leverages branching and parallel execution to handle high-risk and low-risk transactions differently. The pipeline's components are clearly defined, and the flow is logically organized. The use of a single executor type (Python) simplifies implementation and maintenance. The pipeline is compatible with various orchestrators, making it flexible for different deployment environments.

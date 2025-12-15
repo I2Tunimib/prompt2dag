@@ -1,0 +1,207 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 06:02:52.275466
+  source_analysis_file: 
+    Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__mahidol_aqi_report_pipeline_alert.py_description.txt
+  pipeline_name: get_data_mahidol_aqi_report_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    job_name: get_data_mahidol_aqi_report_pipeline
+    description: No description provided.
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - http_mahidol
+      - postgres_conn
+      - smtp_conn
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: mahidol_aqi_website
+    conn_type: resource
+    description: Mahidol University AQI Website
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: mahidol_aqi_website
+      config:
+        base_url: https://mahidol.ac.th/aqireport/
+        protocol: https
+  - conn_id: local_filesystem
+    conn_type: fs_io_manager
+    description: Local Filesystem
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: local_filesystem
+      config:
+        base_path: /opt/airflow/data
+        protocol: file
+  - conn_id: postgres_conn
+    conn_type: resource
+    description: PostgreSQL Connection
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: postgres_conn
+      config:
+        host: localhost
+        port: 5432
+        database: airquality
+        schema: public
+        username: EnvVar('POSTGRES_USER')
+        password: EnvVar('POSTGRES_PASSWORD')
+  - conn_id: smtp_server
+    conn_type: resource
+    description: SMTP Server
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: smtp_server
+      config:
+        host: smtp.gmail.com
+        port: 587
+        protocol: smtp
+        username: EnvVar('SMTP_USER')
+        password: EnvVar('SMTP_PASSWORD')
+  - conn_id: config_filesystem
+    conn_type: fs_io_manager
+    description: Configuration Filesystem
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: config_filesystem
+      config:
+        base_path: /opt/airflow/config
+        protocol: file
+tasks:
+  - task_id: get_data_mahidol_aqi_report
+    task_name: Get Mahidol AQI Report
+    operator_class: Op
+    operator_module: dagster
+    component_ref: get_data_mahidol_aqi_report
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - http_mahidol
+      ins:
+        - name: Mahidol AQI Website
+          dagster_type: String
+          description: https://mahidol.ac.th/aqireport/
+      outs:
+        - name: Mahidol AQI HTML
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: create_json_object
+    task_name: Create JSON Object
+    operator_class: Op
+    operator_module: dagster
+    component_ref: create_json_object
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - postgres_conn
+      ins:
+        - name: Mahidol AQI HTML
+          dagster_type: String
+          description: data/mahidol_aqi.html
+        - name: Existing JSON File
+          dagster_type: String
+          description: data/existing.json
+      outs:
+        - name: Structured JSON
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - get_data_mahidol_aqi_report
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: load_mahidol_aqi_to_postgres
+    task_name: Load Mahidol AQI to PostgreSQL
+    operator_class: Op
+    operator_module: dagster
+    component_ref: load_mahidol_aqi_to_postgres
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - postgres_conn
+      ins:
+        - name: Structured JSON
+          dagster_type: String
+          description: data/tmp_mahidol.json
+        - name: Pollution Mapping Config
+          dagster_type: String
+          description: /opt/airflow/config/mapping_main_pollution.json
+      outs:
+        - name: PostgreSQL Tables
+          dagster_type: String
+          description: Output to postgres_conn
+    upstream_task_ids:
+      - create_json_object
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: alert_email
+    task_name: Send Email Alert
+    operator_class: Op
+    operator_module: dagster
+    component_ref: alert_email
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - smtp_conn
+      ins:
+        - name: Structured JSON
+          dagster_type: String
+          description: data/tmp_mahidol.json
+        - name: Email Configuration
+          dagster_type: String
+          description: config.conf
+        - name: Recipient List
+          dagster_type: String
+          description: pm25_alert_emails.txt
+      outs:
+        - name: Email Notifications
+          dagster_type: String
+          description: Output to smtp_conn
+    upstream_task_ids:
+      - load_mahidol_aqi_to_postgres
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

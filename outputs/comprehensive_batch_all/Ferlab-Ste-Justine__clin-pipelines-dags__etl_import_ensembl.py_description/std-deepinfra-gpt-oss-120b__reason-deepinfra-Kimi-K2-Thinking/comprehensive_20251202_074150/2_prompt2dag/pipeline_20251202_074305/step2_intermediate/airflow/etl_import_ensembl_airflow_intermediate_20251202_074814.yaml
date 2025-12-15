@@ -1,0 +1,136 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-02 07:48:14.342938
+  source_analysis_file: 
+    Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_ensembl.py_description.txt
+  pipeline_name: etl_import_ensembl
+  pipeline_description: Comprehensive Pipeline Description
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: '2022-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: ensembl_ftp
+    conn_type: http
+    description: Ensembl FTP Server
+    config:
+      base_path:
+      base_url: ftp://ftp.ensembl.org/pub/current_tsv/homo_sapiens
+      host: ftp.ensembl.org
+      port: 21
+      protocol: ftp
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: s3_data_lake
+    conn_type: s3
+    description: AWS S3 Data Lake
+    config:
+      base_path: s3://cqgc-{env}-app-datalake/
+      base_url:
+      host:
+      port:
+      protocol: s3
+      database:
+      schema:
+      bucket: cqgc-{env}-app-datalake
+      queue_name:
+  - conn_id: slack_api
+    conn_type: http
+    description: Slack Notification API
+    config:
+      base_path:
+      base_url: https://slack.com/api/
+      host: slack.com
+      port: 443
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+      extra:
+        token_env_var: SLACK_BOT_TOKEN
+  - conn_id: kubernetes_etl
+    conn_type: generic
+    description: Kubernetes ETL Cluster
+    config:
+      base_path:
+      base_url: https://k8s.etl.cluster.local
+      host: k8s.etl.cluster.local
+      port: 443
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+tasks:
+  - task_id: notify_slack_start
+    task_name: Slack Notification on DAG Start
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: notify_slack_start
+    config:
+      python_callable: notifications/slack_start.py
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: check_and_download_ensembl_files
+    task_name: Check and Download Ensembl Mapping Files
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: check_and_download_ensembl_files
+    config:
+      python_callable: tasks/check_and_download_ensembl.py
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - notify_slack_start
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: process_ensembl_mapping_spark
+    task_name: Process Ensembl Mapping with Spark
+    operator_class: SparkSubmitOperator
+    operator_module: airflow.providers.apache.spark.operators.spark_submit
+    component_ref: process_ensembl_mapping_spark
+    config:
+      retry_delay: timedelta(seconds=600)
+    upstream_task_ids:
+      - check_and_download_ensembl_files
+    trigger_rule: all_success
+    retries: 3
+    retry_delay_seconds: 600
+    validation_warnings: []
+  - task_id: notify_slack_success
+    task_name: Slack Notification on DAG Completion
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: notify_slack_success
+    config:
+      python_callable: notifications/slack_success.py
+    upstream_task_ids:
+      - outcome_branch
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: notify_slack_failure
+    task_name: Slack Notification on Task Failure
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: notify_slack_failure
+    config:
+      python_callable: notifications/slack_failure.py
+    upstream_task_ids:
+      - outcome_branch
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []

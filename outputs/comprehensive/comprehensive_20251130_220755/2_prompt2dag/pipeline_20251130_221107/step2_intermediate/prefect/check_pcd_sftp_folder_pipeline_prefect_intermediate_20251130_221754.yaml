@@ -1,0 +1,149 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-11-30 22:17:54.101983
+  source_analysis_file: Pipeline_Description_Dataset/bcgov__medis-scheduler__PCD-ETL.py_description.txt
+  pipeline_name: check_pcd_sftp_folder_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    flow_name: check_pcd_sftp_folder_pipeline
+    deployment_name: check_pcd_sftp_folder_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: ConcurrentTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression: '{{var.value.pcd_etl_schedule}}'
+  start_date: '2021-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections: []
+tasks:
+  - task_id: check_pcd_sftp_folder
+    task_name: Check PCD SFTP Folder
+    operator_class: KubernetesJob
+    operator_module: prefect_kubernetes.jobs
+    component_ref: check_pcd_sftp_folder
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: KubernetesJob
+        module: prefect_kubernetes.jobs
+        config:
+          env: {}
+      retries: 0
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: check_pcd_shared_folder
+    task_name: Check PCD Shared Folder
+    operator_class: KubernetesJob
+    operator_module: prefect_kubernetes.jobs
+    component_ref: check_pcd_shared_folder
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: KubernetesJob
+        module: prefect_kubernetes.jobs
+        config:
+          env: {}
+      retries: 0
+    upstream_task_ids:
+      - check_pcd_sftp_folder
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: start_pcd_extract_1
+    task_name: Start PCD Extract 1
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: start_pcd_extract_1
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+    upstream_task_ids:
+      - check_pcd_shared_folder
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: parallel_http_api_extraction
+    task_name: Parallel HTTP API Extraction
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: parallel_http_api_extraction
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config: {}
+      retries: 0
+      task_runner: ConcurrentTaskRunner
+    upstream_task_ids:
+      - start_pcd_extract_1
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: start_pcd_extract_2
+    task_name: Start PCD Extract 2
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: start_pcd_extract_2
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+    upstream_task_ids:
+      - parallel_http_api_extraction
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: pcd_file_upload
+    task_name: PCD File Upload
+    operator_class: KubernetesJob
+    operator_module: prefect_kubernetes.jobs
+    component_ref: pcd_file_upload
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: KubernetesJob
+        module: prefect_kubernetes.jobs
+        config:
+          env: {}
+      retries: 0
+    upstream_task_ids:
+      - start_pcd_extract_2
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: etl_notification
+    task_name: ETL Notification
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: etl_notification
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+    upstream_task_ids:
+      - pcd_file_upload
+      - parallel_http_api_extraction
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

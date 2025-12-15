@@ -1,0 +1,1613 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T07:20:39.953804",
+    "source_file": "Pipeline_Description_Dataset/Environmental_Monitoring_Network.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "gpt-oss-120b",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential"
+      ],
+      "task_executors_used": [
+        "docker"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": false,
+      "total_components": 7,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "load_and_modify_data_pipeline",
+    "description": "No description provided.",
+    "flow_patterns": [
+      "sequential"
+    ],
+    "task_executors": [
+      "docker"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "load_and_modify_data",
+      "name": "Load and Modify Station Data",
+      "category": "Extractor",
+      "description": "Ingests stations.csv, parses installation_date, standardizes location names and converts the data to JSON. Uses the load‑and‑modify service (port 3003). Uses image default entrypoint/command.",
+      "inputs": [
+        "stations.csv"
+      ],
+      "outputs": [
+        "table_data_2.json"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-load-and-modify:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "DATASET_ID": "2",
+          "DATE_COLUMN": "installation_date",
+          "TABLE_NAME_PREFIX": "JOT_"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "stations_csv",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "${DATA_DIR}/stations.csv",
+          "connection_id": "fs_data_dir"
+        },
+        {
+          "name": "table_json",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/table_data_2.json",
+          "connection_id": "fs_data_dir"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "First step in the pipeline",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_data_dir",
+          "type": "filesystem",
+          "purpose": "Shared data directory mounted as ${DATA_DIR}"
+        },
+        {
+          "id": "load_modify_api",
+          "type": "api",
+          "purpose": "Load‑and‑modify service (port 3003)"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "station_raw_csv"
+        ],
+        "produces": [
+          "station_json_intermediate"
+        ]
+      }
+    },
+    {
+      "id": "geocode_reconciliation",
+      "name": "Geocode Reconciliation",
+      "category": "Reconciliator",
+      "description": "Geocodes station locations using the location field and adds latitude/longitude. Uses the reconciliation service (port 3003). Uses image default entrypoint/command.",
+      "inputs": [
+        "table_data_2.json"
+      ],
+      "outputs": [
+        "reconciled_table_2.json"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-reconciliation:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "PRIMARY_COLUMN": "location",
+          "RECONCILIATOR_ID": "geocodingHere",
+          "API_TOKEN": "[HERE API token]",
+          "DATASET_ID": "2"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "input_json",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/table_data_2.json",
+          "connection_id": "fs_data_dir"
+        },
+        {
+          "name": "reconciled_json",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/reconciled_table_2.json",
+          "connection_id": "fs_data_dir"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful load and modify step",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_data_dir",
+          "type": "filesystem",
+          "purpose": "Shared data directory"
+        },
+        {
+          "id": "geocoding_api",
+          "type": "api",
+          "purpose": "HERE geocoding service"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "station_json_intermediate"
+        ],
+        "produces": [
+          "station_json_geocoded"
+        ]
+      }
+    },
+    {
+      "id": "openmeteo_extension",
+      "name": "OpenMeteo Weather Data Extension",
+      "category": "Enricher",
+      "description": "Adds historical weather variables based on geocoded latitude/longitude and installation_date. Uses the OpenMeteo service. Uses image default entrypoint/command.",
+      "inputs": [
+        "reconciled_table_2.json"
+      ],
+      "outputs": [
+        "open_meteo_2.json"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-openmeteo-extension:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "LAT_COLUMN": "latitude",
+          "LON_COLUMN": "longitude",
+          "DATE_COLUMN": "installation_date",
+          "WEATHER_VARIABLES": "apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_hours",
+          "DATE_SEPARATOR_FORMAT": "YYYYMMDD"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "geocoded_json",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/reconciled_table_2.json",
+          "connection_id": "fs_data_dir"
+        },
+        {
+          "name": "weather_enriched_json",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/open_meteo_2.json",
+          "connection_id": "fs_data_dir"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful geocoding step",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_data_dir",
+          "type": "filesystem",
+          "purpose": "Shared data directory"
+        },
+        {
+          "id": "openmeteo_api",
+          "type": "api",
+          "purpose": "OpenMeteo weather service"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "station_json_geocoded"
+        ],
+        "produces": [
+          "station_json_weather"
+        ]
+      }
+    },
+    {
+      "id": "land_use_extension",
+      "name": "Land Use Classification Extension",
+      "category": "Enricher",
+      "description": "Adds land use classification based on latitude/longitude using a GIS API. Uses image default entrypoint/command.",
+      "inputs": [
+        "open_meteo_2.json"
+      ],
+      "outputs": [
+        "land_use_2.json"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "geoapify-land-use:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "LAT_COLUMN": "latitude",
+          "LON_COLUMN": "longitude",
+          "OUTPUT_COLUMN": "land_use_type",
+          "API_KEY": "[Geoapify API key]"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "weather_json",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/open_meteo_2.json",
+          "connection_id": "fs_data_dir"
+        },
+        {
+          "name": "land_use_json",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/land_use_2.json",
+          "connection_id": "fs_data_dir"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after weather data extension",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_data_dir",
+          "type": "filesystem",
+          "purpose": "Shared data directory"
+        },
+        {
+          "id": "land_use_api",
+          "type": "api",
+          "purpose": "Geoapify land‑use classification service"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "station_json_weather"
+        ],
+        "produces": [
+          "station_json_land_use"
+        ]
+      }
+    },
+    {
+      "id": "population_density_extension",
+      "name": "Population Density Extension",
+      "category": "Enricher",
+      "description": "Adds population density for the area surrounding each station location. Uses image default entrypoint/command.",
+      "inputs": [
+        "land_use_2.json"
+      ],
+      "outputs": [
+        "pop_density_2.json"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "worldpop-density:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "LAT_COLUMN": "latitude",
+          "LON_COLUMN": "longitude",
+          "OUTPUT_COLUMN": "population_density",
+          "RADIUS": "5000"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "land_use_json",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/land_use_2.json",
+          "connection_id": "fs_data_dir"
+        },
+        {
+          "name": "pop_density_json",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/pop_density_2.json",
+          "connection_id": "fs_data_dir"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after land‑use extension",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_data_dir",
+          "type": "filesystem",
+          "purpose": "Shared data directory"
+        },
+        {
+          "id": "population_api",
+          "type": "api",
+          "purpose": "WorldPop demographic data service"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "station_json_land_use"
+        ],
+        "produces": [
+          "station_json_population"
+        ]
+      }
+    },
+    {
+      "id": "environmental_risk_calculation",
+      "name": "Environmental Risk Calculation",
+      "category": "Transformer",
+      "description": "Computes custom environmental risk scores using precipitation, population density, and land‑use type. Uses the column‑extension service. Uses image default entrypoint/command.",
+      "inputs": [
+        "pop_density_2.json"
+      ],
+      "outputs": [
+        "column_extended_2.json"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-column-extension:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "EXTENDER_ID": "environmentalRiskCalculator",
+          "INPUT_COLUMNS": "precipitation_sum,population_density,land_use_type",
+          "OUTPUT_COLUMN": "risk_score",
+          "CALCULATION_FORMULA": "[risk calculation parameters]"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "pop_density_json",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/pop_density_2.json",
+          "connection_id": "fs_data_dir"
+        },
+        {
+          "name": "risk_score_json",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/column_extended_2.json",
+          "connection_id": "fs_data_dir"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after population density extension",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_data_dir",
+          "type": "filesystem",
+          "purpose": "Shared data directory"
+        },
+        {
+          "id": "risk_calc_api",
+          "type": "api",
+          "purpose": "Column‑extension service for risk calculation"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "station_json_population"
+        ],
+        "produces": [
+          "station_json_risk"
+        ]
+      }
+    },
+    {
+      "id": "save_final_data",
+      "name": "Save Final Enriched Dataset",
+      "category": "Loader",
+      "description": "Exports the comprehensive environmental dataset to CSV. Uses the save service. Uses image default entrypoint/command.",
+      "inputs": [
+        "column_extended_2.json"
+      ],
+      "outputs": [
+        "enriched_data_2.csv"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-save:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "DATASET_ID": "2"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "risk_json",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "${DATA_DIR}/column_extended_2.json",
+          "connection_id": "fs_data_dir"
+        },
+        {
+          "name": "final_csv",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "${DATA_DIR}/enriched_data_2.csv",
+          "connection_id": "fs_data_dir"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after environmental risk calculation step",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_data_dir",
+          "type": "filesystem",
+          "purpose": "Shared data directory"
+        },
+        {
+          "id": "save_api",
+          "type": "api",
+          "purpose": "Save service (port 3003)"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "station_json_risk"
+        ],
+        "produces": [
+          "environmental_dataset_csv"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sequential",
+    "entry_points": [
+      "load_and_modify_data"
+    ],
+    "nodes": {
+      "load_and_modify_data": {
+        "kind": "Task",
+        "component_type_id": "load_and_modify_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "geocode_reconciliation"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "geocode_reconciliation": {
+        "kind": "Task",
+        "component_type_id": "geocode_reconciliation",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "openmeteo_extension"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "openmeteo_extension": {
+        "kind": "Task",
+        "component_type_id": "openmeteo_extension",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "land_use_extension"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "land_use_extension": {
+        "kind": "Task",
+        "component_type_id": "land_use_extension",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "population_density_extension"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "population_density_extension": {
+        "kind": "Task",
+        "component_type_id": "population_density_extension",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "environmental_risk_calculation"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "environmental_risk_calculation": {
+        "kind": "Task",
+        "component_type_id": "environmental_risk_calculation",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "save_final_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "save_final_data": {
+        "kind": "Task",
+        "component_type_id": "save_final_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "load_and_modify_data",
+        "to": "geocode_reconciliation",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "geocode_reconciliation",
+        "to": "openmeteo_extension",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "openmeteo_extension",
+        "to": "land_use_extension",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "land_use_extension",
+        "to": "population_density_extension",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "population_density_extension",
+        "to": "environmental_risk_calculation",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "environmental_risk_calculation",
+        "to": "save_final_data",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": null,
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "load_and_modify_data": {
+        "DATASET_ID": {
+          "description": "Identifier of the dataset to process",
+          "type": "integer",
+          "default": 2,
+          "required": false,
+          "constraints": null
+        },
+        "DATE_COLUMN": {
+          "description": "Name of the column containing installation dates",
+          "type": "string",
+          "default": "installation_date",
+          "required": false,
+          "constraints": null
+        },
+        "TABLE_NAME_PREFIX": {
+          "description": "Prefix to prepend to generated table names",
+          "type": "string",
+          "default": "JOT_",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "geocode_reconciliation": {
+        "PRIMARY_COLUMN": {
+          "description": "Column containing location strings to geocode",
+          "type": "string",
+          "default": "location",
+          "required": false,
+          "constraints": null
+        },
+        "RECONCILIATOR_ID": {
+          "description": "Identifier of the geocoding reconciliator to use",
+          "type": "string",
+          "default": "geocodingHere",
+          "required": false,
+          "constraints": null
+        },
+        "API_TOKEN": {
+          "description": "HERE API token for geocoding service",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "DATASET_ID": {
+          "description": "Identifier of the dataset being processed",
+          "type": "integer",
+          "default": 2,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "openmeteo_extension": {
+        "LAT_COLUMN": {
+          "description": "Column name containing latitude values",
+          "type": "string",
+          "default": "latitude",
+          "required": false,
+          "constraints": null
+        },
+        "LON_COLUMN": {
+          "description": "Column name containing longitude values",
+          "type": "string",
+          "default": "longitude",
+          "required": false,
+          "constraints": null
+        },
+        "DATE_COLUMN": {
+          "description": "Column name containing installation dates for weather lookup",
+          "type": "string",
+          "default": "installation_date",
+          "required": false,
+          "constraints": null
+        },
+        "WEATHER_VARIABLES": {
+          "description": "Comma‑separated list of weather variables to retrieve",
+          "type": "string",
+          "default": "apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_hours",
+          "required": false,
+          "constraints": null
+        },
+        "DATE_SEPARATOR_FORMAT": {
+          "description": "Date format used for separating date components",
+          "type": "string",
+          "default": "YYYYMMDD",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "land_use_extension": {
+        "LAT_COLUMN": {
+          "description": "Column name containing latitude values",
+          "type": "string",
+          "default": "latitude",
+          "required": false,
+          "constraints": null
+        },
+        "LON_COLUMN": {
+          "description": "Column name containing longitude values",
+          "type": "string",
+          "default": "longitude",
+          "required": false,
+          "constraints": null
+        },
+        "OUTPUT_COLUMN": {
+          "description": "Name of the column to store land‑use classification",
+          "type": "string",
+          "default": "land_use_type",
+          "required": false,
+          "constraints": null
+        },
+        "API_KEY": {
+          "description": "Geoapify API key for land‑use classification service",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "population_density_extension": {
+        "LAT_COLUMN": {
+          "description": "Column name containing latitude values",
+          "type": "string",
+          "default": "latitude",
+          "required": false,
+          "constraints": null
+        },
+        "LON_COLUMN": {
+          "description": "Column name containing longitude values",
+          "type": "string",
+          "default": "longitude",
+          "required": false,
+          "constraints": null
+        },
+        "OUTPUT_COLUMN": {
+          "description": "Name of the column to store population density values",
+          "type": "string",
+          "default": "population_density",
+          "required": false,
+          "constraints": null
+        },
+        "RADIUS": {
+          "description": "Radius (in meters) around each location to calculate density",
+          "type": "integer",
+          "default": 5000,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "environmental_risk_calculation": {
+        "EXTENDER_ID": {
+          "description": "Identifier of the risk calculation extender",
+          "type": "string",
+          "default": "environmentalRiskCalculator",
+          "required": false,
+          "constraints": null
+        },
+        "INPUT_COLUMNS": {
+          "description": "Comma‑separated list of input columns for risk calculation",
+          "type": "string",
+          "default": "precipitation_sum,population_density,land_use_type",
+          "required": false,
+          "constraints": null
+        },
+        "OUTPUT_COLUMN": {
+          "description": "Name of the column to store the computed risk score",
+          "type": "string",
+          "default": "risk_score",
+          "required": false,
+          "constraints": null
+        },
+        "CALCULATION_FORMULA": {
+          "description": "Formula or parameters defining the risk calculation",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "save_final_data": {
+        "DATASET_ID": {
+          "description": "Identifier of the dataset to be saved",
+          "type": "integer",
+          "default": 2,
+          "required": false,
+          "constraints": null
+        }
+      }
+    },
+    "environment": {
+      "DATA_DIR": {
+        "description": "Directory path for shared volume mounting used by all components",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": null
+      },
+      "API_TOKEN": {
+        "description": "HERE API token for geocoding service",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "geocode_reconciliation"
+      },
+      "API_KEY": {
+        "description": "Geoapify API key for land‑use classification service",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "land_use_extension"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "data_dir_volume",
+        "name": "Shared DATA_DIR Volume",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/data",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_data",
+          "geocode_reconciliation",
+          "openmeteo_extension",
+          "land_use_extension",
+          "population_density_extension",
+          "environmental_risk_calculation",
+          "save_final_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "table_data_2.json",
+            "reconciled_table_2.json",
+            "open_meteo_2.json",
+            "land_use_2.json",
+            "pop_density_2.json",
+            "column_extended_2.json",
+            "enriched_data_2.csv"
+          ],
+          "consumes": [
+            "stations.csv",
+            "table_data_2.json",
+            "reconciled_table_2.json",
+            "open_meteo_2.json",
+            "land_use_2.json",
+            "pop_density_2.json",
+            "column_extended_2.json"
+          ]
+        }
+      },
+      {
+        "id": "load_modify_api",
+        "name": "Load‑and‑Modify Service API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "http://localhost:3003",
+          "host": "localhost",
+          "port": 3003,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "table_data_2.json"
+          ],
+          "consumes": [
+            "stations.csv"
+          ]
+        }
+      },
+      {
+        "id": "reconciliation_api",
+        "name": "Reconciliation Service API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "http://localhost:3003",
+          "host": "localhost",
+          "port": 3003,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "geocode_reconciliation"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "reconciled_table_2.json"
+          ],
+          "consumes": [
+            "table_data_2.json"
+          ]
+        }
+      },
+      {
+        "id": "here_geocoding_api",
+        "name": "HERE Geocoding API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "https://geocode.search.hereapi.com/v1",
+          "host": "geocode.search.hereapi.com",
+          "port": 443,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "HERE_API_TOKEN",
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "geocode_reconciliation"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      },
+      {
+        "id": "openmeteo_api",
+        "name": "OpenMeteo Weather API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "https://api.open-meteo.com/v1/forecast",
+          "host": "api.open-meteo.com",
+          "port": 443,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "openmeteo_extension"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "open_meteo_2.json"
+          ],
+          "consumes": [
+            "reconciled_table_2.json"
+          ]
+        }
+      },
+      {
+        "id": "geoapify_land_use_api",
+        "name": "Geoapify Land‑Use API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "https://api.geoapify.com/v2/landuse",
+          "host": "api.geoapify.com",
+          "port": 443,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "GEOAPIFY_API_KEY",
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "land_use_extension"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "land_use_2.json"
+          ],
+          "consumes": [
+            "open_meteo_2.json"
+          ]
+        }
+      },
+      {
+        "id": "worldpop_density_api",
+        "name": "WorldPop Population Density API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "https://worldpop.org/api/density",
+          "host": "worldpop.org",
+          "port": 443,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "population_density_extension"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "pop_density_2.json"
+          ],
+          "consumes": [
+            "land_use_2.json"
+          ]
+        }
+      },
+      {
+        "id": "column_extension_api",
+        "name": "Column Extension Service API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "http://localhost:3003",
+          "host": "localhost",
+          "port": 3003,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "environmental_risk_calculation"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "column_extended_2.json"
+          ],
+          "consumes": [
+            "pop_density_2.json"
+          ]
+        }
+      },
+      {
+        "id": "save_service_api",
+        "name": "Save Service API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "http://localhost:3003",
+          "host": "localhost",
+          "port": 3003,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "save_final_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "enriched_data_2.csv"
+          ],
+          "consumes": [
+            "column_extended_2.json"
+          ]
+        }
+      },
+      {
+        "id": "mongodb",
+        "name": "MongoDB Metadata Store",
+        "type": "database",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": "mongo",
+          "port": 27017,
+          "protocol": "mongodb",
+          "database": "metadata",
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      },
+      {
+        "id": "intertwino_api",
+        "name": "Intertwino API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "http://localhost:5005",
+          "host": "localhost",
+          "port": 5005,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      },
+      {
+        "id": "docker_network_app_network",
+        "name": "Custom Docker Network (app_network)",
+        "type": "other",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": null,
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_data",
+          "geocode_reconciliation",
+          "openmeteo_extension",
+          "land_use_extension",
+          "population_density_extension",
+          "environmental_risk_calculation",
+          "save_final_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "stations.csv file located in the shared DATA_DIR volume"
+      ],
+      "sinks": [
+        "enriched_data_2.csv exported to the shared DATA_DIR volume"
+      ],
+      "intermediate_datasets": [
+        "table_data_2.json",
+        "reconciled_table_2.json",
+        "open_meteo_2.json",
+        "land_use_2.json",
+        "pop_density_2.json",
+        "column_extended_2.json"
+      ]
+    }
+  }
+}

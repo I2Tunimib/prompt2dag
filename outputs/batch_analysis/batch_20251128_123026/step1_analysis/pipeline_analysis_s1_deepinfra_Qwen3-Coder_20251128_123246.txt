@@ -1,0 +1,161 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-11-28T12:32:46.236512
+# Provider: deepinfra
+# Model: Qwen3-Coder
+# Source: Pipeline_Description_Dataset/Multilingual_Product_Review.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+# Multilingual Product Review Analysis Pipeline Report
+
+## 1. Executive Summary
+
+This pipeline processes multilingual product reviews to enrich them with language verification, sentiment analysis, and feature extraction. The pipeline follows a linear, sequential execution pattern where each step depends on the successful completion of the previous one. The workflow consists of five components that process review data through standardization, language detection, sentiment scoring, and feature extraction before producing a final enriched dataset.
+
+The pipeline demonstrates moderate complexity with consistent data flow patterns and uniform execution characteristics across all components. All processing is performed using containerized workloads with shared filesystem access for data exchange.
+
+## 2. Pipeline Architecture
+
+### Flow Patterns
+The pipeline implements a sequential execution pattern with no branching, parallel execution paths, or sensor-based triggers. Each component executes only after its predecessor completes successfully.
+
+### Execution Characteristics
+All components utilize Docker container executors with standardized configurations. Each component runs in its own container instance with specific environment variables and shared network access.
+
+### Component Overview
+The pipeline consists of five components organized into two categories:
+- **Loader (2 components)**: Handles data ingestion and export operations
+- **Enricher (3 components)**: Performs data transformation and enhancement operations
+
+### Flow Description
+The pipeline begins with the Load and Modify Data component, which ingests raw review data. The flow proceeds through language detection, sentiment analysis, and feature extraction before concluding with data export. Each component produces output files that serve as inputs for subsequent components.
+
+## 3. Detailed Component Analysis
+
+### Load and Modify Data (Loader)
+- **Purpose**: Ingests review CSV data, standardizes date formats, and converts to JSON
+- **Executor**: Docker container with image "i2t-backendwithintertwino6-load-and-modify:latest"
+- **Inputs**: reviews.csv file
+- **Outputs**: table_data_2.json file
+- **Configuration**: Uses shared "app_network" network and environment variables for dataset identification
+- **Retry Policy**: Single retry attempt with 30-second delay for timeout or network errors
+- **Connected Systems**: Filesystem volume for data exchange
+
+### Detect Language (Enricher)
+- **Purpose**: Verifies or corrects language codes using language detection algorithms
+- **Executor**: Docker container with image "jmockit/language-detection"
+- **Inputs**: table_data_2.json file
+- **Outputs**: lang_detected_2.json file
+- **Configuration**: Processes text column for language identification
+- **Retry Policy**: Single retry attempt with 30-second delay for timeout or network errors
+- **Connected Systems**: Filesystem volume for data exchange
+
+### Analyze Sentiment (Enricher)
+- **Purpose**: Determines sentiment of reviews using LLM-based analysis
+- **Executor**: Docker container with image "huggingface/transformers-inference"
+- **Inputs**: lang_detected_2.json file
+- **Outputs**: sentiment_analyzed_2.json file
+- **Configuration**: Uses pre-trained model for sentiment classification
+- **Retry Policy**: Single retry attempt with 30-second delay for timeout or network errors
+- **Connected Systems**: Filesystem volume for data exchange
+
+### Extract Features (Enricher)
+- **Purpose**: Extracts product features or categories from reviews using LLM capabilities
+- **Executor**: Docker container with image "i2t-backendwithintertwino6-column-extension:latest"
+- **Inputs**: sentiment_analyzed_2.json file
+- **Outputs**: column_extended_2.json file
+- **Configuration**: Identifies mentioned features in review text
+- **Retry Policy**: Single retry attempt with 30-second delay for timeout or network errors
+- **Connected Systems**: Filesystem volume for data exchange
+
+### Save Final Data (Loader)
+- **Purpose**: Exports fully enriched review data to CSV format
+- **Executor**: Docker container with image "i2t-backendwithintertwino6-save:latest"
+- **Inputs**: column_extended_2.json file
+- **Outputs**: enriched_data_2.csv file
+- **Configuration**: Final data export with dataset identification
+- **Retry Policy**: Single retry attempt with 30-second delay for timeout or network errors
+- **Connected Systems**: Filesystem volume for data exchange
+
+## 4. Parameter Schema
+
+### Pipeline-level Parameters
+- **name**: Identifier for the pipeline (default: "multilingual_product_review_analysis")
+- **description**: Description of pipeline functionality
+- **tags**: Classification tags for categorization
+
+### Schedule Configuration
+- **enabled**: Whether scheduled execution is enabled
+- **cron_expression**: Timing specification for execution
+- **start_date**: Schedule activation date
+- **end_date**: Schedule termination date
+- **timezone**: Timezone for schedule interpretation
+- **catchup**: Whether to process missed intervals
+- **batch_window**: Parameter for batch processing windows
+- **partitioning**: Data partitioning strategy
+
+### Execution Settings
+- **max_active_runs**: Maximum concurrent pipeline executions (default: 1)
+- **timeout_seconds**: Overall execution timeout limit
+- **retry_policy**: Pipeline-level retry configuration
+- **depends_on_past**: Dependency on previous execution success
+
+### Component-specific Parameters
+Each component has specific environment variables:
+- Load component: DATASET_ID, DATE_COLUMN, TABLE_NAME_PREFIX
+- Language detection: TEXT_COLUMN, LANG_CODE_COLUMN, OUTPUT_FILE
+- Sentiment analysis: MODEL_NAME, TEXT_COLUMN, OUTPUT_COLUMN
+- Feature extraction: EXTENDER_ID, TEXT_COLUMN, OUTPUT_COLUMN
+- Save component: DATASET_ID
+
+### Environment Variables
+- **DATA_DIR**: Shared directory path for data input/output operations
+
+## 5. Integration Points
+
+### External Systems and Connections
+- **Filesystem Connection**: Shared directory access for all data exchange
+- **Docker Network**: Custom network "app_network" for container communication
+
+### Data Sources and Sinks
+- **Source**: reviews.csv file containing multilingual product reviews
+- **Sink**: enriched_data_2.csv file with fully processed review data
+- **Intermediate Datasets**: JSON files representing each processing stage
+
+### Authentication Methods
+No explicit authentication mechanisms are configured. Components rely on filesystem permissions and network access controls.
+
+### Data Lineage
+Data flows from raw CSV input through four transformation stages, producing intermediate JSON files at each step before final CSV export. Each component consumes the output of its predecessor and produces input for the next component.
+
+## 6. Implementation Notes
+
+### Complexity Assessment
+The pipeline demonstrates moderate complexity with straightforward sequential processing. The consistent component structure and uniform execution patterns simplify maintenance and troubleshooting.
+
+### Upstream Dependency Policies
+All components implement "all_success" dependency policies, requiring successful completion of predecessor components before execution.
+
+### Retry and Timeout Configurations
+Components have minimal retry configurations with single retry attempts and 30-second delays. No component-level timeout configurations are specified.
+
+### Potential Risks or Considerations
+- Limited retry mechanisms may require manual intervention for transient failures
+- Sequential execution pattern creates single points of failure
+- No explicit error handling or data validation mechanisms documented
+- Resource constraints not specified for container execution
+
+## 7. Orchestrator Compatibility
+
+### Assessment for Major Platforms
+The pipeline structure is compatible with major workflow orchestration platforms including Airflow, Prefect, and Dagster. The sequential execution pattern and component dependencies translate directly to these platforms.
+
+### Pattern-specific Considerations
+- The linear execution pattern maps well to all orchestrators
+- Docker container execution is natively supported
+- File-based data exchange requires shared storage configuration
+- Uniform retry policies simplify cross-platform implementation
+
+## 8. Conclusion
+
+This pipeline provides a complete workflow for processing multilingual product reviews through standardized data enrichment operations. The sequential architecture ensures data consistency and simplifies debugging, while the containerized component design enables portability and scalability. The pipeline successfully transforms raw review data into enriched insights through language verification, sentiment analysis, and feature extraction, supporting deeper customer understanding and business intelligence applications.

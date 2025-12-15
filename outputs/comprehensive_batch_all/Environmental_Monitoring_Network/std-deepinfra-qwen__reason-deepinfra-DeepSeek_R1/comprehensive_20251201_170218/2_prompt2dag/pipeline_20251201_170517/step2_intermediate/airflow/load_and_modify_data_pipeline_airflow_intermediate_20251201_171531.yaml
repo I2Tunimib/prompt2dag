@@ -1,0 +1,264 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-01 17:15:31.284851
+  source_analysis_file: Pipeline_Description_Dataset/Environmental_Monitoring_Network.txt
+  pipeline_name: load_and_modify_data_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir
+    conn_type: fs
+    description: Data Directory
+    config:
+      base_path: ${DATA_DIR}
+      protocol: file
+  - conn_id: load_and_modify_service
+    conn_type: http
+    description: Load and Modify Service
+    config:
+      base_url: http://localhost:3003
+      protocol: http
+  - conn_id: reconciliation_service
+    conn_type: http
+    description: Reconciliation Service
+    config:
+      base_url: http://localhost:3003
+      protocol: http
+      extra:
+        token_env_var: HERE_API_TOKEN
+  - conn_id: openmeteo_service
+    conn_type: http
+    description: OpenMeteo Service
+    config:
+      base_url: https://api.open-meteo.com
+      protocol: https
+  - conn_id: geoapify_land_use_api
+    conn_type: http
+    description: Geoapify Land Use API
+    config:
+      base_url: https://api.geoapify.com
+      protocol: https
+      extra:
+        token_env_var: GEOAPIFY_API_KEY
+  - conn_id: worldpop_density_api
+    conn_type: http
+    description: WorldPop Density API
+    config:
+      base_url: https://api.worldpop.org
+      protocol: https
+  - conn_id: column_extension_service
+    conn_type: http
+    description: Column Extension Service
+    config:
+      base_url: http://localhost:3003
+      protocol: http
+  - conn_id: save_service
+    conn_type: http
+    description: Save Service
+    config:
+      base_url: http://localhost:3003
+      protocol: http
+  - conn_id: docker_network
+    conn_type: generic
+    description: Docker Network
+    config:
+      network_name: app_network
+  - conn_id: mongodb
+    conn_type: mongo
+    description: MongoDB
+    config:
+      host: mongodb
+      port: 27017
+      protocol: mongodb
+  - conn_id: intertwino_api
+    conn_type: http
+    description: Intertwino API
+    config:
+      base_url: http://localhost:5005
+      protocol: http
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: load_and_modify_data
+    config:
+      image: i2t-backendwithintertwino6-load-and-modify:latest
+      command:
+        - python
+        - load_and_modify.py
+      environment:
+        DATASET_ID: '2'
+        DATE_COLUMN: installation_date
+        TABLE_NAME_PREFIX: JOT_
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: reconcile_geocoding
+    task_name: Reconcile Geocoding
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: reconcile_geocoding
+    config:
+      image: i2t-backendwithintertwino6-reconciliation:latest
+      command:
+        - python
+        - reconcile_geocoding.py
+      environment:
+        PRIMARY_COLUMN: location
+        RECONCILIATOR_ID: geocodingHere
+        API_TOKEN: '[HERE API token]'
+        DATASET_ID: '2'
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: extend_openmeteo_data
+    task_name: Extend OpenMeteo Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: extend_openmeteo_data
+    config:
+      image: i2t-backendwithintertwino6-openmeteo-extension:latest
+      command:
+        - python
+        - extend_openmeteo.py
+      environment:
+        LAT_COLUMN: latitude
+        LON_COLUMN: longitude
+        DATE_COLUMN: installation_date
+        WEATHER_VARIABLES: apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_hours
+        DATE_SEPARATOR_FORMAT: YYYYMMDD
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+    upstream_task_ids:
+      - reconcile_geocoding
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: extend_land_use
+    task_name: Extend Land Use
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: extend_land_use
+    config:
+      image: geoapify-land-use:latest
+      command:
+        - python
+        - extend_land_use.py
+      environment:
+        LAT_COLUMN: latitude
+        LON_COLUMN: longitude
+        OUTPUT_COLUMN: land_use_type
+        API_KEY: '[Geoapify API key]'
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+    upstream_task_ids:
+      - extend_openmeteo_data
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: extend_population_density
+    task_name: Extend Population Density
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: extend_population_density
+    config:
+      image: worldpop-density:latest
+      command:
+        - python
+        - extend_population_density.py
+      environment:
+        LAT_COLUMN: latitude
+        LON_COLUMN: longitude
+        OUTPUT_COLUMN: population_density
+        RADIUS: '5000'
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+    upstream_task_ids:
+      - extend_land_use
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: extend_environmental_risk
+    task_name: Extend Environmental Risk
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: extend_environmental_risk
+    config:
+      image: i2t-backendwithintertwino6-column-extension:latest
+      command:
+        - python
+        - extend_environmental_risk.py
+      environment:
+        EXTENDER_ID: environmentalRiskCalculator
+        INPUT_COLUMNS: precipitation_sum,population_density,land_use_type
+        OUTPUT_COLUMN: risk_score
+        CALCULATION_FORMULA: '[risk calculation parameters]'
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+    upstream_task_ids:
+      - extend_population_density
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: save_final_data
+    task_name: Save Final Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: save_final_data
+    config:
+      image: i2t-backendwithintertwino6-save:latest
+      command:
+        - python
+        - save_final_data.py
+      environment:
+        DATASET_ID: '2'
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+    upstream_task_ids:
+      - extend_environmental_risk
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []

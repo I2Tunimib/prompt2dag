@@ -1,0 +1,148 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T07:20:39.953804
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/Environmental_Monitoring_Network.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**Environmental Monitoring Network – Enrichment Pipeline  
+Structured Report**  
+
+---
+
+### 1. Executive Summary  
+
+- **Purpose** – Transform a raw CSV file containing environmental‑monitoring‑station records into a fully enriched dataset ready for risk analysis. The enrichment adds geocoding, historical weather, land‑use classification, and population‑density information, and finally computes a custom environmental‑risk score before persisting the result as a CSV file.  
+- **High‑level flow** – The pipeline consists of **seven** components that execute one after another in a **strictly sequential** order. Each component runs inside its own Docker container and reads/writes files from a shared filesystem volume.  
+- **Key patterns & complexity** – The design is linear (no branching, parallelism, or sensors). Complexity is moderate: a series of data‑format conversions, external‑API calls, and a single transformation step. All components share the same executor type (Docker) and the same data‑exchange mechanism (files on a mounted volume).  
+
+---
+
+### 2. Pipeline Architecture  
+
+| Aspect | Description |
+|--------|-------------|
+| **Flow pattern** | Sequential – each component starts only after the preceding component finishes successfully. |
+| **Executor type** | Docker – every component is defined with an image, optional environment variables, and a network (`app_network`). |
+| **Component categories** | <ul><li>Extractor – *Load and Modify Station Data*</li><li>Reconciliator – *Geocode Reconciliation*</li><li>Enricher – *OpenMeteo Weather Extension*, *Land‑Use Extension*, *Population‑Density Extension*</li><li>Transformer – *Environmental Risk Calculation*</li><li>Loader – *Save Final Enriched Dataset*</li></ul> |
+| **Flow description** | <ol><li>**Entry point** – *Load and Modify Station Data* reads `stations.csv` and writes `table_data_2.json`.</li><li>*Geocode Reconciliation* consumes `table_data_2.json`, adds latitude/longitude, and writes `reconciled_table_2.json`.</li><li>*OpenMeteo Weather Data Extension* enriches the geocoded file with historical weather variables, producing `open_meteo_2.json`.</li><li>*Land‑Use Classification Extension* adds a land‑use label, outputting `land_use_2.json`.</li><li>*Population‑Density Extension* calculates density around each point, producing `pop_density_2.json`.</li><li>*Environmental Risk Calculation* computes a risk score using precipitation, population density, and land‑use, yielding `column_extended_2.json`.</li><li>*Save Final Enriched Dataset* converts the final JSON into `enriched_data_2.csv`.</li></ol> |
+| **Sensors / Branching / Parallelism** | None are defined; the pipeline proceeds linearly from start to finish. |
+
+---
+
+### 3. Detailed Component Analysis  
+
+#### 3.1 Load and Modify Station Data  
+- **Category / Purpose** – Extractor; reads the raw CSV, parses the installation date, standardises location names and converts the data to JSON.  
+- **Executor** – Docker image `i2t-backendwithintertwino6-load-and-modify:latest`. Environment variables: `DATASET_ID=2`, `DATE_COLUMN=installation_date`, `TABLE_NAME_PREFIX=JOT_`. Network: `app_network`.  
+- **Inputs / Outputs** – Input file `stations.csv` (filesystem connection `fs_data_dir`). Output file `table_data_2.json` (same volume).  
+- **Retry & Concurrency** – Single attempt (`max_attempts: 1`), no delay, no exponential back‑off. Parallelism not supported.  
+- **Connected systems** – Filesystem volume (`fs_data_dir`) and the Load‑and‑Modify service API (port 3003).  
+
+#### 3.2 Geocode Reconciliation  
+- **Category / Purpose** – Reconciliator; adds latitude/longitude by geocoding the `location` column.  
+- **Executor** – Docker image `i2t-backendwithintertwino6-reconciliation:latest`. Environment: `PRIMARY_COLUMN=location`, `RECONCILIATOR_ID=geocodingHere`, `API_TOKEN` (HERE token), `DATASET_ID=2`.  
+- **Inputs / Outputs** – Reads `table_data_2.json`, writes `reconciled_table_2.json`.  
+- **Retry & Concurrency** – Same single‑attempt policy; no parallelism.  
+- **Connected systems** – Filesystem volume, Reconciliation service API (port 3003), HERE Geocoding API (token‑based authentication).  
+
+#### 3.3 OpenMeteo Weather Data Extension  
+- **Category / Purpose** – Enricher; fetches historical weather variables for each station based on latitude, longitude, and installation date.  
+- **Executor** – Docker image `i2t-backendwithintertwino6-openmeteo-extension:latest`. Environment variables define column names, weather variables, and date format.  
+- **Inputs / Outputs** – Consumes `reconciled_table_2.json`, produces `open_meteo_2.json`.  
+- **Retry & Concurrency** – Single attempt, no parallelism.  
+- **Connected systems** – Filesystem volume and the OpenMeteo weather API (no authentication).  
+
+#### 3.4 Land‑Use Classification Extension  
+- **Category / Purpose** – Enricher; classifies land‑use type using a GIS service.  
+- **Executor** – Docker image `geoapify-land-use:latest`. Environment: latitude/longitude columns, output column `land_use_type`, `API_KEY` (Geoapify token).  
+- **Inputs / Outputs** – Reads `open_meteo_2.json`, writes `land_use_2.json`.  
+- **Retry & Concurrency** – Single attempt, no parallelism.  
+- **Connected systems** – Filesystem volume and Geoapify Land‑Use API (token‑based authentication).  
+
+#### 3.5 Population‑Density Extension  
+- **Category / Purpose** – Enricher; calculates population density within a 5 km radius around each station.  
+- **Executor** – Docker image `worldpop-density:latest`. Environment: latitude/longitude columns, output column `population_density`, radius `5000`.  
+- **Inputs / Outputs** – Consumes `land_use_2.json`, produces `pop_density_2.json`.  
+- **Retry & Concurrency** – Single attempt, no parallelism.  
+- **Connected systems** – Filesystem volume and WorldPop population‑density API (no authentication).  
+
+#### 3.6 Environmental Risk Calculation  
+- **Category / Purpose** – Transformer; computes a custom risk score from precipitation, population density, and land‑use type.  
+- **Executor** – Docker image `i2t-backendwithintertwino6-column-extension:latest`. Environment: `EXTENDER_ID=environmentalRiskCalculator`, `INPUT_COLUMNS=precipitation_sum,population_density,land_use_type`, `OUTPUT_COLUMN=risk_score`, optional `CALCULATION_FORMULA`.  
+- **Inputs / Outputs** – Reads `pop_density_2.json`, writes `column_extended_2.json`.  
+- **Retry & Concurrency** – Single attempt, no parallelism.  
+- **Connected systems** – Filesystem volume and Column‑Extension service API (port 3003).  
+
+#### 3.7 Save Final Enriched Dataset  
+- **Category / Purpose** – Loader; converts the final enriched JSON into a CSV file for downstream consumption.  
+- **Executor** – Docker image `i2t-backendwithintertwino6-save:latest`. Environment: `DATASET_ID=2`.  
+- **Inputs / Outputs** – Input `column_extended_2.json`, output `enriched_data_2.csv`.  
+- **Retry & Concurrency** – Single attempt, no parallelism.  
+- **Connected systems** – Filesystem volume and Save service API (port 3003).  
+
+---
+
+### 4. Parameter Schema  
+
+| Scope | Parameters (type / default) |
+|-------|-----------------------------|
+| **Pipeline** | `name` (string, optional), `description` (string, optional), `tags` (array, default = []) |
+| **Schedule** | No schedule defined (all fields optional). |
+| **Execution** | `max_active_runs` (integer, optional), `timeout_seconds` (integer, optional), `retry_policy` (object, optional), `depends_on_past` (boolean, optional). |
+| **Component‑specific** | See Section 3 for each component; all have sensible defaults (e.g., `DATASET_ID=2`, column names, API identifiers). |
+| **Environment variables** | `DATA_DIR` – path to the shared volume (required by every component). <br> `API_TOKEN` – HERE geocoding token (required by Geocode Reconciliation). <br> `API_KEY` – Geoapify token (required by Land‑Use Extension). |
+
+---
+
+### 5. Integration Points  
+
+| External system | Connection ID | Role | Authentication |
+|-----------------|---------------|------|----------------|
+| Shared filesystem volume (`/data`) | `fs_data_dir` / `data_dir_volume` | Input & output storage for all intermediate files and final CSV | None |
+| Load‑and‑Modify Service API | `load_modify_api` | Provides CSV‑to‑JSON conversion | None |
+| Reconciliation Service API | `reconciliation_api` | Handles generic reconciliation logic | None |
+| HERE Geocoding API | `here_geocoding_api` | Geocodes location strings | Token (`HERE_API_TOKEN`) |
+| OpenMeteo Weather API | `openmeteo_api` | Supplies historical weather variables | None |
+| Geoapify Land‑Use API | `geoapify_land_use_api` | Returns land‑use classification | Token (`GEOAPIFY_API_KEY`) |
+| WorldPop Population‑Density API | `worldpop_density_api` | Returns population density values | None |
+| Column‑Extension Service API | `column_extension_api` | Executes custom column‑wise calculations (risk score) | None |
+| Save Service API | `save_service_api` | Persists final CSV | None |
+| Docker network `app_network` | `docker_network_app_network` | Provides intra‑container networking for all components | None |
+| MongoDB metadata store | `mongodb` | Not used directly by pipeline components (available for metadata) | None |
+
+**Data lineage** – Source: `stations.csv` (shared volume). Intermediate datasets flow through the seven JSON files listed in the integration table. Sink: `enriched_data_2.csv` (shared volume).  
+
+---
+
+### 6. Implementation Notes  
+
+- **Complexity assessment** – Moderate. The linear chain of seven containerised steps is easy to understand and maintain, but the overall runtime depends on the latency of external APIs (geocoding, weather, land‑use, population density).  
+- **Upstream dependency policy** – Every component uses an “all_success” policy; a failure in any step aborts downstream execution.  
+- **Retry & timeout** – Each component is configured for a single execution attempt with no delay or exponential back‑off. This simplifies error handling but makes the pipeline sensitive to transient API glitches. Consider adding retries or a short back‑off for external‑service calls.  
+- **Potential risks / considerations**  
+  - **External API availability** – HERE, OpenMeteo, Geoapify, WorldPop must be reachable; network issues will halt the pipeline.  
+  - **Missing authentication tokens** – `API_TOKEN` and `API_KEY` are required; absence will cause immediate failure at the respective steps.  
+  - **Single‑threaded execution** – No parallelism means the pipeline cannot exploit multi‑core resources; long‑running API calls will dominate total duration.  
+  - **File‑system contention** – All components read/write to the same mounted directory; ensure sufficient I/O capacity and proper clean‑up of intermediate files.  
+  - **Version drift of Docker images** – Images are referenced with the `latest` tag; explicit version pinning is advisable for reproducibility.  
+
+---
+
+### 7. Orchestrator Compatibility  
+
+The pipeline description is expressed in a generic, orchestrator‑neutral format. It can be mapped to any modern orchestration platform that supports:
+
+1. **Container execution** – ability to run Docker images with custom environment variables and network configuration.  
+2. **File‑based data passing** – mounting a shared volume (or equivalent storage) accessible to all steps.  
+3. **Simple upstream dependency handling** – “run after successful completion of predecessor”.  
+4. **Parameter injection** – passing component‑level parameters and environment variables at runtime.  
+
+All three major orchestration ecosystems (Airflow, Prefect, Dagster) provide these capabilities. The linear nature of the pipeline means no special branching or dynamic mapping features are required. The only platform‑specific consideration is ensuring the chosen orchestrator can attach the `app_network` Docker network to each container and expose the required environment variables (`DATA_DIR`, API tokens).  
+
+---
+
+### 8. Conclusion  
+
+The pipeline delivers a deterministic, end‑to‑end enrichment workflow for environmental‑monitoring stations. Its sequential design, Docker‑based isolation, and clear file‑based hand‑off make it straightforward to implement, test, and maintain across a variety of orchestration tools. Attention should be given to external‑API reliability, token management, and potential runtime optimisation (e.g., adding retries or limited parallelism for independent API calls) to increase robustness and reduce total execution time.

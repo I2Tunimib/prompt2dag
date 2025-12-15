@@ -1,0 +1,151 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-11-28T15:43:34.817219
+# Provider: deepinfra
+# Model: Qwen3-Coder
+# Source: Pipeline_Description_Dataset/Medical_Facility_Accessibility.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+# Medical Facility Accessibility Pipeline Report
+
+## 1. Executive Summary
+
+This pipeline assesses medical facility accessibility by processing facility location data through a series of geospatial enrichment steps. The pipeline ingests CSV facility data, geocodes addresses using HERE API, and calculates distances to key infrastructure including public transportation and residential areas. The final output is an enriched CSV dataset containing accessibility metrics.
+
+The pipeline follows a strictly sequential execution pattern with five distinct processing steps. Each component is executed using Docker containers within a shared network, with file-based data exchange through a common data directory. The pipeline demonstrates moderate complexity through its multi-step geospatial processing workflow and external API integration.
+
+## 2. Pipeline Architecture
+
+### Flow Patterns
+The pipeline implements a sequential execution pattern with no branching, parallel execution, or sensor-based triggering. Each component executes only after successful completion of its immediate upstream component.
+
+### Execution Characteristics
+All components utilize Docker container executors with HTTP API communication for service integration. Components share a common Docker network and exchange data through file system operations in a shared data directory.
+
+### Component Overview
+The pipeline consists of five components organized by functional categories:
+- Extractor: Load and Modify Data
+- Reconciliator: Reconcile Geocode HERE
+- Enricher (2): Calculate Distance to Public Transport and Calculate Distance to Residential Areas
+- Loader: Save Final Data
+
+### Flow Description
+The pipeline begins with the Load and Modify Data component, which ingests facility CSV data and produces JSON output. This triggers sequential execution of geocoding and distance calculation components, culminating in the Save Final Data component that exports the enriched dataset as CSV.
+
+## 3. Detailed Component Analysis
+
+### Load and Modify Data (Extractor)
+- **Purpose**: Ingests facility CSV, cleans and standardizes address formats, and converts to JSON
+- **Executor**: Docker container with image "i2t-backendwithintertwino6-load-and-modify:latest"
+- **Inputs**: facilities.csv file from data directory
+- **Outputs**: table_data_2.json file to data directory
+- **Retry Policy**: 1 maximum attempt with 30-second delay, retrying on timeout or network errors
+- **Connected Systems**: Filesystem connection for data directory, HTTP API service at localhost:3003
+
+### Reconcile Geocode HERE (Reconciliator)
+- **Purpose**: Geocodes facility locations using the address field via the HERE API
+- **Executor**: Docker container with image "i2t-backendwithintertwino6-reconciliation:latest"
+- **Inputs**: table_data_2.json file from data directory
+- **Outputs**: reconciled_table_2.json file to data directory
+- **Retry Policy**: 1 maximum attempt with 30-second delay, retrying on timeout or network errors
+- **Connected Systems**: Filesystem connection for data directory, HERE API service with token authentication
+
+### Calculate Distance to Public Transport (Enricher)
+- **Purpose**: Calculates distance from each facility to the nearest public transportation stop/hub
+- **Executor**: Docker container with image "i2t-backendwithintertwino6-column-extension:latest"
+- **Inputs**: reconciled_table_2.json file from data directory
+- **Outputs**: distance_pt_2.json file to data directory
+- **Retry Policy**: 1 maximum attempt with 30-second delay, retrying on timeout or network errors
+- **Connected Systems**: Filesystem connection for data directory and transport stops GeoJSON file
+
+### Calculate Distance to Residential Areas (Enricher)
+- **Purpose**: Calculates distance from each facility to the nearest residential area center/boundary
+- **Executor**: Docker container with image "i2t-backendwithintertwino6-column-extension:latest"
+- **Inputs**: distance_pt_2.json file from data directory
+- **Outputs**: column_extended_2.json file to data directory
+- **Retry Policy**: 1 maximum attempt with 30-second delay, retrying on timeout or network errors
+- **Connected Systems**: Filesystem connection for data directory and residential areas GeoJSON file
+
+### Save Final Data (Loader)
+- **Purpose**: Exports the facility accessibility data to CSV
+- **Executor**: Docker container with image "i2t-backendwithintertwino6-save:latest"
+- **Inputs**: column_extended_2.json file from data directory
+- **Outputs**: enriched_data_2.csv file to data directory
+- **Retry Policy**: 1 maximum attempt with 30-second delay, retrying on timeout or network errors
+- **Connected Systems**: Filesystem connection for data directory, HTTP API service at localhost:3003
+
+## 4. Parameter Schema
+
+### Pipeline-level Parameters
+- name: String identifier for the pipeline (default: "medical_facility_accessibility_pipeline")
+- description: Text description of pipeline purpose
+- tags: Array of classification tags including "medical", "accessibility", "geospatial", "healthcare"
+
+### Schedule Configuration
+No explicit schedule configuration defined. Pipeline scheduling parameters include enabled status, cron expression, start/end dates, timezone, catchup behavior, batch window, and partitioning strategy - all with null defaults.
+
+### Execution Settings
+Execution settings include maximum active runs, timeout seconds, pipeline-level retry policy (defaulting to 1 retry), and depends-on-past configuration - all with null defaults.
+
+### Component-specific Parameters
+Each component has specific environment variables:
+- Load and Modify Data: DATASET_ID (integer, default: 2), TABLE_NAME_PREFIX (string, default: "JOT_")
+- Reconcile Geocode HERE: PRIMARY_COLUMN (string, default: "address"), RECONCILIATOR_ID (string, default: "geocodingHere"), API_TOKEN (required string), DATASET_ID (integer, default: 2)
+- Calculate Distance components: EXTENDER_ID (string, default: "spatialDistanceCalculator"), LAT_COLUMN/LON_COLUMN (strings), TARGET_LAYER (string), TARGET_DATA_SOURCE (file path), OUTPUT_COLUMN (string), DATASET_ID (integer, default: 2)
+- Save Final Data: DATASET_ID (integer, default: 2)
+
+### Environment Variables
+- DATA_DIR: Required directory path for shared data input/output operations
+
+## 5. Integration Points
+
+### External Systems and Connections
+The pipeline integrates with multiple external systems:
+- Filesystem connections for data directory access and GeoJSON reference files
+- HTTP API services at localhost:3003 for internal processing services
+- HERE API geocoding service with token-based authentication
+- MongoDB database connection (currently unused)
+- Intertwino API service at localhost:5005 (currently unused)
+
+### Data Sources and Sinks
+- Sources: facilities.csv file, transport stops GeoJSON, residential areas GeoJSON
+- Sinks: enriched_data_2.csv file
+- Intermediate datasets: JSON files representing processing stages
+
+### Authentication Methods
+- None (filesystem and internal API connections)
+- Token-based authentication for HERE API integration
+- Environment variable-based token configuration
+
+### Data Lineage
+Data flows from CSV facility data through JSON processing stages to final CSV output, with GeoJSON reference data providing spatial context for distance calculations.
+
+## 6. Implementation Notes
+
+### Complexity Assessment
+The pipeline demonstrates moderate complexity through its multi-step geospatial processing workflow, external API integration, and sequential dependency chain. The component design promotes modularity and reusability.
+
+### Upstream Dependency Policies
+All components implement "all_success" upstream policies, requiring successful completion of immediate predecessor components before execution. The initial component runs when input data becomes available.
+
+### Retry and Timeout Configurations
+Components implement consistent retry policies with single retry attempts and 30-second delays for timeout and network error scenarios. No explicit pipeline-level timeout configuration is defined.
+
+### Potential Risks or Considerations
+- HERE API token management and rate limiting
+- Dependency on external GeoJSON reference data files
+- Sequential execution limits parallel processing opportunities
+- Single retry policy may be insufficient for transient failures
+- No explicit error handling or data validation beyond component-level retries
+
+## 7. Orchestrator Compatibility
+
+### Assessment for Major Orchestrators
+The pipeline's sequential execution pattern, Docker-based components, and file-based data exchange are compatible with major pipeline orchestrators including Airflow, Prefect, and Dagster. The component design supports standard orchestration patterns.
+
+### Pattern-specific Considerations
+The pipeline's linear dependency chain and lack of branching or parallel execution simplify orchestration requirements. The Docker container execution model supports containerized deployment patterns common across orchestrators. File-based data exchange requires shared storage configuration in distributed environments.
+
+## 8. Conclusion
+
+This pipeline effectively processes medical facility location data to produce accessibility metrics through a well-structured sequence of geospatial processing steps. The modular component design, consistent parameterization, and clear data flow make it suitable for deployment across various orchestration platforms. The pipeline's moderate complexity and external API dependencies require careful consideration of authentication management and error handling in production environments.

@@ -1,0 +1,157 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 15:46:05.799600
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_01_fraud_detection_triage.py_description.txt
+  pipeline_name: fraud_detection_triage
+  pipeline_description: Comprehensive fraud detection triage pipeline processing daily transaction batches with 
+    conditional routing based on risk scores
+  orchestrator_specific: {}
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: transaction_csv_input
+    conn_type: fs
+    description: Transaction CSV Input Files
+    config:
+      base_path: /data/transactions
+      protocol: file
+      host:
+      port:
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_url:
+  - conn_id: manual_review_queue
+    conn_type: rabbitmq
+    description: Manual Review Queue
+    config:
+      base_path:
+      protocol: https
+      host: manual-review.internal
+      port: 443
+      database:
+      schema:
+      bucket:
+      queue_name: manual_review_queue
+      base_url: https://manual-review.internal/api
+      extra:
+        token_env_var: MANUAL_REVIEW_API_TOKEN
+  - conn_id: payment_processing_api
+    conn_type: http
+    description: Payment Processing API
+    config:
+      base_path:
+      protocol: https
+      host: payment-processing.internal
+      port: 443
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_url: https://payment-processing.internal/api/v1/transactions
+  - conn_id: notification_system
+    conn_type: http
+    description: Notification System
+    config:
+      base_path:
+      protocol: https
+      host: notifications.internal
+      port: 443
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_url: https://notifications.internal/api/v1/send
+  - conn_id: xcom_system
+    conn_type: generic
+    description: XCom System
+    config:
+      base_path:
+      protocol:
+      host: xcom-redis.internal
+      port: 6379
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_url:
+      login: XCOM_REDIS_USER
+      password: XCOM_REDIS_PASSWORD
+tasks:
+  - task_id: analyze_transactions
+    task_name: Analyze Transactions
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: analyze_transactions
+    config:
+      python_callable: synthetic/synthetic_branch_merge_01_fraud_detection_triage.py
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: route_transaction
+    task_name: Route Transaction
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: route_transaction
+    config:
+      python_callable: synthetic/synthetic_branch_merge_01_fraud_detection_triage.py
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - analyze_transactions
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: route_to_manual_review
+    task_name: Route to Manual Review
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: route_to_manual_review
+    config:
+      python_callable: synthetic/synthetic_branch_merge_01_fraud_detection_triage.py
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - route_transaction
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: route_to_auto_approve
+    task_name: Route to Auto Approve
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: route_to_auto_approve
+    config:
+      python_callable: synthetic/synthetic_branch_merge_01_fraud_detection_triage.py
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - route_transaction
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: send_notification
+    task_name: Send Notification
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: send_notification
+    config:
+      python_callable: synthetic/synthetic_branch_merge_01_fraud_detection_triage.py
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - route_to_manual_review
+      - route_to_auto_approve
+    trigger_rule: none_failed
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

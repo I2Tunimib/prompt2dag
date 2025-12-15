@@ -1,0 +1,130 @@
+from airflow import DAG
+from airflow.providers.docker.operators.docker import DockerOperator
+from datetime import datetime, timedelta
+from airflow.utils.dates import days_ago
+
+default_args = {
+    'owner': 'airflow',
+    'depends_on_past': False,
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+with DAG(
+    dag_id='start_pipeline_pipeline',
+    default_args=default_args,
+    description='No description provided.',
+    schedule_interval='@daily',
+    start_date=days_ago(1),
+    catchup=False,
+) as dag:
+
+    start_pipeline = DockerOperator(
+        task_id='start_pipeline',
+        image='python:3.9',
+        environment={},
+        network_mode='bridge',
+        auto_remove=True,
+        docker_url='unix://var/run/docker.sock',
+    )
+
+    ingest_apac = DockerOperator(
+        task_id='ingest_apac',
+        image='python:3.9',
+        environment={},
+        network_mode='bridge',
+        auto_remove=True,
+        docker_url='unix://var/run/docker.sock',
+    )
+
+    ingest_eu = DockerOperator(
+        task_id='ingest_eu',
+        image='python:3.9',
+        environment={},
+        network_mode='bridge',
+        auto_remove=True,
+        docker_url='unix://var/run/docker.sock',
+    )
+
+    ingest_us_east = DockerOperator(
+        task_id='ingest_us_east',
+        image='python:3.9',
+        environment={},
+        network_mode='bridge',
+        auto_remove=True,
+        docker_url='unix://var/run/docker.sock',
+    )
+
+    ingest_us_west = DockerOperator(
+        task_id='ingest_us_west',
+        image='python:3.9',
+        environment={},
+        network_mode='bridge',
+        auto_remove=True,
+        docker_url='unix://var/run/docker.sock',
+    )
+
+    convert_currency_apac = DockerOperator(
+        task_id='convert_currency_apac',
+        image='python:3.9',
+        environment={},
+        network_mode='bridge',
+        auto_remove=True,
+        docker_url='unix://var/run/docker.sock',
+    )
+
+    convert_currency_eu = DockerOperator(
+        task_id='convert_currency_eu',
+        image='python:3.9',
+        environment={},
+        network_mode='bridge',
+        auto_remove=True,
+        docker_url='unix://var/run/docker.sock',
+    )
+
+    convert_currency_us_east = DockerOperator(
+        task_id='convert_currency_us_east',
+        image='python:3.9',
+        environment={},
+        network_mode='bridge',
+        auto_remove=True,
+        docker_url='unix://var/run/docker.sock',
+    )
+
+    convert_currency_us_west = DockerOperator(
+        task_id='convert_currency_us_west',
+        image='python:3.9',
+        environment={},
+        network_mode='bridge',
+        auto_remove=True,
+        docker_url='unix://var/run/docker.sock',
+    )
+
+    aggregate_global_revenue = DockerOperator(
+        task_id='aggregate_global_revenue',
+        image='python:3.9',
+        environment={},
+        network_mode='bridge',
+        auto_remove=True,
+        docker_url='unix://var/run/docker.sock',
+    )
+
+    end_pipeline = DockerOperator(
+        task_id='end_pipeline',
+        image='python:3.9',
+        environment={},
+        network_mode='bridge',
+        auto_remove=True,
+        docker_url='unix://var/run/docker.sock',
+    )
+
+    # Set task dependencies
+    start_pipeline >> [ingest_apac, ingest_eu, ingest_us_east, ingest_us_west]
+    ingest_apac >> convert_currency_apac
+    ingest_eu >> convert_currency_eu
+    ingest_us_east >> convert_currency_us_east
+    ingest_us_west >> convert_currency_us_west
+    [convert_currency_apac, convert_currency_eu, convert_currency_us_east, convert_currency_us_west] >> aggregate_global_revenue
+    aggregate_global_revenue >> end_pipeline

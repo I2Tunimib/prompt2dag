@@ -1,0 +1,93 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_branch_merge_03_regulatory_report_router.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** branch_merge  
+**Complexity Score:** 4/10  
+
+---
+
+[regulatory_report_router] - Comprehensive Pipeline Description
+
+Opening Summary:
+This regulatory reporting pipeline processes financial transaction data and routes it to appropriate regulatory systems based on account type, following a branch-merge pattern. The DAG extracts transaction data from CSV files, branches processing based on account type (international vs domestic), executes parallel reporting workflows, then merges results for archival. Key infrastructure includes BranchPythonOperator for conditional routing, PythonOperator for data processing, and XCom for cross-task data sharing with daily scheduling and no catchup.
+
+Pipeline Steps:
+
+1. read_csv
+  • Objective: Extract financial transaction data from CSV source files for regulatory processing
+  • Technical Details:
+    - Input: CSV files containing transaction data with headers (transaction_id, account_type, amount, currency)
+    - Output: Processed CSV data available via XCom for account type analysis
+    - Integrations: Local file system for CSV file access
+    - Key Parameters: No explicit connection IDs; uses local file system
+  • Operator or Mechanism: PythonOperator
+  • Notes: Initial data extraction step; returns "csv_data_processed" status
+
+2. account_check
+  • Objective: Analyze account types and determine routing path for regulatory compliance
+  • Technical Details:
+    - Input: XCom data from read_csv task containing transaction information
+    - Output: Branch decision ('route_to_fatca' or 'route_to_irs') based on account type analysis
+    - Integrations: None external; internal XCom data flow
+    - Key Parameters: Uses BranchPythonOperator for conditional task routing
+  • Operator or Mechanism: BranchPythonOperator
+  • Notes: Gateway branching point; randomly selects international/domestic for demonstration
+
+3. route_to_fatca
+  • Objective: Process international accounts through FATCA regulatory reporting system
+  • Technical Details:
+    - Input: Transaction data routed from account_check for international accounts
+    - Output: FATCA XML report and status "fatca_report_generated" via XCom
+    - Integrations: FATCA regulatory compliance system
+    - Key Parameters: Validates against FATCA requirements
+  • Operator or Mechanism: PythonOperator
+  • Notes: Parallel branch path 1 of 2; international account processing
+
+4. route_to_irs
+  • Objective: Process domestic accounts through IRS regulatory reporting system
+  • Technical Details:
+    - Input: Transaction data routed from account_check for domestic accounts
+    - Output: IRS Form 1099 data and status "irs_report_generated" via XCom
+    - Integrations: IRS regulatory compliance system
+    - Key Parameters: Validates against IRS requirements
+  • Operator or Mechanism: PythonOperator
+  • Notes: Parallel branch path 2 of 2; domestic account processing
+
+5. archive_reports
+  • Objective: Merge and archive all regulatory reports for compliance retention
+  • Technical Details:
+    - Input: XCom results from both route_to_fatca and route_to_irs tasks
+    - Output: Archived reports in secure location with status "reports_archived"
+    - Integrations: Secure archive storage system
+    - Key Parameters: Compresses and stores reports; trigger_rule=all_done (implied)
+  • Operator or Mechanism: PythonOperator
+  • Notes: Merge point for both branches; collects results via XCom pull
+
+Orchestration & Scheduling:
+- Schedule: @daily
+- Start Date: 2024-01-01
+- Catchup: False
+- Default Args: 2 retries, 5-minute retry delay, no email notifications, owner=regulatory_team
+
+Infrastructure & Dependencies:
+- Branching: BranchPythonOperator for conditional routing based on account type
+- Data Flow: XCom used for passing CSV processing status and report generation results
+- Parallel Width: 2 parallel branches (FATCA and IRS reporting)
+- Task Grouping: No explicit TaskGroups; implicit branching structure
+
+Failure Handling & Alerts:
+- Retry Policy: 2 retries with 5-minute delay between attempts
+- Email Notifications: Disabled for both failures and retries
+- No explicit failure triggers or alert operators
+
+Pattern-Specific Notes:
+- Branch-Merge Pattern: Clear branching at account_check with two mutually exclusive paths
+- Branch Conditions: International accounts → FATCA reporting; Domestic accounts → IRS reporting
+- Parallel Execution: Two reporting systems run concurrently after branching decision
+- Merge Point: archive_reports task collects outputs from both branches using XCom
+- Data Flow: Sequential extract → Conditional branch → Parallel transform → Synchronized load
+- Staged ETL: Extract (read_csv) → Transform (account_check + branch processing) → Load (archive_reports)

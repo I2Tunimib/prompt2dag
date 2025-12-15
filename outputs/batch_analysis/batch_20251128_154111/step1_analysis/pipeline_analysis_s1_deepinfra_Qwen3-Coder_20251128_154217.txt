@@ -1,0 +1,169 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-11-28T15:42:17.188004
+# Provider: deepinfra
+# Model: Qwen3-Coder
+# Source: Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_ensembl.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+# ETL Pipeline Report: Ensembl Genomic Data Import
+
+## 1. Executive Summary
+
+This pipeline automates the ingestion and processing of genomic mapping data from Ensembl's public FTP server into a structured data lake environment. The workflow follows a linear sequential pattern with two primary stages: extraction of source files and transformation into analytical tables.
+
+The pipeline demonstrates moderate complexity through its integration with multiple execution environments (Docker containers, Spark processing, Kubernetes orchestration) and external systems including FTP servers, S3 object storage, and notification services. Key operational characteristics include automated version checking, configurable retry policies, and environment-specific parameterization.
+
+## 2. Pipeline Architecture
+
+### Flow Patterns
+The pipeline implements a sequential execution pattern with two components arranged in linear dependency order. No branching, parallel execution paths, or sensor-based triggering mechanisms are present.
+
+### Execution Characteristics
+Three distinct executor types are utilized:
+- Docker container execution for file extraction operations
+- Spark processing for data transformation tasks
+- Kubernetes context for Spark job orchestration
+
+### Component Overview
+The pipeline consists of two primary component categories:
+- **Extractor**: Responsible for identifying and retrieving source data files
+- **Transformer**: Processes extracted data into structured analytical tables
+
+### Flow Description
+The pipeline begins with the file extraction component, which serves as the sole entry point. Upon successful completion, it triggers the downstream table processing component. This creates a simple linear dependency chain with no conditional branching or parallel execution paths.
+
+## 3. Detailed Component Analysis
+
+### Extract Ensembl Files (Extractor)
+**Purpose and Category**: Checks for new versions of Ensembl genomic mapping files on FTP server and downloads updated files to S3 raw landing zone.
+
+**Executor Type and Configuration**: 
+- Type: Docker container execution
+- Image: bio.ferlab.datalake.etl:latest
+- Resources: 1 CPU, 2Gi memory
+
+**Inputs and Outputs**:
+- Inputs: Ensembl FTP server (ftp.ensembl.org/pub/current_tsv/homo_sapiens), existing S3 file versions
+- Outputs: Updated genomic mapping files in S3 raw landing zone
+
+**Retry Policy and Concurrency**: 
+- Maximum 3 retry attempts with 300-second delays using exponential backoff
+- Retries on timeout and network errors only
+- No parallel execution support
+
+**Connected Systems**: 
+- FTP server access for source data retrieval
+- S3 object storage for file persistence
+- Slack notification service for operational alerts
+
+### Process Ensembl Tables (Transformer)
+**Purpose and Category**: Processes downloaded Ensembl mapping files using Spark to create structured tables in the data lake.
+
+**Executor Type and Configuration**: 
+- Type: Docker container execution with Spark processing
+- Image: bio.ferlab.datalake.spark3:latest
+- Resources: 4 CPU, 8Gi memory
+- Kubernetes execution context for Spark jobs
+
+**Inputs and Outputs**:
+- Inputs: Genomic mapping files from S3 landing zone
+- Outputs: Processed Ensembl mapping tables in data lake (Parquet format)
+
+**Retry Policy and Concurrency**: 
+- Maximum 2 retry attempts with 600-second delays using exponential backoff
+- Retries on timeout and Spark processing errors
+- Supports parallel execution capabilities (not currently utilized)
+
+**Connected Systems**: 
+- S3 object storage for both input reading and output writing
+- Kubernetes cluster for Spark job execution
+- Slack notification service for operational alerts
+
+## 4. Parameter Schema
+
+### Pipeline-Level Parameters
+- **name**: Identifier for the pipeline (default: etl_import_ensembl)
+- **description**: Textual description of pipeline purpose
+- **tags**: Classification tags including genomic, ensembl, etl, spark, s3
+
+### Schedule Configuration
+- Manual triggering only (schedule disabled by default)
+- No predefined cron expression or execution window
+- Start date configured for January 1, 2022
+
+### Execution Settings
+- Pipeline-level retry policy not explicitly configured
+- No maximum active run limits defined
+- No dependency on previous run success
+
+### Component-Specific Parameters
+**Extractor Component**:
+- mapping_types: Array of genomic mapping types to process (canonical, ena, entrez, refseq, uniprot)
+- s3_bucket_format: Environment-aware S3 bucket naming pattern
+- s3_key_path: Path within bucket for raw file storage
+- ftp_server: Source FTP server address
+
+**Transformer Component**:
+- spark_class: Spark processing class identifier
+- table_name: Output table name (ensembl_mapping)
+- steps: Processing steps configuration
+- spark_config: Spark execution configuration profile
+
+### Environment Variables
+- **S3_CONN_ID**: Required AWS S3 connection identifier
+- **ENV**: Environment identifier (dev, qa, prod) - required for proper resource targeting
+
+## 5. Integration Points
+
+### External Systems and Connections
+Four distinct external system connections are configured:
+- **Ensembl FTP Server**: Public FTP access for source data retrieval
+- **S3 Data Lake**: Object storage for raw and processed data persistence
+- **Spark on Kubernetes**: Processing environment for analytical transformations
+- **Slack Notifications**: Operational alerting and monitoring service
+
+### Data Sources and Sinks
+**Sources**: Ensembl FTP server containing genomic mapping files in TSV.GZ format
+**Sinks**: Processed Ensembl mapping tables stored in S3 data lake
+**Intermediate Datasets**: Five specific mapping file types stored in S3 landing zone
+
+### Authentication Methods
+- FTP server: No authentication required (public access)
+- S3 storage: IAM-based authentication
+- Slack notifications: Token-based authentication via environment variable
+
+### Data Lineage
+Clear data lineage established from public Ensembl FTP source through S3 landing zone to final processed tables. Five intermediate datasets represent the core genomic mapping types (canonical, ena, entrez, refseq, uniprot).
+
+## 6. Implementation Notes
+
+### Complexity Assessment
+Moderate complexity pipeline with clear separation of concerns between extraction and transformation phases. Multi-environment parameterization and integration with three distinct execution contexts increases operational complexity.
+
+### Upstream Dependency Policies
+- Extractor component: Runs only if no upstream failures (manual trigger)
+- Transformer component: Requires successful completion of extraction phase
+
+### Retry and Timeout Configurations
+Configurable retry policies with exponential backoff for both components. Network and timeout errors trigger extractor retries, while Spark-specific errors trigger transformer retries. No explicit pipeline-level timeout configured.
+
+### Potential Risks or Considerations
+- FTP server availability dependency for pipeline initiation
+- S3 storage costs for intermediate file persistence
+- Kubernetes cluster resource requirements for Spark processing
+- Slack notification rate limiting (1 request per second)
+
+## 7. Orchestrator Compatibility
+
+The pipeline architecture demonstrates compatibility with major workflow orchestration platforms through its component-based design and clear dependency management. Sequential execution patterns, configurable retry policies, and environment-aware parameterization align with standard orchestration capabilities.
+
+The use of containerized execution contexts and Kubernetes-based Spark processing suggests strong compatibility with cloud-native orchestration approaches. No orchestrator-specific patterns or dependencies are present in the core pipeline logic.
+
+## 8. Conclusion
+
+This pipeline provides a robust solution for importing and processing Ensembl genomic mapping data through a well-defined two-stage process. The architecture demonstrates good separation of concerns with distinct extraction and transformation phases, appropriate error handling through configurable retry policies, and clear integration with external systems.
+
+The moderate complexity implementation balances operational requirements with maintainability through containerized execution contexts and environment-aware configuration. The linear sequential flow pattern simplifies monitoring and troubleshooting while providing clear data lineage from public genomic sources to structured analytical tables.
+
+Operational considerations include proper S3 storage management for intermediate files, Kubernetes cluster resource planning for Spark processing, and monitoring of external system dependencies particularly the public FTP server access.

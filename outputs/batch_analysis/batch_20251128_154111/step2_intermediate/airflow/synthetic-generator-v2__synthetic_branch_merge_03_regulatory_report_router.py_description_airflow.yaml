@@ -1,0 +1,111 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 15:46:31.297687
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_03_regulatory_report_router.py_description.txt
+  pipeline_name: regulatory_report_router
+  pipeline_description: This regulatory reporting pipeline processes financial transaction data and routes it to 
+    appropriate regulatory systems based on account type, following a branch-merge pattern.
+  orchestrator_specific: {}
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: local_csv_storage
+    conn_type: fs
+    description: Local CSV Storage
+    config:
+      base_path: /path/to/csv/files
+      protocol: file
+  - conn_id: fatca_reporting_system
+    conn_type: http
+    description: FATCA Reporting System
+    config:
+      base_url: https://fatca.reporting.system/api
+      protocol: https
+      extra:
+        token_env_var: FATCA_API_TOKEN
+  - conn_id: irs_reporting_system
+    conn_type: http
+    description: IRS Reporting System
+    config:
+      base_url: https://irs.reporting.system/api
+      protocol: https
+      extra:
+        token_env_var: IRS_API_TOKEN
+  - conn_id: secure_archive_storage
+    conn_type: fs
+    description: Secure Archive Storage
+    config:
+      base_path: /secure/archive/location
+      protocol: file
+tasks:
+  - task_id: extract_transaction_data
+    task_name: Extract Transaction Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_transaction_data
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: analyze_account_types
+    task_name: Analyze Account Types
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: analyze_account_types
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - extract_transaction_data
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: process_fatca_reporting
+    task_name: Process FATCA Reporting
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: process_fatca_reporting
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - analyze_account_types
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: process_irs_reporting
+    task_name: Process IRS Reporting
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: process_irs_reporting
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - analyze_account_types
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: archive_regulatory_reports
+    task_name: Archive Regulatory Reports
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: archive_regulatory_reports
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - process_fatca_reporting
+      - process_irs_reporting
+    trigger_rule: all_done
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

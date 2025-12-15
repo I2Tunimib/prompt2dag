@@ -1,0 +1,196 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-01T08:50:33.763159
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_03_regulatory_report_router.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+#### Overall Purpose and High-Level Flow
+The regulatory reporting pipeline processes financial transaction data from CSV files and routes it to appropriate regulatory systems based on account type (international or domestic). The pipeline follows a branch-merge pattern, where the data is initially extracted, then branched for parallel processing, and finally merged for archival. The primary goal is to ensure compliance with FATCA and IRS regulations and to securely store the generated reports.
+
+#### Key Patterns and Complexity
+- **Sequential Flow:** The pipeline starts with data extraction and proceeds through a series of tasks.
+- **Branching:** The pipeline branches based on account type, directing data to either the FATCA or IRS regulatory systems.
+- **Parallelism:** The FATCA and IRS processing tasks run in parallel.
+- **Merging:** The results from the parallel tasks are merged and archived.
+
+### Pipeline Architecture
+
+#### Flow Patterns
+- **Sequential:** The pipeline follows a sequential flow from data extraction to archival.
+- **Branching:** The pipeline branches after the account check to route data to either FATCA or IRS systems.
+- **Parallelism:** The FATCA and IRS processing tasks run in parallel.
+
+#### Execution Characteristics
+- **Task Executor Types:** Python is the only task executor type used.
+
+#### Component Overview
+- **Extractor:** Reads CSV files containing transaction data.
+- **Reconciliator:** Determines the routing path based on account type.
+- **Transformer:** Processes data for FATCA and IRS regulatory compliance.
+- **Loader:** Merges and archives the generated reports.
+
+#### Flow Description
+- **Entry Points:** The pipeline starts with the `read_csv` component.
+- **Main Sequence:** The main sequence involves extracting data, checking account types, and processing data for regulatory compliance.
+- **Branching/Parallelism:** After the account check, the pipeline branches into two parallel paths for FATCA and IRS processing.
+- **Sensors:** No sensors are used in this pipeline.
+
+### Detailed Component Analysis
+
+#### Read CSV
+- **Purpose and Category:** Extracts financial transaction data from CSV files for regulatory processing.
+- **Executor Type and Configuration:** Python, using a script located at `synthetic/synthetic_branch_merge_03_regulatory_report_router.py` with the entry point `read_csv`.
+- **Inputs and Outputs:**
+  - **Inputs:** None
+  - **Outputs:** `csv_data_processed` (JSON object)
+- **Retry Policy and Concurrency Settings:**
+  - **Retry Policy:** 2 attempts with a 300-second delay, retrying on timeout and network errors.
+  - **Concurrency:** Does not support parallelism.
+- **Connected Systems:** Local file system for accessing CSV files.
+
+#### Account Check
+- **Purpose and Category:** Analyzes account types and determines the routing path for regulatory compliance.
+- **Executor Type and Configuration:** Python, using a script located at `synthetic/synthetic_branch_merge_03_regulatory_report_router.py` with the entry point `account_check`.
+- **Inputs and Outputs:**
+  - **Inputs:** `csv_data_processed` (JSON object)
+  - **Outputs:** `route_to_fatca` and `route_to_irs` (JSON objects)
+- **Retry Policy and Concurrency Settings:**
+  - **Retry Policy:** 2 attempts with a 300-second delay, retrying on timeout and network errors.
+  - **Concurrency:** Does not support parallelism.
+- **Connected Systems:** None
+
+#### Route to FATCA
+- **Purpose and Category:** Processes international accounts through the FATCA regulatory reporting system.
+- **Executor Type and Configuration:** Python, using a script located at `synthetic/synthetic_branch_merge_03_regulatory_report_router.py` with the entry point `route_to_fatca`.
+- **Inputs and Outputs:**
+  - **Inputs:** `csv_data_processed` (JSON object)
+  - **Outputs:** `fatca_report_generated` (JSON object), `fatca_report` (XML file)
+- **Retry Policy and Concurrency Settings:**
+  - **Retry Policy:** 2 attempts with a 300-second delay, retrying on timeout and network errors.
+  - **Concurrency:** Does not support parallelism.
+- **Connected Systems:** FATCA regulatory compliance API
+
+#### Route to IRS
+- **Purpose and Category:** Processes domestic accounts through the IRS regulatory reporting system.
+- **Executor Type and Configuration:** Python, using a script located at `synthetic/synthetic_branch_merge_03_regulatory_report_router.py` with the entry point `route_to_irs`.
+- **Inputs and Outputs:**
+  - **Inputs:** `csv_data_processed` (JSON object)
+  - **Outputs:** `irs_report_generated` (JSON object), `irs_report` (PDF file)
+- **Retry Policy and Concurrency Settings:**
+  - **Retry Policy:** 2 attempts with a 300-second delay, retrying on timeout and network errors.
+  - **Concurrency:** Does not support parallelism.
+- **Connected Systems:** IRS regulatory compliance API
+
+#### Archive Reports
+- **Purpose and Category:** Merges and archives all regulatory reports for compliance retention.
+- **Executor Type and Configuration:** Python, using a script located at `synthetic/synthetic_branch_merge_03_regulatory_report_router.py` with the entry point `archive_reports`.
+- **Inputs and Outputs:**
+  - **Inputs:** `fatca_report_generated` (JSON object), `irs_report_generated` (JSON object)
+  - **Outputs:** `reports_archived` (JSON object), `archived_reports` (ZIP file)
+- **Retry Policy and Concurrency Settings:**
+  - **Retry Policy:** 2 attempts with a 300-second delay, retrying on timeout and network errors.
+  - **Concurrency:** Does not support parallelism.
+- **Connected Systems:** Secure archive storage system
+
+### Parameter Schema
+
+#### Pipeline-Level Parameters
+- **Name:** Unique identifier for the pipeline.
+- **Description:** Detailed description of the pipeline.
+- **Tags:** Classification tags for the pipeline.
+
+#### Schedule Configuration
+- **Enabled:** Whether the pipeline runs on a schedule.
+- **Cron Expression:** Schedule timing (e.g., `@daily`).
+- **Start Date:** When to start scheduling.
+- **End Date:** When to stop scheduling.
+- **Timezone:** Schedule timezone.
+- **Catchup:** Whether to run missed intervals.
+- **Batch Window:** Data partitioning strategy.
+
+#### Execution Settings
+- **Max Active Runs:** Maximum concurrent pipeline runs.
+- **Timeout Seconds:** Pipeline execution timeout.
+- **Retry Policy:** Pipeline-level retry behavior.
+- **Depends on Past:** Whether execution depends on previous run success.
+
+#### Component-Specific Parameters
+- **Read CSV:**
+  - **Input File Path:** Path to the CSV file containing transaction data.
+  - **Output Key:** Key used to store processed CSV data in XCom.
+- **Account Check:**
+  - **Input Key:** Key used to retrieve processed CSV data from XCom.
+  - **Branch Key:** Key used to determine the branch path.
+- **Route to FATCA:**
+  - **Input Key:** Key used to retrieve transaction data for international accounts from XCom.
+  - **Output Key:** Key used to store FATCA XML report in XCom.
+- **Route to IRS:**
+  - **Input Key:** Key used to retrieve transaction data for domestic accounts from XCom.
+  - **Output Key:** Key used to store IRS Form 1099 data in XCom.
+- **Archive Reports:**
+  - **Input Keys:** Array of keys used to retrieve report data from XCom.
+  - **Archive Location:** Path to the secure archive storage system.
+
+#### Environment Variables
+- **CSV_FILE_PATH:** Path to the CSV file containing transaction data.
+- **ARCHIVE_LOCATION:** Path to the secure archive storage system.
+
+### Integration Points
+
+#### External Systems and Connections
+- **Local File System:** Used by `read_csv` for accessing CSV files.
+- **FATCA Regulatory Compliance System:** Used by `route_to_fatca` for FATCA reporting.
+- **IRS Regulatory Compliance System:** Used by `route_to_irs` for IRS reporting.
+- **Secure Archive Storage:** Used by `archive_reports` for storing archived reports.
+
+#### Data Sources and Sinks
+- **Sources:** CSV files containing transaction data with headers (transaction_id, account_type, amount, currency).
+- **Sinks:** FATCA XML report stored in the FATCA regulatory compliance system, IRS Form 1099 data stored in the IRS regulatory compliance system, archived reports stored in the secure archive storage system.
+
+#### Authentication Methods
+- **Local File System:** No authentication required.
+- **FATCA API:** Token-based authentication using the `FATCA_API_TOKEN` environment variable.
+- **IRS API:** Token-based authentication using the `IRS_API_TOKEN` environment variable.
+- **Secure Archive Storage:** Key-pair authentication using credentials stored in `/path/to/credentials.json`.
+
+#### Data Lineage
+- **Sources:** CSV files containing transaction data.
+- **Sinks:** FATCA XML report, IRS Form 1099 data, and archived reports.
+- **Intermediate Datasets:** XCom data containing transaction information, FATCA report generation status, and IRS report generation status.
+
+### Implementation Notes
+
+#### Complexity Assessment
+The pipeline has a moderate complexity score of 4/10, primarily due to the branch-merge pattern and parallel processing.
+
+#### Upstream Dependency Policies
+- **All Success:** All upstream tasks must succeed before the next task starts.
+- **All Done:** All upstream tasks must complete (regardless of success or failure) before the next task starts.
+
+#### Retry and Timeout Configurations
+- **Retry Policy:** 2 attempts with a 300-second delay, retrying on timeout and network errors.
+- **Timeout:** No specific timeout settings at the component level, but pipeline-level timeout can be configured.
+
+#### Potential Risks or Considerations
+- **Data Integrity:** Ensure that the CSV files are correctly formatted and contain the required headers.
+- **API Rate Limits:** The FATCA and IRS APIs have rate limits, which could impact performance if not managed properly.
+- **Security:** Ensure that the secure archive storage system is properly configured and access is restricted.
+
+### Orchestrator Compatibility
+
+#### Assessment for Airflow, Prefect, Dagster
+- **Airflow:** The pipeline's branch-merge pattern and parallel processing are well-supported by Airflow's branching and task groups.
+- **Prefect:** Prefect's dynamic task mapping and conditional flows can handle the pipeline's branching and parallelism effectively.
+- **Dagster:** Dagster's solid and pipeline concepts can manage the pipeline's structure, including branching and parallel tasks.
+
+#### Pattern-Specific Considerations
+- **Branching:** Ensure that the orchestrator supports conditional branching based on data conditions.
+- **Parallelism:** Verify that the orchestrator can handle parallel tasks and manage dependencies correctly.
+- **Data Sharing:** Ensure that the orchestrator supports cross-task data sharing, such as XCom in Airflow.
+
+### Conclusion
+The regulatory reporting pipeline is designed to process financial transaction data, route it to appropriate regulatory systems, and archive the results. The pipeline follows a branch-merge pattern with parallel processing, ensuring efficient and compliant data handling. The architecture is well-suited for orchestrators like Airflow, Prefect, and Dagster, with considerations for branching, parallelism, and data sharing.

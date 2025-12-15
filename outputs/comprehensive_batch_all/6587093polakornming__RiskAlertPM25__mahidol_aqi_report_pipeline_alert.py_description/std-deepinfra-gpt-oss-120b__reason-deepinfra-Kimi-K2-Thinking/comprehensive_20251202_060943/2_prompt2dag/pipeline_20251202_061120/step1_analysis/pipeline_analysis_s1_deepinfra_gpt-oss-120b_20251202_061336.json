@@ -1,0 +1,986 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T06:13:36.351290",
+    "source_file": "Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__mahidol_aqi_report_pipeline_alert.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "gpt-oss-120b",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "branching"
+      ],
+      "task_executors_used": [
+        "python"
+      ],
+      "has_branching": true,
+      "has_parallelism": false,
+      "has_sensors": false,
+      "total_components": 4,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Branching via BranchPythonOperator"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "Conditional logic via Python control flow"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "Dynamic graphs or branching ops"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "PM2.5_Risk_Alert_Pipeline",
+    "description": "Comprehensive Pipeline Description",
+    "flow_patterns": [
+      "sequential",
+      "branching"
+    ],
+    "task_executors": [
+      "python"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "extract_mahidol_aqi_html",
+      "name": "Extract Mahidol AQI HTML",
+      "category": "Extractor",
+      "description": "Scrapes the Mahidol University AQI webpage and saves the raw HTML to a local file.",
+      "inputs": [
+        "Mahidol University AQI website (https://mahidol.ac.th/aqireport/)"
+      ],
+      "outputs": [
+        "HTML file saved at data/mahidol_aqi.html"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "aqi_website",
+          "direction": "input",
+          "kind": "api",
+          "format": "html",
+          "path_pattern": "https://mahidol.ac.th/aqireport/",
+          "connection_id": null
+        },
+        {
+          "name": "raw_html",
+          "direction": "output",
+          "kind": "file",
+          "format": "html",
+          "path_pattern": "data/mahidol_aqi.html",
+          "connection_id": "filesystem_local"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Root component, no upstream dependencies.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "http_mahidol_aqi",
+          "type": "api",
+          "purpose": "Fetch raw AQI HTML page"
+        },
+        {
+          "id": "filesystem_local",
+          "type": "filesystem",
+          "purpose": "Store scraped HTML file"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "mahidol_aqi_webpage"
+        ],
+        "produces": [
+          "mahidol_aqi_raw_html"
+        ]
+      }
+    },
+    {
+      "id": "transform_mahidol_aqi_json",
+      "name": "Transform Mahidol AQI to JSON",
+      "category": "Transformer",
+      "description": "Parses the scraped HTML, extracts AQI metrics, validates freshness against existing data, and writes a structured JSON file.",
+      "inputs": [
+        "HTML file data/mahidol_aqi.html",
+        "Existing JSON file for duplicate detection (if any)"
+      ],
+      "outputs": [
+        "Structured JSON file data/tmp_mahidol.json"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "raw_html",
+          "direction": "input",
+          "kind": "file",
+          "format": "html",
+          "path_pattern": "data/mahidol_aqi.html",
+          "connection_id": "filesystem_local"
+        },
+        {
+          "name": "previous_json",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "data/previous_mahidol.json",
+          "connection_id": "filesystem_local"
+        },
+        {
+          "name": "structured_json",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "data/tmp_mahidol.json",
+          "connection_id": "filesystem_local"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful HTML extraction.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "filesystem_local",
+          "type": "filesystem",
+          "purpose": "Read HTML and previous JSON, write new JSON"
+        },
+        {
+          "id": "postgres_conn",
+          "type": "database",
+          "purpose": "Check factmahidolaqitable for duplicate detection"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "mahidol_aqi_raw_html",
+          "mahidol_aqi_previous_json"
+        ],
+        "produces": [
+          "mahidol_aqi_structured_json"
+        ]
+      }
+    },
+    {
+      "id": "load_mahidol_aqi_postgres",
+      "name": "Load Mahidol AQI into PostgreSQL",
+      "category": "Loader",
+      "description": "Inserts the parsed AQI JSON into PostgreSQL dimension and fact tables using upsert logic.",
+      "inputs": [
+        "JSON file data/tmp_mahidol.json",
+        "Pollution mapping config file /opt/airflow/config/mapping_main_pollution.json"
+      ],
+      "outputs": [
+        "Rows inserted into dimDateTimeTable, dimLocationTable, dimMainPollutionTable, factmahidolaqitable"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "structured_json",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "data/tmp_mahidol.json",
+          "connection_id": "filesystem_local"
+        },
+        {
+          "name": "mapping_config",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/opt/airflow/config/mapping_main_pollution.json",
+          "connection_id": "filesystem_local"
+        },
+        {
+          "name": "postgres_tables",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "dimDateTimeTable, dimLocationTable, dimMainPollutionTable, factmahidolaqitable",
+          "connection_id": "postgres_conn"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful JSON transformation.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "filesystem_local",
+          "type": "filesystem",
+          "purpose": "Read JSON and mapping config"
+        },
+        {
+          "id": "postgres_conn",
+          "type": "database",
+          "purpose": "Insert data into dimension and fact tables"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "mahidol_aqi_structured_json",
+          "pollution_mapping_config"
+        ],
+        "produces": [
+          "mahidol_aqi_dim_tables",
+          "mahidol_aqi_fact_table"
+        ]
+      }
+    },
+    {
+      "id": "notify_pm25_email_alert",
+      "name": "Notify PM2.5 Email Alert",
+      "category": "Notifier",
+      "description": "Sends email notifications via SMTP when PM2.5 AQI exceeds defined thresholds; skips if AQI is within safe range.",
+      "inputs": [
+        "JSON data file data/tmp_mahidol.json",
+        "Email configuration file config.conf",
+        "Recipient list file pm25_alert_emails.txt"
+      ],
+      "outputs": [
+        "Email alerts delivered to configured recipients"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": null,
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "structured_json",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "data/tmp_mahidol.json",
+          "connection_id": "filesystem_local"
+        },
+        {
+          "name": "email_config",
+          "direction": "input",
+          "kind": "file",
+          "format": "conf",
+          "path_pattern": "config.conf",
+          "connection_id": "filesystem_local"
+        },
+        {
+          "name": "recipient_list",
+          "direction": "input",
+          "kind": "file",
+          "format": "txt",
+          "path_pattern": "pm25_alert_emails.txt",
+          "connection_id": "filesystem_local"
+        },
+        {
+          "name": "email_alert",
+          "direction": "output",
+          "kind": "api",
+          "format": "email",
+          "path_pattern": "smtp.gmail.com:587",
+          "connection_id": "smtp_gmail"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful load; may be skipped based on AQI thresholds.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "filesystem_local",
+          "type": "filesystem",
+          "purpose": "Read JSON data, email config, and recipient list"
+        },
+        {
+          "id": "smtp_gmail",
+          "type": "smtp",
+          "purpose": "Send alert emails via Gmail SMTP"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "mahidol_aqi_structured_json",
+          "email_configuration",
+          "alert_recipients"
+        ],
+        "produces": [
+          "pm25_email_alerts"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "hybrid",
+    "entry_points": [
+      "extract_mahidol_aqi_html"
+    ],
+    "nodes": {
+      "extract_mahidol_aqi_html": {
+        "kind": "Task",
+        "component_type_id": "extract_mahidol_aqi_html",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "transform_mahidol_aqi_json"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "transform_mahidol_aqi_json": {
+        "kind": "Task",
+        "component_type_id": "transform_mahidol_aqi_json",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "data_freshness_branch"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "data_freshness_branch": {
+        "kind": "Branch",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": {
+          "type": "conditional",
+          "branches": [
+            {
+              "label": "new_data",
+              "condition": "data_is_new",
+              "next_node": "load_mahidol_aqi_postgres"
+            },
+            {
+              "label": "duplicate",
+              "condition": "else",
+              "next_node": "pipeline_end"
+            }
+          ]
+        },
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "load_mahidol_aqi_postgres": {
+        "kind": "Task",
+        "component_type_id": "load_mahidol_aqi_postgres",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "aqi_threshold_branch"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "aqi_threshold_branch": {
+        "kind": "Branch",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": {
+          "type": "conditional",
+          "branches": [
+            {
+              "label": "alert_needed",
+              "condition": "aqi_exceeds_threshold",
+              "next_node": "notify_pm25_email_alert"
+            },
+            {
+              "label": "no_alert",
+              "condition": "else",
+              "next_node": "pipeline_end"
+            }
+          ]
+        },
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "notify_pm25_email_alert": {
+        "kind": "Task",
+        "component_type_id": "notify_pm25_email_alert",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "pipeline_end"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "pipeline_end": {
+        "kind": "Virtual",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "extract_mahidol_aqi_html",
+        "to": "transform_mahidol_aqi_json",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "transform_mahidol_aqi_json",
+        "to": "data_freshness_branch",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "data_freshness_branch",
+        "to": "load_mahidol_aqi_postgres",
+        "edge_type": "success",
+        "condition": "new_data",
+        "metadata": {}
+      },
+      {
+        "from": "data_freshness_branch",
+        "to": "pipeline_end",
+        "edge_type": "success",
+        "condition": "duplicate",
+        "metadata": {}
+      },
+      {
+        "from": "load_mahidol_aqi_postgres",
+        "to": "aqi_threshold_branch",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "aqi_threshold_branch",
+        "to": "notify_pm25_email_alert",
+        "edge_type": "success",
+        "condition": "alert_needed",
+        "metadata": {}
+      },
+      {
+        "from": "aqi_threshold_branch",
+        "to": "pipeline_end",
+        "edge_type": "success",
+        "condition": "no_alert",
+        "metadata": {}
+      },
+      {
+        "from": "notify_pm25_email_alert",
+        "to": "pipeline_end",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "PM2.5_Risk_Alert_Pipeline",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": "Comprehensive Pipeline Description",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": null,
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "extract_mahidol_aqi_html": {
+        "timeout_seconds": {
+          "description": "HTTP request timeout in seconds",
+          "type": "integer",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "encoding": {
+          "description": "Encoding used for saved HTML file",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "transform_mahidol_aqi_json": {
+        "datetime_format": {
+          "description": "Datetime conversion format used when parsing HTML",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "load_mahidol_aqi_postgres": {
+        "conflict_strategy": {
+          "description": "Strategy for handling conflicts on dimension tables (e.g., DO NOTHING)",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "notify_pm25_email_alert": {
+        "safe_threshold_max": {
+          "description": "Maximum AQI value considered safe (0-50)",
+          "type": "integer",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "moderate_threshold_max": {
+          "description": "Maximum AQI value considered moderate (51-100)",
+          "type": "integer",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "unhealthy_threshold_max": {
+          "description": "Maximum AQI value considered unhealthy (101-200)",
+          "type": "integer",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "hazardous_threshold_min": {
+          "description": "Minimum AQI value considered hazardous (>200)",
+          "type": "integer",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "smtp_server": {
+          "description": "SMTP server address for sending email alerts",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "smtp_port": {
+          "description": "SMTP server port",
+          "type": "integer",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "credentials_config_path": {
+          "description": "Path to configuration file containing email credentials",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "recipients_file_path": {
+          "description": "Path to file listing email recipients",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      }
+    },
+    "environment": {}
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "mahidol_aqi_api",
+        "name": "Mahidol University AQI Website",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "https://mahidol.ac.th/aqireport/",
+          "host": null,
+          "port": null,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "extract_mahidol_aqi_html"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "mahidol_aqi.html"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "local_filesystem",
+        "name": "Local Airflow File System",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/opt/airflow",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "extract_mahidol_aqi_html",
+          "transform_mahidol_aqi_json",
+          "load_mahidol_aqi_postgres",
+          "notify_pm25_email_alert"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "data/mahidol_aqi.html",
+            "data/tmp_mahidol.json",
+            "config/mapping_main_pollution.json",
+            "config/config.conf",
+            "config/pm25_alert_emails.txt"
+          ],
+          "consumes": [
+            "data/mahidol_aqi.html",
+            "data/tmp_mahidol.json",
+            "config/mapping_main_pollution.json",
+            "config/config.conf",
+            "config/pm25_alert_emails.txt"
+          ]
+        }
+      },
+      {
+        "id": "postgres_warehouse",
+        "name": "PostgreSQL Data Warehouse",
+        "type": "database",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": "POSTGRES_HOST",
+          "port": 5432,
+          "protocol": "postgresql",
+          "database": "air_quality_dw",
+          "schema": "public",
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "basic",
+          "token_env_var": null,
+          "username_env_var": "POSTGRES_USER",
+          "password_env_var": "POSTGRES_PASSWORD",
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "transform_mahidol_aqi_json",
+          "load_mahidol_aqi_postgres"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "dimDateTimeTable",
+            "dimLocationTable",
+            "dimMainPollutionTable",
+            "factmahidolaqitable"
+          ],
+          "consumes": [
+            "dimDateTimeTable",
+            "dimLocationTable",
+            "dimMainPollutionTable",
+            "factmahidolaqitable"
+          ]
+        }
+      },
+      {
+        "id": "smtp_gmail",
+        "name": "Gmail SMTP Server",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "smtp.gmail.com",
+          "host": "smtp.gmail.com",
+          "port": 587,
+          "protocol": "smtp",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "basic",
+          "token_env_var": null,
+          "username_env_var": "EMAIL_USERNAME",
+          "password_env_var": "EMAIL_PASSWORD",
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "notify_pm25_email_alert"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "email_alerts_sent"
+          ],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Mahidol University AQI website (HTML page) accessed via HTTPS GET request",
+        "Existing JSON file (data/tmp_mahidol.json) used for freshness comparison"
+      ],
+      "sinks": [
+        "PostgreSQL data warehouse tables: dimDateTimeTable, dimLocationTable, dimMainPollutionTable, factmahidolaqitable",
+        "Email notifications sent via Gmail SMTP when PM2.5 exceeds thresholds"
+      ],
+      "intermediate_datasets": [
+        "data/mahidol_aqi.html (raw scraped HTML)",
+        "data/tmp_mahidol.json (structured AQI JSON)",
+        "config/mapping_main_pollution.json (pollution mapping config)",
+        "config/config.conf (email credentials)",
+        "config/pm25_alert_emails.txt (recipient list)"
+      ]
+    }
+  }
+}

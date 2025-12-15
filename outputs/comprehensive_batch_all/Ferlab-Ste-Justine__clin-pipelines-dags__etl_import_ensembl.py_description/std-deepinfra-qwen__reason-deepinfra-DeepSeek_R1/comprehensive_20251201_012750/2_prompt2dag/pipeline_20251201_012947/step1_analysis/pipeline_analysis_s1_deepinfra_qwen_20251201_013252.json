@@ -1,0 +1,606 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-01T01:32:52.358353",
+    "source_file": "Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_ensembl.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "qwen",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential"
+      ],
+      "task_executors_used": [
+        "python",
+        "spark",
+        "http",
+        "s3"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": false,
+      "total_components": 2,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "etl_import_ensembl",
+    "description": "No description provided.",
+    "flow_patterns": [
+      "sequential"
+    ],
+    "task_executors": [
+      "python",
+      "spark",
+      "http",
+      "s3"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "check_and_download_ensembl_files",
+      "name": "Check and Download Ensembl Files",
+      "category": "Extractor",
+      "description": "Checks for new versions of Ensembl genomic mapping files and downloads updated versions to the S3 raw landing zone. Uses AirflowSkipException if no new versions are found.",
+      "inputs": [
+        "ftp.ensembl.org/pub/current_tsv/homo_sapiens",
+        "S3 raw landing zone (existing versions)"
+      ],
+      "outputs": [
+        "Updated genomic mapping files in S3 raw landing zone"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "script_path": "path/to/check_and_download_ensembl_files.py",
+        "environment": {
+          "S3_CONN_ID": "config.s3_conn_id"
+        },
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "ensembl_ftp_server",
+          "direction": "input",
+          "kind": "api",
+          "format": "tsv.gz",
+          "path_pattern": "ftp.ensembl.org/pub/current_tsv/homo_sapiens",
+          "connection_id": null
+        },
+        {
+          "name": "s3_landing_zone",
+          "direction": "output",
+          "kind": "object",
+          "format": "tsv.gz",
+          "path_pattern": "s3://cqgc-{env}-app-datalake/raw/landing/ensembl/",
+          "connection_id": "config.s3_conn_id"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_done",
+        "description": "Triggers on DAG start or completion of upstream tasks.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 60,
+        "exponential_backoff": true,
+        "retry_on": [
+          "network_error",
+          "timeout"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "config.s3_conn_id",
+          "type": "object_storage",
+          "purpose": "S3 connection for file storage"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "ensembl_ftp_server"
+        ],
+        "produces": [
+          "s3_landing_zone"
+        ]
+      }
+    },
+    {
+      "id": "process_ensembl_files_with_spark",
+      "name": "Process Ensembl Files with Spark",
+      "category": "Transformer",
+      "description": "Processes the downloaded Ensembl mapping files using Spark to create structured tables in the data lake.",
+      "inputs": [
+        "S3 raw landing zone (downloaded files)"
+      ],
+      "outputs": [
+        "Processed Ensembl mapping tables in the data lake"
+      ],
+      "executor_type": "spark",
+      "executor_config": {
+        "entry_point": "bio.ferlab.datalake.spark3.publictables.ImportPublicTable",
+        "environment": {
+          "SPARK_CONFIG": "config-etl-large",
+          "TABLE_NAME": "ensembl_mapping"
+        },
+        "resources": {
+          "cpu": "4",
+          "memory": "8Gi",
+          "gpu": null
+        },
+        "network": "ETL",
+        "image": null,
+        "command": null,
+        "script_path": null
+      },
+      "io_spec": [
+        {
+          "name": "s3_landing_zone",
+          "direction": "input",
+          "kind": "object",
+          "format": "tsv.gz",
+          "path_pattern": "s3://cqgc-{env}-app-datalake/raw/landing/ensembl/",
+          "connection_id": "config.s3_conn_id"
+        },
+        {
+          "name": "s3_data_lake",
+          "direction": "output",
+          "kind": "table",
+          "format": "parquet",
+          "path_pattern": "s3://cqgc-{env}-app-datalake/processed/ensembl/",
+          "connection_id": "config.s3_conn_id"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Triggers after the 'check_and_download_ensembl_files' task completes successfully.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 60,
+        "exponential_backoff": true,
+        "retry_on": [
+          "network_error",
+          "timeout"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": true,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "config.s3_conn_id",
+          "type": "object_storage",
+          "purpose": "S3 connection for file storage"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "s3_landing_zone"
+        ],
+        "produces": [
+          "s3_data_lake"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sequential",
+    "entry_points": [
+      "check_and_download_ensembl_files"
+    ],
+    "nodes": {
+      "check_and_download_ensembl_files": {
+        "kind": "Task",
+        "component_type_id": "check_and_download_ensembl_files",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "process_ensembl_files_with_spark"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "process_ensembl_files_with_spark": {
+        "kind": "Task",
+        "component_type_id": "process_ensembl_files_with_spark",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "check_and_download_ensembl_files",
+        "to": "process_ensembl_files_with_spark",
+        "edge_type": "success",
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "etl_import_ensembl",
+        "required": true
+      },
+      "description": {
+        "description": "Comprehensive Pipeline Description",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2022-01-01T00:00:00Z",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": null,
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "check_and_download_ensembl_files": {
+        "ftp_server": {
+          "description": "FTP server URL",
+          "type": "string",
+          "default": "ftp.ensembl.org/pub/current_tsv/homo_sapiens",
+          "required": true
+        },
+        "s3_conn_id": {
+          "description": "S3 connection ID",
+          "type": "string",
+          "default": "config.s3_conn_id",
+          "required": true
+        },
+        "s3_bucket": {
+          "description": "S3 bucket format",
+          "type": "string",
+          "default": "cqgc-{env}-app-datalake",
+          "required": true
+        },
+        "s3_key_path": {
+          "description": "S3 key path",
+          "type": "string",
+          "default": "raw/landing/ensembl/",
+          "required": true
+        },
+        "mapping_types": {
+          "description": "Genomic mapping types",
+          "type": "array",
+          "default": [
+            "canonical",
+            "ena",
+            "entrez",
+            "refseq",
+            "uniprot"
+          ],
+          "required": true
+        }
+      },
+      "process_ensembl_files_with_spark": {
+        "spark_class": {
+          "description": "Spark class for processing",
+          "type": "string",
+          "default": "bio.ferlab.datalake.spark3.publictables.ImportPublicTable",
+          "required": true
+        },
+        "config_file": {
+          "description": "Spark configuration file",
+          "type": "string",
+          "default": "config-etl-large",
+          "required": true
+        },
+        "table_name": {
+          "description": "Table name for processed data",
+          "type": "string",
+          "default": "ensembl_mapping",
+          "required": true
+        },
+        "steps": {
+          "description": "Processing steps",
+          "type": "string",
+          "default": "default",
+          "required": false
+        }
+      }
+    },
+    "environment": {
+      "SLACK_WEBHOOK_URL": {
+        "description": "Slack webhook URL for notifications",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": null
+      },
+      "S3_CONN_ID": {
+        "description": "S3 connection ID",
+        "type": "string",
+        "default": "config.s3_conn_id",
+        "required": true,
+        "associated_component_id": "check_and_download_ensembl_files"
+      },
+      "K8S_CONTEXT_ETL": {
+        "description": "Kubernetes context for ETL",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "process_ensembl_files_with_spark"
+      },
+      "SPARK_CONFIG_FILE": {
+        "description": "Spark configuration file",
+        "type": "string",
+        "default": "config-etl-large",
+        "required": true,
+        "associated_component_id": "process_ensembl_files_with_spark"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "ensembl_ftp",
+        "name": "Ensembl FTP Server",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/pub/current_tsv/homo_sapiens",
+          "protocol": "ftp",
+          "host": "ftp.ensembl.org",
+          "port": 21
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "check_and_download_ensembl_files"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "canonical",
+            "ena",
+            "entrez",
+            "refseq",
+            "uniprot"
+          ]
+        }
+      },
+      {
+        "id": "s3_datalake",
+        "name": "S3 Data Lake",
+        "type": "object_storage",
+        "config": {
+          "base_path": "raw/landing/ensembl/",
+          "protocol": "s3",
+          "bucket": "cqgc-{env}-app-datalake"
+        },
+        "authentication": {
+          "type": "iam",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "check_and_download_ensembl_files",
+          "process_ensembl_files_with_spark"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "canonical",
+            "ena",
+            "entrez",
+            "refseq",
+            "uniprot"
+          ],
+          "consumes": [
+            "canonical",
+            "ena",
+            "entrez",
+            "refseq",
+            "uniprot"
+          ]
+        }
+      },
+      {
+        "id": "slack_notifications",
+        "name": "Slack Notifications",
+        "type": "api",
+        "config": {
+          "base_url": "https://slack.com/api",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "SLACK_API_TOKEN"
+        },
+        "used_by_components": [
+          "check_and_download_ensembl_files",
+          "process_ensembl_files_with_spark"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      },
+      {
+        "id": "k8s_etl_context",
+        "name": "Kubernetes ETL Context",
+        "type": "other",
+        "config": {
+          "host": null,
+          "port": null,
+          "protocol": null
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "process_ensembl_files_with_spark"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Ensembl FTP server (ftp.ensembl.org/pub/current_tsv/homo_sapiens) for genomic mapping files"
+      ],
+      "sinks": [
+        "S3 Data Lake (cqgc-{env}-app-datalake) for processed Ensembl mapping tables"
+      ],
+      "intermediate_datasets": [
+        "raw/landing/ensembl/canonical",
+        "raw/landing/ensembl/ena",
+        "raw/landing/ensembl/entrez",
+        "raw/landing/ensembl/refseq",
+        "raw/landing/ensembl/uniprot"
+      ]
+    }
+  }
+}

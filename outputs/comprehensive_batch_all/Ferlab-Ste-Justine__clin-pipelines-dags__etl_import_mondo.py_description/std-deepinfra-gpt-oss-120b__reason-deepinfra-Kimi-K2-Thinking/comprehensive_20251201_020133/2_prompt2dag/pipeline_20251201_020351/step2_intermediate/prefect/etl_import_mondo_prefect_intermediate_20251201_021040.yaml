@@ -1,0 +1,202 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-01 02:10:40.881189
+  source_analysis_file: 
+    Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_mondo.py_description.txt
+  pipeline_name: etl_import_mondo
+  pipeline_description: Comprehensive Pipeline Description
+  orchestrator_specific:
+    flow_name: etl_import_mondo
+    deployment_name: etl_import_mondo_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: '2022-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: github_mondo_releases
+    conn_type: Secret
+    description: GitHub Mondo Releases
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: github_mondo_releases
+      config:
+        base_path:
+        base_url: https://github.com/monarch-initiative/mondo/releases
+        host: github.com
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: s3_datalake
+    conn_type: S3Bucket
+    description: S3 Data Lake (cqgc-{env}-app-datalake)
+    config:
+      block_type: S3Bucket
+      block_module: prefect_aws.s3
+      block_name: s3_datalake
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: s3
+        database:
+        schema:
+        bucket: cqgc-{env}-app-datalake
+        queue_name:
+  - conn_id: elasticsearch_mondo
+    conn_type: Secret
+    description: Elasticsearch (Mondo Index)
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: elasticsearch_mondo
+      config:
+        base_path:
+        base_url: es_url
+        host:
+        port:
+        protocol: http
+        database:
+        schema:
+        bucket:
+        queue_name:
+        username_secret_name: ES_USERNAME
+        password_secret_name: ES_PASSWORD
+  - conn_id: slack_webhook
+    conn_type: Secret
+    description: Slack Notification Webhook
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: slack_webhook
+      config:
+        base_path:
+        base_url: https://hooks.slack.com/services/...
+        host: hooks.slack.com
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+        token_secret_name: SLACK_WEBHOOK_URL
+tasks:
+  - task_id: validate_params
+    task_name: Validate Pipeline Parameters
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: validate_params
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: validate_color
+      retries: 0
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: download_mondo_terms
+    task_name: Download Mondo OBO File
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: download_mondo_terms
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: download_mondo
+      retries: 0
+    upstream_task_ids:
+      - validate_params
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: normalize_mondo_terms
+    task_name: Normalize Mondo Terms
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: normalize_mondo_terms
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config: {}
+      retries: 0
+      task_runner: ConcurrentTaskRunner
+    upstream_task_ids:
+      - download_mondo_terms
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: index_mondo_terms
+    task_name: Index Mondo Terms into Elasticsearch
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: index_mondo_terms
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config: {}
+      retries: 0
+      task_runner: ConcurrentTaskRunner
+    upstream_task_ids:
+      - normalize_mondo_terms
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: publish_mondo
+    task_name: Publish Mondo Dataset
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: publish_mondo
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: publish_index.mondo
+      retries: 0
+    upstream_task_ids:
+      - index_mondo_terms
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: notify_slack
+    task_name: Slack Notification
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: notify_slack
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: Slack.notify_dag_completion
+      retries: 0
+    upstream_task_ids:
+      - publish_mondo
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

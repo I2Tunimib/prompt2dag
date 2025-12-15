@@ -1,0 +1,253 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-11-28 14:39:42.506047
+  source_analysis_file: Pipeline_Description_Dataset/Multilingual_Product_Review.txt
+  pipeline_name: Multilingual Product Review Analysis Pipeline
+  pipeline_description: Enriches product reviews with language verification, sentiment, and key feature extraction using
+    LLM capabilities for deeper customer insight.
+  orchestrator_specific:
+    job_name: multilingual_product_review_analysis_pipeline
+    description: Enriches product reviews with language verification, sentiment, and key feature extraction using LLM 
+      capabilities for deeper customer insight.
+    executor_type: docker_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - data_volume
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir_filesystem
+    conn_type: fs_io_manager
+    description: Data Directory Filesystem
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: data_dir_filesystem
+      config:
+        base_path: ${DATA_DIR}
+        protocol: file
+  - conn_id: intermediate_json_storage
+    conn_type: fs_io_manager
+    description: Intermediate JSON Storage
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: intermediate_json_storage
+      config:
+        base_path: ${DATA_DIR}
+        protocol: file
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: load_and_modify_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-load-and-modify:latest
+          container_kwargs:
+            environment:
+              DATASET_ID: '2'
+              DATE_COLUMN: submission_date
+              TABLE_NAME_PREFIX: JOT_
+            network_mode: app_network
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - data_volume
+      retry_policy:
+        max_retries: 1
+        delay: 30
+        backoff: CONSTANT
+      ins:
+        - name: input_csv
+          dagster_type: String
+          description: ${DATA_DIR}/reviews.csv
+      outs:
+        - name: output_json
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: language_detection
+    task_name: Language Detection
+    operator_class: Op
+    operator_module: dagster
+    component_ref: language_detection
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: jmockit/language-detection
+          container_kwargs:
+            environment:
+              TEXT_COLUMN: review_text
+              LANG_CODE_COLUMN: language_code
+              OUTPUT_FILE: lang_detected_2.json
+            network_mode: app_network
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - data_volume
+      retry_policy:
+        max_retries: 1
+        delay: 30
+        backoff: CONSTANT
+      ins:
+        - name: input_json
+          dagster_type: String
+          description: ${DATA_DIR}/table_data_2.json
+      outs:
+        - name: output_json
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: sentiment_analysis
+    task_name: Sentiment Analysis
+    operator_class: Op
+    operator_module: dagster
+    component_ref: sentiment_analysis
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: huggingface/transformers-inference
+          container_kwargs:
+            environment:
+              MODEL_NAME: distilbert-base-uncased-finetuned-sst-2-english
+              TEXT_COLUMN: review_text
+              OUTPUT_COLUMN: sentiment_score
+            network_mode: app_network
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - data_volume
+      retry_policy:
+        max_retries: 1
+        delay: 30
+        backoff: CONSTANT
+      ins:
+        - name: input_json
+          dagster_type: String
+          description: ${DATA_DIR}/lang_detected_2.json
+      outs:
+        - name: output_json
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - language_detection
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: category_extraction
+    task_name: Category Extraction
+    operator_class: Op
+    operator_module: dagster
+    component_ref: category_extraction
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-column-extension:latest
+          container_kwargs:
+            environment:
+              EXTENDER_ID: featureExtractor
+              TEXT_COLUMN: review_text
+              OUTPUT_COLUMN: mentioned_features
+            network_mode: app_network
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - data_volume
+      retry_policy:
+        max_retries: 1
+        delay: 30
+        backoff: CONSTANT
+      ins:
+        - name: input_json
+          dagster_type: String
+          description: ${DATA_DIR}/sentiment_analyzed_2.json
+      outs:
+        - name: output_json
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - sentiment_analysis
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: save_final_data
+    task_name: Save Final Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: save_final_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-save:latest
+          container_kwargs:
+            environment:
+              DATASET_ID: '2'
+            network_mode: app_network
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - data_volume
+      retry_policy:
+        max_retries: 1
+        delay: 30
+        backoff: CONSTANT
+      ins:
+        - name: input_json
+          dagster_type: String
+          description: ${DATA_DIR}/column_extended_2.json
+      outs:
+        - name: output_csv
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - category_extraction
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

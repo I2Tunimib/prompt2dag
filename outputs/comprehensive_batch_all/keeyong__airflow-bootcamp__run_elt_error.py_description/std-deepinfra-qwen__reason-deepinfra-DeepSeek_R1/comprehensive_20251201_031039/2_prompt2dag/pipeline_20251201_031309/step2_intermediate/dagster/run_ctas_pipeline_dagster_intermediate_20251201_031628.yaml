@@ -1,0 +1,104 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-01 03:16:28.077667
+  source_analysis_file: Pipeline_Description_Dataset/keeyong__airflow-bootcamp__run_elt_error.py_description.txt
+  pipeline_name: run_ctas_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    job_name: run_ctas_pipeline
+    description: No description provided.
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - snowflake_conn
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2025-01-10T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: snowflake_conn
+    conn_type: resource
+    description: Snowflake Connection
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: snowflake_conn
+      config:
+        host: snowflake_account.snowflakecomputing.com
+        port: 443
+        protocol: https
+        database: analytics
+        schema: public
+  - conn_id: slack_conn
+    conn_type: resource
+    description: Slack Connection
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: slack_conn
+      config:
+        base_url: https://slack.com/api
+        protocol: https
+        token: EnvVar('SLACK_API_TOKEN')
+tasks:
+  - task_id: run_ctas
+    task_name: Run CTAS
+    operator_class: Op
+    operator_module: dagster
+    component_ref: run_ctas
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: module.run_ctas
+      config_schema: {}
+      required_resource_keys:
+        - snowflake_conn
+      ins:
+        - name: raw_data.session_timestamp
+          dagster_type: String
+          description: raw_data.session_timestamp
+        - name: raw_data.user_session_channel
+          dagster_type: String
+          description: raw_data.user_session_channel
+      outs:
+        - name: analytics.mau_summary
+          dagster_type: String
+          description: Output to snowflake_conn
+        - name: analytics.temp_mau_summary
+          dagster_type: String
+          description: Output to snowflake_conn
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: send_slack_notification
+    task_name: Send Slack Notification
+    operator_class: Op
+    operator_module: dagster
+    component_ref: send_slack_notification
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: module.send_slack_notification
+      config_schema: {}
+      required_resource_keys: []
+      ins: []
+      outs: []
+    upstream_task_ids:
+      - run_ctas
+    trigger_rule: custom_policy
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

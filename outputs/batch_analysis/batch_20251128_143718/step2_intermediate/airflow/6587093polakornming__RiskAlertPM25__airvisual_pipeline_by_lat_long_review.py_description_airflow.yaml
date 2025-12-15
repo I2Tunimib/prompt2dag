@@ -1,0 +1,109 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 14:38:05.471397
+  source_analysis_file: 
+    Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__airvisual_pipeline_by_lat_long_review.py_description.txt
+  pipeline_name: AirVisual_Pipeline_Lat_Long_v1
+  pipeline_description: Comprehensive pipeline to extract air quality data from AirVisual API using latitude/longitude, 
+    validate JSON response, and load into PostgreSQL with dimensional modeling
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: '2025-03-20T00:00:00'
+  end_date:
+  timezone: Asia/Bangkok
+  catchup: false
+connections:
+  - conn_id: airvisual_api
+    conn_type: http
+    description: AirVisual API
+    config:
+      base_url: http://api.airvisual.com/v2/nearest_city
+      host:
+      port:
+      protocol: http
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: postgres_dw
+    conn_type: generic
+    description: PostgreSQL Data Warehouse
+    config:
+      base_path:
+      base_url:
+      host:
+      port:
+      protocol: jdbc
+      database:
+      schema:
+      bucket:
+      queue_name:
+      login: POSTGRES_USER
+      password: POSTGRES_PASSWORD
+  - conn_id: local_filesystem_data
+    conn_type: fs
+    description: Local Filesystem Data Storage
+    config:
+      base_path: /opt/airflow/data
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: local_filesystem_config
+    conn_type: fs
+    description: Local Filesystem Config Storage
+    config:
+      base_path: /opt/airflow/config
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+tasks:
+  - task_id: extract_airvisual_api
+    task_name: Extract AirVisual API Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_airvisual_api
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: validate_airvisual_json
+    task_name: Validate AirVisual JSON Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: validate_airvisual_json
+    config:
+      retry_delay: timedelta(seconds=180)
+    upstream_task_ids:
+      - extract_airvisual_api
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 180
+    validation_warnings: []
+  - task_id: load_airvisual_to_postgresql
+    task_name: Load AirVisual Data to PostgreSQL
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: load_airvisual_to_postgresql
+    config:
+      retry_delay: timedelta(seconds=180)
+    upstream_task_ids:
+      - validate_airvisual_json
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 180
+    validation_warnings: []

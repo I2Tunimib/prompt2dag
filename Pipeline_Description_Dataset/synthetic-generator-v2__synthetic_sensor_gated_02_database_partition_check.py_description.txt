@@ -1,0 +1,86 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_sensor_gated_02_database_partition_check.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** sensor_gated  
+**Complexity Score:** 3/10  
+
+---
+
+[Database Partition Check ETL] - Comprehensive Pipeline Description
+
+Opening Summary:
+This is a sensor-gated daily ETL pipeline that waits for database partition availability before extracting, transforming, and loading incremental orders data. The pipeline follows a sequential execution model where a SqlSensor gates the entire ETL workflow, ensuring the required daily partition exists before proceeding. Key infrastructure features include SqlSensor with reschedule mode, database connection dependency, and sequential PythonOperator-based ETL stages.
+
+Pipeline Steps:
+
+1. wait_partition
+  • Objective: Ensure the daily partition for the orders table exists before starting ETL processing
+  • Technical Details:
+    - Input: Database metadata via information_schema.partitions
+    - Output: Sensor success signal that unlocks the ETL workflow
+    - Integrations: Database connection (database_conn), information_schema system tables
+    - Key Parameters: 
+      - conn_id: database_conn
+      - mode: reschedule
+      - timeout: 3600 seconds
+      - poke_interval: 300 seconds
+  • Operator or Mechanism: SqlSensor
+  • Notes: Uses reschedule mode to free up worker slots during waiting periods
+
+2. extract_incremental
+  • Objective: Extract new orders data from the daily partition for processing
+  • Technical Details:
+    - Input: wait_partition sensor success, orders table with current date partition
+    - Output: Extracted orders data for transformation
+    - Integrations: Database connection (database_conn), orders table
+  • Operator or Mechanism: PythonOperator
+  • Notes: Processes incremental data filtered by partition_date = CURRENT_DATE
+
+3. transform
+  • Objective: Clean and validate extracted orders data for loading
+  • Technical Details:
+    - Input: extract_incremental output
+    - Output: Transformed, validated orders data
+    - Integrations: Data transformation logic (customer names, addresses, amounts, timestamps)
+  • Operator or Mechanism: PythonOperator
+
+4. load
+  • Objective: Load transformed orders data to target data warehouse
+  • Technical Details:
+    - Input: transform output
+    - Output: Loaded records in fact_orders table, updated metrics
+    - Integrations: Data warehouse target system, fact_orders table
+  • Operator or Mechanism: PythonOperator
+
+Orchestration & Scheduling:
+- Schedule: @daily
+- Start Date: 2024-01-01
+- Catchup: False
+- Default Args: 
+  - owner: data_engineering
+  - depends_on_past: False
+  - email_on_failure: False
+  - email_on_retry: False
+  - retries: 2
+  - retry_delay: 5 minutes
+
+Infrastructure & Dependencies:
+- Sensors: SqlSensor checking information_schema.partitions for daily orders table partition
+- Connections: database_conn for database access
+- Execution Parameters: 1-hour timeout with 5-minute poke intervals for sensor
+- Data I/O: orders table (source), fact_orders table (target), partition-based filtering
+
+Failure Handling & Alerts:
+- Retry Policy: 2 retries with 5-minute delays
+- Email Notifications: Disabled for both failures and retries
+- No explicit failure triggers or alert operators
+
+Pattern-Specific Notes:
+- Sensor-Gated: SqlSensor gates entire ETL workflow, waiting for daily database partition creation
+- Downstream Unlock: Sensor success triggers sequential extract → transform → load pipeline
+- Staged ETL: Clear Extract (incremental orders) → Transform (clean/validate) → Load (warehouse) stages
+- Partition-Based: Relies on database partitioning strategy for incremental data processing

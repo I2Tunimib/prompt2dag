@@ -1,0 +1,70 @@
+[PM2.5_Risk_Alert_Pipeline] - Comprehensive Pipeline Description
+
+Opening Summary:
+This is a sequential ETL pipeline that scrapes Mahidol University AQI data from their website, processes the HTML to extract air quality metrics, loads the structured data into a PostgreSQL data warehouse, and sends email alerts when PM2.5 levels exceed safe thresholds. The pipeline follows a staged ETL pattern with strict sequential dependencies and includes data freshness checks to prevent duplicate processing. Key infrastructure features include PostgreSQL integration, file-based data persistence, and configurable email alerts with conditional execution based on AQI thresholds.
+
+Pipeline Steps:
+
+1. get_data_mahidol_aqi_report
+  • Objective: Scrape current AQI data from Mahidol University website to obtain the latest air quality readings
+  • Technical Details:
+    - Input: Mahidol AQI website (https://mahidol.ac.th/aqireport/)
+    - Output: HTML file saved to data/mahidol_aqi.html
+    - Integrations: HTTP API call to Mahidol website, local filesystem for HTML storage
+    - Key Parameters: 10-second timeout for HTTP request, UTF-8 encoding for HTML
+  • Operator or Mechanism: PythonOperator
+  • Notes: Implements atomic file write pattern using temporary file then rename
+
+2. create_json_object
+  • Objective: Parse HTML content to extract structured AQI data and validate data freshness before proceeding
+  • Technical Details:
+    - Input: HTML file from previous task, existing JSON file for comparison
+    - Output: Structured JSON file (data/tmp_mahidol.json) containing parsed AQI metrics
+    - Integrations: PostgreSQL database (postgres_conn), local filesystem
+    - Key Parameters: BeautifulSoup parsing, datetime conversion with specific format
+  • Operator or Mechanism: PythonOperator
+  • Notes: Includes duplicate detection by checking factmahidolaqitable, raises AirflowSkipException if data already exists
+
+3. load_mahidol_aqi_to_postgres
+  • Objective: Load extracted AQI data into PostgreSQL data warehouse with dimensional modeling
+  • Technical Details:
+    - Input: JSON file from previous task, pollution mapping config file
+    - Output: Records inserted into PostgreSQL tables (dimDateTimeTable, dimLocationTable, dimMainPollutionTable, factmahidolaqitable)
+    - Integrations: PostgreSQL (postgres_conn), config file at /opt/airflow/config/mapping_main_pollution.json
+    - Key Parameters: ON CONFLICT DO NOTHING for dimension tables, data cleaning for numeric values
+  • Operator or Mechanism: PythonOperator
+  • Notes: Implements full ETL process with dimension and fact table population, uses transaction commit/rollback
+
+4. alert_email
+  • Objective: Send email alerts to configured recipients when AQI values exceed safe thresholds
+  • Technical Details:
+    - Input: JSON data file, email configuration, recipient list
+    - Output: Email notifications sent via SMTP
+    - Integrations: SMTP server (smtp.gmail.com:587), config file for email credentials, recipient list from pm25_alert_emails.txt
+    - Key Parameters: AQI threshold levels (0-50 safe, 51-100 moderate, 101-200 unhealthy, >200 hazardous)
+  • Operator or Mechanism: PythonOperator
+  • Notes: Conditional execution - skips if AQI is safe (0-50), uses AirflowSkipException for conditional workflow control
+
+Orchestration & Scheduling:
+- Schedule_interval: Not specified in provided code (typically defined in DAG instantiation)
+- Start_date: Not visible in provided code segment
+- Default_args includes owner information (partial view shows 'owner': 'Polakorn Anan')
+- Catchup and max_active_runs not specified in provided code
+
+Infrastructure & Dependencies:
+- Connections: PostgreSQL connection (postgres_conn), SMTP connection for email alerts
+- File paths: Data directory (BASE_DIR/data), config files in BASE_DIR/config
+- Database tables: dimDateTimeTable, dimLocationTable, dimMainPollutionTable, factmahidolaqitable
+- External systems: Mahidol University website (https://mahidol.ac.th/aqireport/), Gmail SMTP server
+- Configuration files: mapping_main_pollution.json, config.conf for email credentials, pm25_alert_emails.txt for recipients
+
+Failure Handling & Alerts:
+- Email alert system triggers based on AQI threshold breaches
+- Database transactions use commit/rollback for data consistency
+- AirflowSkipException used for conditional workflow control (duplicate data, safe AQI levels)
+- Retry policies not specified in provided code segment
+
+Pattern-Specific Notes:
+- Staged ETL: Clear sequential stages - Extract (web scraping) → Transform (HTML parsing & validation) → Load (database insertion) → Alert (notification)
+- Conditional execution: Pipeline may skip tasks based on data freshness checks and AQI threshold evaluations
+- Data validation: Includes duplicate detection in database and data freshness comparison with existing files

@@ -1,0 +1,526 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T11:35:17.777527",
+    "source_file": "Pipeline_Description_Dataset/nazzang49__gcp-tutorials__airflow_db_cleanup.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "qwen",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential"
+      ],
+      "task_executors_used": [
+        "python"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": false,
+      "total_components": 2,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "print_configuration_pipeline",
+    "description": "No description provided.",
+    "flow_patterns": [
+      "sequential"
+    ],
+    "task_executors": [
+      "python"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "print_configuration",
+      "name": "Print Configuration",
+      "category": "Transformer",
+      "description": "Loads and validates cleanup configuration parameters, including maximum entry age from DAG run configuration or Airflow Variables. Sets the execution threshold date for downstream tasks.",
+      "inputs": [
+        "DAG run configuration parameters",
+        "Airflow Variable 'airflow_db_cleanup__max_db_entry_age_in_days'"
+      ],
+      "outputs": [
+        "Calculated max_date pushed to XCom"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "entry_point": "module.function",
+        "environment": {
+          "AIRFLOW_VAR_AIRFLOW_DB_CLEANUP__MAX_DB_ENTRY_AGE_IN_DAYS": "airflow_db_cleanup__max_db_entry_age_in_days"
+        },
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "dag_run_config",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "DAG run configuration",
+          "connection_id": null
+        },
+        {
+          "name": "airflow_variable",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "Airflow Variable 'airflow_db_cleanup__max_db_entry_age_in_days'",
+          "connection_id": null
+        },
+        {
+          "name": "max_date",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "XCom",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Executes only if all upstream tasks have succeeded",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 60,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "airflow_db",
+          "type": "database",
+          "purpose": "Access Airflow MetaStore for configuration and XCom"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "cleanup_airflow_metadb",
+      "name": "Cleanup Airflow MetaDB",
+      "category": "Loader",
+      "description": "Executes the actual database cleanup by deleting old entries from multiple Airflow metadata tables based on the calculated max_date.",
+      "inputs": [
+        "max_date from print_configuration task via XCom",
+        "DATABASE_OBJECTS configuration list"
+      ],
+      "outputs": [
+        "Deleted old entries from DagRun, TaskInstance, Log, XCom, SlaMiss, DagModel, and other Airflow metadata tables"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "entry_point": "module.function",
+        "environment": {
+          "DATABASE_OBJECTS": "DATABASE_OBJECTS"
+        },
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "max_date",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "XCom",
+          "connection_id": null
+        },
+        {
+          "name": "airflow_metadb",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "Airflow MetaStore tables",
+          "connection_id": "airflow_db"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Executes only if all upstream tasks have succeeded",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 60,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "airflow_db",
+          "type": "database",
+          "purpose": "Access Airflow MetaStore for cleanup operations"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sequential",
+    "entry_points": [
+      "print_configuration"
+    ],
+    "nodes": {
+      "print_configuration": {
+        "kind": "Task",
+        "component_type_id": "print_configuration",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "cleanup_airflow_metadb"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "cleanup_airflow_metadb": {
+        "kind": "Task",
+        "component_type_id": "cleanup_airflow_metadb",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "print_configuration",
+        "to": "cleanup_airflow_metadb",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": null,
+        "required": true,
+        "constraints": "Must be a unique identifier for the pipeline"
+      },
+      "description": {
+        "description": "Comprehensive Pipeline Description",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "days_ago(1)",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": "UTC",
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 1,
+          "retry_delay": "00:01:00"
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "print_configuration": {
+        "provide_context": {
+          "description": "Whether to provide Airflow context",
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "airflow_db_cleanup__max_db_entry_age_in_days": {
+          "description": "Maximum age of database entries to retain",
+          "type": "integer",
+          "default": 30,
+          "required": false
+        }
+      },
+      "cleanup_airflow_metadb": {
+        "max_date": {
+          "description": "Calculated maximum date for entries to be cleaned",
+          "type": "datetime",
+          "default": null,
+          "required": true,
+          "format": "ISO8601"
+        },
+        "DATABASE_OBJECTS": {
+          "description": "List of database objects to clean",
+          "type": "array",
+          "default": null,
+          "required": true
+        },
+        "ENABLE_DELETE": {
+          "description": "Flag to enable actual deletion (dry-run if false)",
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      }
+    },
+    "environment": {
+      "ALERT_EMAIL_ADDRESSES": {
+        "description": "Email addresses to notify on task failures",
+        "type": "array",
+        "default": null,
+        "required": false,
+        "associated_component_id": null
+      },
+      "AIRFLOW_DB_CLEANUP__MAX_DB_ENTRY_AGE_IN_DAYS": {
+        "description": "Maximum age of database entries to retain",
+        "type": "integer",
+        "default": 30,
+        "required": false,
+        "associated_component_id": "print_configuration"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "airflow_metastore",
+        "name": "Airflow MetaStore Database",
+        "type": "database",
+        "config": {
+          "host": "localhost",
+          "port": 5432,
+          "protocol": "jdbc",
+          "database": "airflow",
+          "schema": "public"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "print_configuration",
+          "cleanup_airflow_metadb"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "DagRun",
+            "TaskInstance",
+            "Log",
+            "XCom",
+            "SlaMiss",
+            "DagModel",
+            "TaskReschedule",
+            "TaskFail",
+            "RenderedTaskInstanceFields",
+            "ImportError",
+            "Job",
+            "BaseJob"
+          ]
+        }
+      },
+      {
+        "id": "airflow_variables",
+        "name": "Airflow Variables",
+        "type": "api",
+        "config": {
+          "base_url": "http://localhost:8080/api/v1/variables",
+          "protocol": "http"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "AIRFLOW_API_TOKEN"
+        },
+        "used_by_components": [
+          "print_configuration"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "airflow_db_cleanup__max_db_entry_age_in_days"
+          ]
+        }
+      },
+      {
+        "id": "xcom",
+        "name": "Airflow XCom",
+        "type": "message_queue",
+        "config": {
+          "queue_name": "xcom"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "print_configuration",
+          "cleanup_airflow_metadb"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "max_date"
+          ],
+          "consumes": [
+            "max_date"
+          ]
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Airflow Variables for configuration parameters",
+        "Airflow MetaStore database for metadata tables"
+      ],
+      "sinks": [
+        "Airflow MetaStore database after cleanup"
+      ],
+      "intermediate_datasets": [
+        "XCom value for max_date"
+      ]
+    }
+  }
+}

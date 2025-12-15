@@ -1,0 +1,188 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-02 11:04:53.164364
+  source_analysis_file: Pipeline_Description_Dataset/Multilingual_Product_Review.txt
+  pipeline_name: load_and_modify_data_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    flow_name: load_and_modify_data_pipeline
+    deployment_name: load_and_modify_data_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir
+    conn_type: LocalFileSystem
+    description: Data Directory
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: data_dir
+      config:
+        base_path: ${DATA_DIR}
+        protocol: file
+  - conn_id: json_data
+    conn_type: LocalFileSystem
+    description: JSON Data
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: json_data
+      config:
+        base_path: ${DATA_DIR}
+        protocol: file
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: load_and_modify_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-load-and-modify:latest
+          command:
+            - python
+            - load_and_modify.py
+          env:
+            DATASET_ID: '2'
+            DATE_COLUMN: submission_date
+            TABLE_NAME_PREFIX: JOT_
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: language_detection
+    task_name: Language Detection
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: language_detection
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: jmockit/language-detection
+          command:
+            - python
+            - detect_language.py
+          env:
+            TEXT_COLUMN: review_text
+            LANG_CODE_COLUMN: language_code
+            OUTPUT_FILE: lang_detected_2.json
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: sentiment_analysis
+    task_name: Sentiment Analysis
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: sentiment_analysis
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: huggingface/transformers-inference
+          command:
+            - python
+            - sentiment_analysis.py
+          env:
+            MODEL_NAME: distilbert-base-uncased-finetuned-sst-2-english
+            TEXT_COLUMN: review_text
+            OUTPUT_COLUMN: sentiment_score
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - language_detection
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: category_extraction
+    task_name: Category Extraction
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: category_extraction
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-column-extension:latest
+          command:
+            - python
+            - category_extraction.py
+          env:
+            EXTENDER_ID: featureExtractor
+            TEXT_COLUMN: review_text
+            OUTPUT_COLUMN: mentioned_features
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - sentiment_analysis
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: save_final_data
+    task_name: Save Final Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: save_final_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-save:latest
+          command:
+            - python
+            - save_data.py
+          env:
+            DATASET_ID: '2'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - category_extraction
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []

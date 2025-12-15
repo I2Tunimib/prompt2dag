@@ -1,0 +1,103 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_branch_merge_00_data_quality_gate.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** branch_merge  
+**Complexity Score:** 4/10  
+
+---
+
+[data_quality_gate] - Comprehensive Pipeline Description
+
+Opening Summary:
+This DAG implements a data quality gate for customer CSV data that ingests raw data, performs quality assessment, and conditionally routes to production or quarantine based on quality scores. The pipeline follows a branch-merge pattern with conditional routing and includes parallel execution paths that converge to a final cleanup task. Key infrastructure features include BranchPythonOperator for conditional routing, EmailOperator for alerting, and daily scheduled execution with retry policies.
+
+Pipeline Steps:
+
+1. ingest_csv
+  • Objective: Load raw customer CSV data from source location for quality assessment
+  • Technical Details:
+    - Input: Raw CSV files from source location
+    - Output: File metadata (path, record count) via XCom for quality assessment
+    - Integrations: File system access for CSV ingestion
+    - Key Parameters: None specified beyond Python callable
+  • Operator or Mechanism: PythonOperator
+  • Notes: Initial data ingestion stage
+
+2. quality_check
+  • Objective: Calculate data quality score and determine routing path based on threshold
+  • Technical Details:
+    - Input: XCom data from ingest_csv task (file_path, record_count)
+    - Output: Branch decision ("production_load" or "quarantine_and_alert") 
+    - Integrations: Quality scoring algorithm (completeness + validity metrics)
+    - Key Parameters: Uses XCom to pull data from previous task
+  • Operator or Mechanism: BranchPythonOperator
+  • Notes: Branching gateway with 95% quality threshold
+
+3. production_load
+  • Objective: Load high-quality data (≥95% score) to production database
+  • Technical Details:
+    - Input: Triggered when quality_check returns "production_load"
+    - Output: Production database updates, cleanup trigger
+    - Integrations: Production database system
+    - Key Parameters: None specified beyond Python callable
+  • Operator or Mechanism: PythonOperator
+  • Notes: High-quality data path
+
+4. quarantine_and_alert
+  • Objective: Quarantine low-quality data (<95% score) and trigger alert workflow
+  • Technical Details:
+    - Input: Triggered when quality_check returns "quarantine_and_alert"
+    - Output: Quarantine actions, alert email trigger
+    - Integrations: Quarantine storage system
+    - Key Parameters: None specified beyond Python callable
+  • Operator or Mechanism: PythonOperator
+  • Notes: Low-quality data path
+
+5. send_alert_email
+  • Objective: Send email notification to data stewards about quality issues
+  • Technical Details:
+    - Input: Triggered after quarantine_and_alert task
+    - Output: Email notification, cleanup trigger
+    - Integrations: Email system (SMTP), data-stewards@company.com
+    - Key Parameters: to='data-stewards@company.com', HTML email template
+  • Operator or Mechanism: EmailOperator
+  • Notes: Alert notification for quality failures
+
+6. cleanup
+  • Objective: Perform final cleanup operations for temporary files and resources
+  • Technical Details:
+    - Input: Triggered from both production_load and send_alert_email paths
+    - Output: Cleanup completion status
+    - Integrations: File system cleanup operations
+    - Key Parameters: None specified beyond Python callable
+  • Operator or Mechanism: PythonOperator
+  • Notes: Merge point for both branch paths
+
+Orchestration & Scheduling:
+- Schedule: @daily
+- Start Date: 2024-01-01
+- Catchup: False
+- Default Args: owner='data_engineering', depends_on_past=False, retries=1, retry_delay=5 minutes, email_on_failure=False, email_on_retry=False
+
+Infrastructure & Dependencies:
+- Branching: BranchPythonOperator with quality threshold logic
+- Email Integration: EmailOperator with data-stewards@company.com recipient
+- Data Flow: CSV file ingestion from /data/raw/ location
+- Quality Metrics: Completeness and validity scoring (97.5% and 92.3% in mock)
+
+Failure Handling & Alerts:
+- Retry Policy: 1 retry with 5-minute delay
+- Alerting: EmailOperator for quality failures to data stewards
+- Email Configuration: HTML formatted alerts for quality threshold violations
+
+Pattern-Specific Notes:
+- Branch-Merge Pattern: Single branching gateway (quality_check) with two conditional paths:
+  - High-quality path (≥95%): production_load → cleanup
+  - Low-quality path (<95%): quarantine_and_alert → send_alert_email → cleanup
+- Parallel Width: Maximum 2 parallel tasks (production_load and quarantine_and_alert paths)
+- Convergence: Both paths merge at cleanup task using implicit trigger rules
+- Quality Threshold: 95% overall score calculated as average of completeness and validity metrics

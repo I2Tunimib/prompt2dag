@@ -1,0 +1,178 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-02 12:49:41.652686
+  source_analysis_file: Pipeline_Description_Dataset/Sequential_Pipeline_Prompt.txt
+  pipeline_name: load_and_modify_data_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_directory
+    conn_type: fs
+    description: Data Directory
+    config:
+      base_path: /app/data
+      protocol: file
+  - conn_id: load_and_modify_service
+    conn_type: http
+    description: Load and Modify Service
+    config:
+      base_url: http://load-and-modify-service:3003
+      protocol: http
+  - conn_id: reconciliation_service
+    conn_type: http
+    description: Reconciliation Service
+    config:
+      base_url: http://reconciliation-service:3003
+      protocol: http
+      extra:
+        token_env_var: RECONCILIATION_API_TOKEN
+  - conn_id: openmeteo_api
+    conn_type: http
+    description: OpenMeteo API
+    config:
+      base_url: http://openmeteo-api:3003
+      protocol: http
+  - conn_id: column_extension_service
+    conn_type: http
+    description: Column Extension Service
+    config:
+      base_url: http://column-extension-service:3003
+      protocol: http
+  - conn_id: docker_network
+    conn_type: generic
+    description: Docker Network
+    config:
+      name: app_network
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: load_and_modify_data
+    config:
+      image: i2t-backendwithintertwino6-load-and-modify:latest
+      command:
+        - python
+        - load_and_modify.py
+      environment:
+        DATASET_ID: '2'
+        DATE_COLUMN: Fecha_id
+        TABLE_NAMING_CONVENTION: JOT_{}
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: data_reconciliation
+    task_name: Data Reconciliation
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: data_reconciliation
+    config:
+      image: i2t-backendwithintertwino6-reconciliation:latest
+      command:
+        - python
+        - reconcile_data.py
+      environment:
+        PRIMARY_COLUMN: City
+        OPTIONAL_COLUMNS: County,Country
+        RECONCILIATOR_ID: geocodingHere
+        API_TOKEN: your_api_token
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: openmeteo_data_extension
+    task_name: OpenMeteo Data Extension
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: openmeteo_data_extension
+    config:
+      image: i2t-backendwithintertwino6-openmeteo-extension:latest
+      command:
+        - python
+        - extend_data.py
+      environment:
+        WEATHER_ATTRIBUTES: apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_hours
+        DATE_FORMAT: your_date_format
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - data_reconciliation
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: column_extension
+    task_name: Column Extension
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: column_extension
+    config:
+      image: i2t-backendwithintertwino6-column-extension:latest
+      command:
+        - python
+        - extend_columns.py
+      environment:
+        EXTENDER_ID: reconciledColumnExt
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - openmeteo_data_extension
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: save_final_data
+    task_name: Save Final Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: save_final_data
+    config:
+      image: i2t-backendwithintertwino6-save:latest
+      command:
+        - python
+        - save_data.py
+      environment:
+        DATA_DIR: /app/data
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - column_extension
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings: []

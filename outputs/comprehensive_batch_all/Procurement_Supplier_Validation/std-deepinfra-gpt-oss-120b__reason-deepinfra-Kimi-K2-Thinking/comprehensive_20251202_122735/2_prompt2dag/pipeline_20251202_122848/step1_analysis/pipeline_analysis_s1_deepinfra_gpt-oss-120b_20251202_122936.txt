@@ -1,0 +1,101 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T12:29:36.425705
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/Procurement_Supplier_Validation.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**1. Executive Summary**  
+The pipeline validates and enriches a supplier master file. It reads a CSV of raw supplier records, normalises the data and converts it to JSON, reconciles the *supplier_name* field against Wikidata to attach canonical entity identifiers, and finally writes the enriched data back to a CSV for downstream consumption. The execution flow is strictly linear – each step runs only after the preceding step has completed successfully. All three steps are containerised and run inside Docker images, communicating through a shared filesystem volume.
+
+**Key observations**  
+* Pattern – pure sequential processing, no branching, parallelism, or sensor‑style waiting.  
+* Complexity – low; the pipeline consists of three components with straightforward upstream/downstream dependencies.  
+* Executor – Docker containers are the sole execution mechanism.  
+
+---
+
+**2. Pipeline Architecture**  
+
+| Aspect | Description |
+|--------|-------------|
+| **Flow Patterns** | A single linear chain: *Load & Modify* → *Reconcile Supplier Names* → *Save Final Data*. No conditional branches, parallel branches, or external triggers. |
+| **Execution Characteristics** | All components use the **docker** executor type. Each component specifies an image, environment variables, and the custom Docker network *app_network*. |
+| **Component Overview** | 1. **Extractor** – *Load and Modify Supplier Data* (ingests CSV, standardises, outputs JSON). <br>2. **Reconciliator** – *Entity Reconciliation (Wikidata)* (adds canonical IDs). <br>3. **Loader** – *Save Final Validated Supplier Data* (writes enriched CSV). |
+| **Flow Description** | • **Entry point** – *Load and Modify Supplier Data* reads *suppliers.csv* from the shared *DATA_DIR* volume. <br>• **Main sequence** – Upon successful completion, the JSON file *table_data_2.json* is handed to the *Reconcile Supplier Names* component, which queries the Wikidata API and produces *reconciled_table_2.json*. <br>• **Final step** – *Save Final Validated Supplier Data* consumes the reconciled JSON and writes *enriched_data_2.csv* back to the same shared volume. No sensors or external triggers are defined. |
+
+---
+
+**3. Detailed Component Analysis**  
+
+| Component | Purpose & Category | Executor & Configuration | Inputs / Outputs | Retry Policy | Concurrency | Connections | Datasets |
+|-----------|-------------------|--------------------------|------------------|--------------|-------------|-------------|----------|
+| **load_and_modify_data** | Extractor – ingest raw CSV, normalise, convert to JSON. | Docker image `i2t-backendwithintertwino6-load-and-modify:latest`; environment: `DATASET_ID=2`, `TABLE_NAME_PREFIX=JOT_`, `DATA_DIR=${DATA_DIR}`; network *app_network*; shared volume via `data_dir`. | Input: `suppliers.csv` (file, CSV) from `${DATA_DIR}`. <br>Output: `table_data_2.json` (file, JSON) to `${DATA_DIR}`. | Max attempts = 1, no delay, no back‑off. | No parallelism or dynamic mapping supported. | Filesystem connection *data_dir* (shared volume). | Consumes: `raw_supplier_csv`. <br>Produces: `supplier_json_intermediate`. |
+| **reconcile_supplier_names** | Reconciliator – disambiguate *supplier_name* using Wikidata, attach canonical identifiers. | Docker image `i2t-backendwithintertwino6-reconciliation:latest`; environment: `PRIMARY_COLUMN=supplier_name`, `RECONCILIATOR_ID=wikidataEntity`, `DATASET_ID=2`, `DATA_DIR=${DATA_DIR}`; network *app_network*; shared volume via `data_dir`. | Input: `table_data_2.json` (JSON) from `${DATA_DIR}`. <br>Output: `reconciled_table_2.json` (JSON) to `${DATA_DIR}`. | Max attempts = 1, no delay, no back‑off. | No parallelism or dynamic mapping supported. | Filesystem *data_dir* (shared volume). | Consumes: `supplier_json_intermediate`. <br>Produces: `supplier_json_reconciled`. |
+| **save_validated_data** | Loader – export reconciled JSON to a final CSV for downstream use. | Docker image `i2t-backendwithintertwino6-save:latest`; environment: `DATASET_ID=2`, `DATA_DIR=${DATA_DIR}`; network *app_network*; shared volume via `data_dir`. | Input: `reconciled_table_2.json` (JSON) from `${DATA_DIR}`. <br>Output: `enriched_data_2.csv` (CSV) to `${DATA_DIR}`. | Max attempts = 1, no delay, no back‑off. | No parallelism or dynamic mapping supported. | Filesystem *data_dir* (shared volume). | Consumes: `supplier_json_reconciled`. <br>Produces: `validated_supplier_csv`. |
+
+*Upstream policies* – The first component runs independently (`none_failed`). The second and third components require **all_success** of their immediate predecessor. No explicit timeout is defined for any component.
+
+---
+
+**4. Parameter Schema**  
+
+| Scope | Parameters |
+|-------|------------|
+| **Pipeline‑level** | `name` (string, optional), `description` (string, optional), `tags` (array, default = []). |
+| **Schedule** (optional) | `enabled` (bool), `cron_expression` (string), `start_date` / `end_date` (datetime), `timezone` (string), `catchup` (bool), `batch_window` (string), `partitioning` (string). |
+| **Execution** | `max_active_runs` (int), `timeout_seconds` (int), `retry_policy` (object), `depends_on_past` (bool). |
+| **Component‑specific** | *load_and_modify_data*: `DATASET_ID` (int), `TABLE_NAME_PREFIX` (string). <br>*reconcile_supplier_names*: `PRIMARY_COLUMN` (string), `RECONCILATOR_ID` (string), `DATASET_ID` (int). <br>*save_validated_data*: `DATASET_ID` (int). |
+| **Environment** | `DATA_DIR` – path to the shared data directory mounted into each container (string). |
+
+All parameters are optional in the current definition; defaults are not supplied.
+
+---
+
+**5. Integration Points**  
+
+| External System | Type | Role in Pipeline | Authentication | Data Flow |
+|-----------------|------|------------------|----------------|-----------|
+| **Shared Data Directory (DATA_DIR)** | Filesystem | Provides input CSV, stores intermediate JSON files and final CSV. | None | Reads `suppliers.csv`; writes `table_data_2.json`, `reconciled_table_2.json`, `enriched_data_2.csv`. |
+| **Load‑and‑Modify Service API** | HTTP API | Called implicitly by the *load_and_modify_data* container to perform transformation logic. | None | Consumes `suppliers.csv`; produces `table_data_2.json`. |
+| **Entity Reconciliation Service API** | HTTP API | Provides Wikidata‑based entity lookup for the *reconcile_supplier_names* component. | None | Consumes `table_data_2.json`; produces `reconciled_table_2.json`. |
+| **Save Service API** | HTTP API | Handles final CSV generation in the *save_validated_data* component. | None | Consumes `reconciled_table_2.json`; produces `enriched_data_2.csv`. |
+| **MongoDB Instance** | Database (MongoDB) | Available to all components; may be used for internal metadata or caching (no explicit dataset exchange). | None | No direct data exchange defined. |
+| **Intertwino API** | HTTP API | Shared auxiliary service reachable by all components. | None | No direct dataset exchange defined. |
+| **Custom Docker Network (app_network)** | Network | Isolates container communication and provides connectivity to MongoDB, Intertwino, and service APIs. | None | Underlies all container interactions. |
+| **Wikidata Entity API** | HTTPS API | External knowledge source queried by the reconciliation component to obtain canonical entity identifiers. | None | Input: supplier names; Output: Wikidata IDs attached to records. |
+
+*Data lineage* – Source files (`suppliers.csv`) and external Wikidata data flow through two intermediate JSON artefacts (`table_data_2.json`, `reconciled_table_2.json`) before arriving at the final sink (`enriched_data_2.csv`).
+
+---
+
+**6. Implementation Notes**  
+
+* **Complexity** – Very low; a straight‑line sequence of three containerised steps.  
+* **Upstream Dependency Policies** – First step runs regardless of other tasks; subsequent steps enforce *all_success* of the immediate predecessor, ensuring strict ordering.  
+* **Retry & Timeout** – Each component is configured for a single attempt with no delay or exponential back‑off; no timeout limits are set. This design favours simplicity but provides no resilience to transient failures.  
+* **Potential Risks**  
+  * Single point of failure at any step (no retries, no parallel fallback).  
+  * Dependence on external APIs (load‑modify, reconciliation, save, Wikidata) – network outages or service unavailability will halt the pipeline.  
+  * Shared filesystem volume is a bottleneck; concurrent writes are not supported (though concurrency is disabled).  
+  * Lack of explicit resource limits (CPU, memory) may lead to unpredictable container behaviour under load.  
+* **Mitigations** – Consider adding retry attempts, timeout thresholds, and health‑check mechanisms for external services; evaluate resource constraints for the Docker containers; monitor the shared volume for I/O saturation.
+
+---
+
+**7. Orchestrator Compatibility**  
+
+| Orchestrator | Compatibility Assessment |
+|--------------|--------------------------|
+| **Airflow** | The linear dependency chain maps directly to sequential task definitions. Docker executor configuration can be expressed via a generic container execution operator. No Airflow‑specific constructs (e.g., sensors) are required. |
+| **Prefect** | Prefect’s flow model supports sequential tasks with explicit upstream dependencies. Docker images and environment variables can be supplied via a generic `DockerRun` block. |
+| **Dagster** | Dagster’s job graph can represent the three steps as sequential solids (or ops). The Docker image and environment configuration fit within a `DockerContainer` resource. |
+
+All three platforms can accommodate the pipeline without needing special features such as branching, dynamic mapping, or parallel execution. The only requirement is the ability to launch Docker containers with custom environment variables and network settings, which is universally supported.
+
+---
+
+**8. Conclusion**  
+
+The pipeline delivers a concise, end‑to‑end data‑quality workflow for supplier information. Its architecture is straightforward: three Docker‑based components executed in a strict sequence, sharing a common filesystem volume and network. While the design is simple and easy to implement across major orchestration frameworks, the current configuration lacks resilience mechanisms (retries, timeouts) and does not enforce resource limits. Introducing modest fault‑tolerance and monitoring would improve robustness without adding architectural complexity.

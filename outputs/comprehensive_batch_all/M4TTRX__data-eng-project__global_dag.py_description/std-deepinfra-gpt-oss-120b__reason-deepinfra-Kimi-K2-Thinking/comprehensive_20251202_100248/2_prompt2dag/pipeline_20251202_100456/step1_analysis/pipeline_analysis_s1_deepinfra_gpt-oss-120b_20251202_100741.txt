@@ -1,0 +1,155 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T10:07:41.834923
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/M4TTRX__data-eng-project__global_dag.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**ETL Pipeline Report – “global_dag”**  
+*Prepared from the supplied structured analysis data*  
+
+---
+
+## 1. Executive Summary  
+
+- **Purpose** – The pipeline extracts, cleans, and loads French government datasets (city geographic coordinates, nuclear and thermal power‑plant metadata, and death‑record files) into a PostgreSQL data‑warehouse.  
+- **High‑level flow** – Data are pulled from four public APIs in parallel, written to a local ingestion directory, staged through a cleaning phase, and finally persisted to two target tables (`deaths` and `power_plants`).  Intermediate artefacts are cached in Redis and SQL scripts are generated for bulk insertion.  
+- **Key patterns** – The analysis detected **sequential**, **parallel**, **branching**, and **hybrid** topologies, indicating a mixture of linear stages, fan‑out/fan‑in parallelism, and conditional paths.  
+- **Complexity** – Approximately **19 components** are involved, spanning three executor types (Python, Bash, SQL) and multiple integration points (APIs, filesystem, cache, database). The combination of parallel extraction, branching logic, and staged processing places the pipeline in the *moderate‑to‑high* complexity tier.
+
+---
+
+## 2. Pipeline Architecture  
+
+### 2.1 Flow Patterns  
+| Detected Pattern | Manifestation in the Pipeline |
+|------------------|------------------------------|
+| **Sequential**   | Staging → SQL generation → loading steps follow a linear order. |
+| **Parallel**     | Four source‑API extractions run concurrently (city geo, nuclear, thermal, death records). |
+| **Branching**    | Conditional paths decide whether to proceed with loading based on data‑availability checks. |
+| **Hybrid**       | Parallel extraction feeds a common staging area; later stages merge back into a sequential load. |
+
+### 2.2 Execution Characteristics  
+- **Executor Types**:  
+  - **Python** – Used for data‑frame manipulation, JSON parsing, and generation of SQL insertion scripts.  
+  - **Bash** – Employed for raw HTTP calls (`curl`) and simple file system moves.  
+  - **SQL** – Executes DDL/DML scripts against the PostgreSQL target.  
+
+### 2.3 Component Overview (Categories)  
+
+| Category | Typical Role | Example Artefacts |
+|----------|--------------|-------------------|
+| **API Extractors** | Pull raw CSV/JSON from public endpoints. | `city_geo_loc.csv`, `nuclear_plants.json`, `thermal_plants.json`, `death_resources.json` |
+| **File System Handlers** | Store raw and staged files locally. | Ingestion directory (`/opt/airflow/dags/data/ingestion/`), Staging directory (`/opt/airflow/dags/data/staging/`) |
+| **Cache Layer** | Temporary holding of streaming data (lists/sets). | Redis lists `death_raw`, sets `imported_death_files` |
+| **Transformation Scripts** | Clean, normalize, and reshape data. | Cleaned CSVs (`cleaned_nuclear.csv`, `cleaned_thermal_plants.csv`) |
+| **SQL Script Generators** | Produce bulk‑load statements. | `death_insertion_queries.sql`, `plant_insertion_queries.sql`, DDL files (`create_death_table.sql`, `create_power_plant_table.sql`) |
+| **Database Loader** | Insert transformed data into PostgreSQL tables. | Target tables `deaths`, `power_plants` |
+
+### 2.4 Flow Description  
+
+1. **Entry (Extraction)** – Four parallel extraction components invoke the respective APIs (city geo, nuclear, thermal, death). Each component writes its raw artefact to the **Ingestion Directory**.  
+2. **Intermediate Caching** – The death‑record stream is also pushed into a Redis list (`death_raw`) and a set tracking already imported files.  
+3. **Staging / Cleaning** – Files from the ingestion directory are moved to the **Staging Directory** where Python‑based cleaning scripts produce normalized CSVs and generate SQL insertion files.  
+4. **SQL Generation** – DDL scripts are stored in the **SQL Scripts Directory**; insertion scripts reference the cleaned CSVs.  
+5. **Loading (Sequential Merge)** – The generated SQL scripts are executed against the **PostgreSQL Database**, populating the `deaths` and `power_plants` tables.  
+6. **Branching / Conditional Logic** – Prior to loading, checks (e.g., file existence, row counts) determine whether each branch proceeds, ensuring that only complete datasets are loaded.  
+
+No explicit sensor components are present; timing and readiness are managed through upstream‑dependency policies and trigger rules.
+
+---
+
+## 3. Detailed Component Analysis  
+
+> *The structured data does not enumerate individual components; the analysis below infers logical component groups from the integration catalog and pipeline description.*
+
+| Component Group | Purpose & Category | Executor Type & Config | Primary Inputs | Primary Outputs | Retry Policy | Concurrency |
+|-----------------|--------------------|------------------------|----------------|-----------------|--------------|-------------|
+| **City Geo API Extractor** | API extraction – static CSV download | Bash (`curl`) | `CITY_GEO_DATASET_URL` (env) | `city_geo_loc.csv` (ingestion) | 1 retry, 10 s delay (pipeline default) | Runs in parallel with other extractors |
+| **Nuclear API Extractor** | API extraction – JSON → CSV conversion | Bash → Python | `NUCLEAR_DATASET_ID` (env) | `nuclear_plants.json`, `nuclear.csv` | Same as above | Parallel |
+| **Thermal API Extractor** | API extraction – JSON → CSV conversion | Bash → Python | `THERMAL_DATASET_ID` (env) | `thermal_plants.json`, `thermal_plants_.csv` | Same as above | Parallel |
+| **Death Records API Extractor** | API extraction – multiple text files | Bash → Python | `DEATH_DATASET_ID` (env) | `death_resources.json`, `death_*.txt` | Same as above | Parallel |
+| **Redis Cache Handler** | Intermediate storage for streaming death data | Python (redis‑client) | Raw death lines (from extractor) | Redis list `death_raw`, set `imported_death_files` | Same as above | May be accessed concurrently by cleaning step |
+| **Staging Cleaner (Nuclear)** | Data cleansing, schema alignment | Python (pandas) | `nuclear.csv` (raw) | `cleaned_nuclear.csv` (staging) | Same as above | Sequential within its branch |
+| **Staging Cleaner (Thermal)** | Data cleansing, schema alignment | Python (pandas) | `thermal_plants_.csv` (raw) | `cleaned_thermal_plants.csv` (staging) | Same as above | Sequential |
+| **Death Record Cleaner** | Parse, validate, and format death files | Python (custom parser) | `death_*.txt` (raw) | `death_insertion_queries.sql` (SQL) | Same as above | Sequential |
+| **SQL DDL Generator** | Create target tables if absent | Bash/SQL file copy | None (static templates) | `create_death_table.sql`, `create_power_plant_table.sql` | Same as above | Runs once per pipeline execution |
+| **SQL Loader** | Execute DDL and bulk‑load statements | SQL executor (psql) | All generated `.sql` files | Populated `deaths` & `power_plants` tables | Same as above | Sequential, respects `max_active_runs = 1` |
+| **File System I/O** | Move files between ingestion, staging, and script directories | Bash (`mv`, `cp`) | Files in ingestion dir | Files in staging dir / script dir | Same as above | Parallel where independent |
+
+*All components inherit the pipeline‑level retry policy (1 retry, 10 s delay) and the global concurrency limit of a single active run.*
+
+---
+
+## 4. Parameter Schema  
+
+| Scope | Parameter | Type | Default | Required | Notes |
+|-------|-----------|------|---------|----------|-------|
+| **Pipeline** | `name` | string | `"global_dag"` | Yes | Identifier used by orchestration platforms |
+| | `description` | string | *Comprehensive description* | No | Human‑readable |
+| | `tags` | array | `[]` | No | Classification |
+| **Schedule** | `enabled` | boolean | *null* | No | If true, pipeline runs on schedule |
+| | `cron_expression` | string | *null* | No | Cron syntax or preset |
+| | `start_date` / `end_date` | datetime (ISO‑8601) | *null* | No | Scheduling window |
+| | `timezone` | string | *null* | No | Time‑zone for cron |
+| | `catchup` | boolean | `false` | No | Whether missed runs are back‑filled |
+| | `batch_window` | string | *null* | No | Name of batch‑window variable |
+| | `partitioning` | string | *null* | No | Partition strategy (daily, hourly, …) |
+| **Execution** | `max_active_runs` | integer | `1` | No | Concurrency guard |
+| | `timeout_seconds` | integer | *null* | No | Hard timeout for the whole run |
+| | `retry_policy` | object (`retries`, `delay_seconds`) | `{retries:1, delay_seconds:10}` | No | Global retry behaviour |
+| | `depends_on_past` | boolean | *null* | No | Whether a run waits for the previous run’s success |
+| **Components** | *none enumerated* | – | – | – | Component‑specific parameters would be defined here if components were listed |
+| **Environment** | *none listed* | – | – | – | Place for secret or runtime env‑vars (e.g., API keys) |
+
+---
+
+## 5. Integration Points  
+
+| Connection ID | System Type | Direction | Primary Datasets | Authentication |
+|---------------|-------------|-----------|------------------|----------------|
+| `data_gouv_fr_city_geo_api` | HTTP API | Input | `city_geo_loc.csv` | None |
+| `data_gouv_fr_nuclear_api` | HTTP API | Input | `nuclear_plants.json`, `nuclear.csv` | None |
+| `data_gouv_fr_thermal_api` | HTTP API | Input | `thermal_plants.json`, `thermal_plants_.csv` | None |
+| `data_gouv_fr_death_api` | HTTP API | Input | `death_resources.json`, `death_*.txt` | None |
+| `local_filesystem_ingestion` | Filesystem | Both | All raw files | None |
+| `local_filesystem_staging` | Filesystem | Both | Cleaned CSVs, SQL query files | None |
+| `sql_scripts_directory` | Filesystem | Both | DDL scripts | None |
+| `redis_intermediate` | Cache (Redis) | Both | `death_raw` list, `imported_death_files` set | None |
+| `postgres_target` | Relational DB (PostgreSQL) | Output | `deaths` table, `power_plants` table | None |
+
+### Data Lineage Summary  
+
+- **Sources** → API calls → raw files in *ingestion* → optional Redis caching → cleaning → staged files in *staging* → generated SQL scripts → PostgreSQL tables.  
+- **Intermediate artefacts** (raw files, Redis structures, SQL files) are retained only for the duration of a run; final state resides in the target database.
+
+---
+
+## 6. Implementation Notes  
+
+| Aspect | Observation |
+|--------|--------------|
+| **Complexity** | ~19 logical components, mixed execution models, and branching increase maintenance overhead. |
+| **Upstream Dependency Policies** | `max_active_runs = 1` enforces serial execution of whole pipeline runs; within a run, parallel extraction is allowed. |
+| **Retry & Timeout** | Global retry (1 attempt, 10 s delay) applies to all components; no component‑level overrides are defined. Timeout is unspecified, so orchestration platforms must set a sensible default. |
+| **Potential Risks** | <ul><li>External API rate limits are not defined; a sudden surge could cause throttling.</li><li>Redis is used without authentication; in production, secure access is advisable.</li><li>Absence of explicit sensor logic means failures in downstream steps may only be caught after the fact.</li><li>Branching based on data availability must be robust; missing files could halt the load.</li></ul> |
+| **Scalability** | Parallel extraction scales with network bandwidth; downstream stages remain sequential, which could become a bottleneck for large volumes. Consider parallelizing the cleaning or loading phases if data size grows. |
+
+---
+
+## 7. Orchestrator Compatibility  
+
+| Orchestrator | Compatibility Assessment (neutral) |
+|--------------|--------------------------------------|
+| **Airflow‑style** | Supports all detected patterns: sequential, parallel, branching, and hybrid. Executor types map cleanly to Python, Bash, and SQL operators. The single‑run concurrency limit (`max_active_runs`) aligns with typical pool/queue settings. |
+| **Prefect‑style** | Flow graph can be expressed as a Prefect `Flow` with `Task`s of the three executor types. Parallel mapping (`map`) and conditional branches (`ifelse`) are native. Retry and timeout policies map directly to Prefect task defaults. |
+| **Dagster‑style** | The pipeline can be modeled as a Dagster `Job` with `Ops` for each component group. Dagster’s `IOManager`s can handle the filesystem and Redis resources. Branching can be expressed via `if_else` solids. |
+
+*No orchestrator‑specific terminology is used in the description; the pipeline’s logical structure is portable across the three major orchestration ecosystems.*
+
+---
+
+## 8. Conclusion  
+
+The “global_dag” pipeline implements a robust, multi‑source ETL workflow that blends parallel data acquisition with staged cleaning and sequential loading. Its architecture—characterized by a hybrid topology, three executor types, and a clear set of integration points—makes it well‑suited for deployment on any modern data‑orchestration platform. Attention should be given to external API rate limits, secure handling of the Redis cache, and potential bottlenecks in the sequential loading phase as data volumes increase. With the provided parameter schema and retry policy, the pipeline offers a solid foundation for reliable, repeatable data ingestion and transformation.

@@ -1,0 +1,253 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 07:48:15.019259
+  source_analysis_file: 
+    Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_ensembl.py_description.txt
+  pipeline_name: etl_import_ensembl
+  pipeline_description: Comprehensive Pipeline Description
+  orchestrator_specific:
+    job_name: etl_import_ensembl
+    description: Comprehensive Pipeline Description
+    executor_type: k8s_job_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - ftp_ensembl_conn
+      - slack_conn
+      - k8s_etl_context
+      - s3_conn
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: '2022-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: ensembl_ftp
+    conn_type: resource
+    description: Ensembl FTP Server
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: ensembl_ftp
+      config:
+        base_path:
+        base_url: ftp://ftp.ensembl.org/pub/current_tsv/homo_sapiens
+        host: ftp.ensembl.org
+        port: 21
+        protocol: ftp
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: s3_data_lake
+    conn_type: s3_resource
+    description: AWS S3 Data Lake
+    config:
+      resource_type: s3_resource
+      resource_module: dagster_aws.s3
+      resource_key: s3_data_lake
+      config:
+        base_path: s3://cqgc-{env}-app-datalake/
+        base_url:
+        host:
+        port:
+        protocol: s3
+        database:
+        schema:
+        bucket: cqgc-{env}-app-datalake
+        queue_name:
+  - conn_id: slack_api
+    conn_type: resource
+    description: Slack Notification API
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: slack_api
+      config:
+        base_path:
+        base_url: https://slack.com/api/
+        host: slack.com
+        port: 443
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+        token: EnvVar('SLACK_BOT_TOKEN')
+  - conn_id: kubernetes_etl
+    conn_type: resource
+    description: Kubernetes ETL Cluster
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: kubernetes_etl
+      config:
+        base_path:
+        base_url: https://k8s.etl.cluster.local
+        host: k8s.etl.cluster.local
+        port: 443
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+tasks:
+  - task_id: notify_slack_start
+    task_name: Slack Notification on DAG Start
+    operator_class: Op
+    operator_module: dagster
+    component_ref: notify_slack_start
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: notifications/slack_start.py
+      config_schema: {}
+      required_resource_keys:
+        - slack_conn
+      retry_policy:
+        max_retries: 1
+        delay: 0
+        backoff: CONSTANT
+      ins: []
+      outs:
+        - name: slack_message
+          dagster_type: String
+          description: Output to slack_conn
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: check_and_download_ensembl_files
+    task_name: Check and Download Ensembl Mapping Files
+    operator_class: Op
+    operator_module: dagster
+    component_ref: check_and_download_ensembl_files
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: tasks/check_and_download_ensembl.py
+      config_schema: {}
+      required_resource_keys:
+        - ftp_ensembl_conn
+        - s3_conn
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: EXPONENTIAL
+      ins:
+        - name: ftp_source
+          dagster_type: String
+          description: ftp://ftp.ensembl.org/pub/current_tsv/homo_sapiens/*.tsv.gz
+      outs:
+        - name: s3_landing_zone
+          dagster_type: String
+          description: Output to s3_conn
+    upstream_task_ids:
+      - notify_slack_start
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: process_ensembl_mapping_spark
+    task_name: Process Ensembl Mapping with Spark
+    operator_class: Op
+    operator_module: dagster
+    component_ref: process_ensembl_mapping_spark
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - k8s_etl_context
+        - s3_conn
+      retry_policy:
+        max_retries: 3
+        delay: 600
+        backoff: EXPONENTIAL
+      ins:
+        - name: s3_landing_zone
+          dagster_type: String
+          description: s3://cqgc-{env}-app-datalake/raw/landing/ensembl/*.tsv.gz
+      outs:
+        - name: processed_tables
+          dagster_type: String
+          description: Output to s3_conn
+    upstream_task_ids:
+      - check_and_download_ensembl_files
+    trigger_rule: default
+    retries: 3
+    retry_delay_seconds: 600
+    validation_warnings: []
+  - task_id: notify_slack_success
+    task_name: Slack Notification on DAG Completion
+    operator_class: Op
+    operator_module: dagster
+    component_ref: notify_slack_success
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: notifications/slack_success.py
+      config_schema: {}
+      required_resource_keys:
+        - slack_conn
+      retry_policy:
+        max_retries: 1
+        delay: 0
+        backoff: CONSTANT
+      ins: []
+      outs:
+        - name: slack_message
+          dagster_type: String
+          description: Output to slack_conn
+    upstream_task_ids:
+      - outcome_branch
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: notify_slack_failure
+    task_name: Slack Notification on Task Failure
+    operator_class: Op
+    operator_module: dagster
+    component_ref: notify_slack_failure
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: notifications/slack_failure.py
+      config_schema: {}
+      required_resource_keys:
+        - slack_conn
+      retry_policy:
+        max_retries: 1
+        delay: 0
+        backoff: CONSTANT
+      ins: []
+      outs:
+        - name: slack_message
+          dagster_type: String
+          description: Output to slack_conn
+    upstream_task_ids:
+      - outcome_branch
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []

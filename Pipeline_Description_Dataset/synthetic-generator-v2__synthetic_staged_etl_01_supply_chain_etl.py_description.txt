@@ -1,0 +1,125 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_staged_etl_01_supply_chain_etl.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** staged_etl  
+**Complexity Score:** 4/10  
+
+---
+
+[Supply Chain Shipment ETL] - Comprehensive Pipeline Description
+
+Opening Summary:
+This is a three-stage ETL pipeline for supply chain shipment data processing that follows a staged ETL pattern with fan-out/fan-in characteristics. The pipeline extracts raw shipment data from three vendors in parallel, transforms and normalizes the combined data, then loads it to an inventory database with email notification. Key infrastructure features include TaskGroups for stage organization, XCom for data passing between stages, and daily scheduling with retry policies.
+
+Pipeline Steps:
+
+Pre-Processing Stage (before parallel)
+- No pre-processing tasks - parallel extraction begins immediately
+
+Parallel Segment
+1. stage_1_extract TaskGroup
+  • Objective: Extract raw shipment data from three different vendors in parallel
+  • Technical Details:
+    - Input: Vendor CSV files (vendor_a_shipments_20240115.csv, vendor_b_shipments_20240115.csv, vendor_c_shipments_20240115.csv)
+    - Output: Raw vendor data passed via XCom to transformation stage
+    - Integrations: File systems containing vendor shipment CSV files
+    - Key Parameters: Three parallel ingestion tasks with vendor-specific processing
+  • Operator or Mechanism: TaskGroup containing three PythonOperator tasks
+  • Notes: Parallel width of 3 vendors; all three must complete before transformation
+
+1.1 ingest_vendor_a
+  • Objective: Extract raw shipment data from Vendor A
+  • Technical Details:
+    - Input: vendor_a_shipments_20240115.csv file
+    - Output: "vendor_a_data" via XCom to cleanse_and_normalize
+    - Integrations: Vendor A data source system
+  • Operator or Mechanism: PythonOperator
+
+1.2 ingest_vendor_b
+  • Objective: Extract raw shipment data from Vendor B  
+  • Technical Details:
+    - Input: vendor_b_shipments_20240115.csv file
+    - Output: "vendor_b_data" via XCom to cleanse_and_normalize
+    - Integrations: Vendor B data source system
+  • Operator or Mechanism: PythonOperator
+
+1.3 ingest_vendor_c
+  • Objective: Extract raw shipment data from Vendor C
+  • Technical Details:
+    - Input: vendor_c_shipments_20240115.csv file
+    - Output: "vendor_c_data" via XCom to cleanse_and_normalize
+    - Integrations: Vendor C data source system
+  • Operator or Mechanism: PythonOperator
+
+Synchronization/Join Stage
+2. stage_2_transform TaskGroup
+  • Objective: Cleanse, normalize, and enrich combined vendor data
+  • Technical Details:
+    - Input: All three vendor datasets from stage_1_extract via XCom
+    - Output: Cleansed shipment data passed to loading stage
+    - Integrations: Reference tables for location data enrichment
+    - Key Parameters: Processes 3,850 total records after cleansing
+  • Operator or Mechanism: TaskGroup containing single PythonOperator
+
+2.1 cleanse_data
+  • Objective: Normalize SKU formats, validate dates, filter invalid records, enrich with location data
+  • Technical Details:
+    - Input: vendor_a_data, vendor_b_data, vendor_c_data from XCom
+    - Output: "cleansed_shipment_data" via XCom to load stage
+    - Integrations: Location reference tables
+  • Operator or Mechanism: PythonOperator
+  • Notes: Processes combined data from all three vendors; handles data quality issues
+
+3. stage_3_load TaskGroup
+  • Objective: Load processed data to database and send completion notification
+  • Technical Details:
+    - Input: Cleansed data from transformation stage
+    - Output: Database records and email notification
+    - Integrations: PostgreSQL inventory_db, email system
+  • Operator or Mechanism: TaskGroup containing PythonOperator and EmailOperator
+
+3.1 load_to_db
+  • Objective: Load cleansed shipment data to inventory database
+  • Technical Details:
+    - Input: "cleansed_shipment_data" from XCom
+    - Output: "db_load_complete" status via XCom
+    - Integrations: PostgreSQL database (inventory_db), inventory_shipments table
+  • Operator or Mechanism: PythonOperator
+
+3.2 send_summary_email
+  • Objective: Send daily ETL summary notification to supply chain team
+  • Technical Details:
+    - Input: Triggered by successful database load completion
+    - Output: Email notification to team
+    - Integrations: Email system, to: supply-chain-team@company.com
+    - Key Parameters: Template variables ({{ ds }}), HTML content format
+  • Operator or Mechanism: EmailOperator
+  • Notes: Uses Airflow template variables for processing date
+
+Orchestration & Scheduling:
+- Schedule: @daily
+- Start Date: 2024-01-01
+- Catchup: False
+- Default Args: retries=2, retry_delay=5 minutes, email_on_failure=False, email_on_retry=False
+- Tags: supply_chain, etl, shipments
+
+Infrastructure & Dependencies:
+- Task Groups: Three stage-based groups (stage_1_extract, stage_2_transform, stage_3_load)
+- Data I/O: Vendor CSV files, PostgreSQL inventory_db, inventory_shipments table
+- XCom Usage: Heavy data passing between stages (vendor data, cleansed data, load status)
+- Email Integration: supply-chain-team@company.com
+
+Failure Handling & Alerts:
+- Retry Policy: 2 retries with 5-minute delay
+- Email on completion (success notification only, no failure emails)
+- Sequential dependency ensures failure stops downstream processing
+
+Pattern-Specific Notes:
+- Staged ETL: Clear Extract → Transform → Load stages with TaskGroup organization
+- Fan-out/Fan-in: Parallel extraction from 3 vendors with synchronization at transformation stage
+- Data Flow: Raw vendor CSV → Combined cleansing → Database load → Email notification
+- Volume: Processes ~3,850 total records daily across three vendors

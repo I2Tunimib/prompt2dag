@@ -1,0 +1,116 @@
+[PCD_ETL] - Comprehensive Pipeline Description
+
+Opening Summary:
+This is a staged ETL pipeline for PCD (Primary Care Data) processing that extracts data from multiple HTTP APIs, performs parallel data collection, then loads data via Kubernetes jobs with comprehensive email notification. The topology follows a mixed pattern with initial sequential checks, parallel HTTP API extraction, and final sequential processing with notification. Key infrastructure features include KubernetesJobOperator for containerized workloads, HttpOperator for API calls, dynamic scheduling via Airflow Variables, and email alerting with success/failure differentiation.
+
+Pipeline Steps:
+
+1. Check_PCD_SFTP_Folder
+  • Objective: Verify SFTP folder availability and contents before starting ETL process
+  • Technical Details:
+    - Input: None (initial check)
+    - Output: Folder status verification for downstream processing
+    - Integrations: Kubernetes job execution via job_template_file
+    - Key Parameters: job_template_file='{{var.value.pcd_emtysftp_job}}', wait_until_job_complete=True
+  • Operator or Mechanism: KubernetesJobOperator
+  • Notes: First step in pipeline; gates subsequent operations
+
+2. Check_PCD_Shared_Folder
+  • Objective: Validate shared folder accessibility after SFTP check
+  • Technical Details:
+    - Input: Check_PCD_SFTP_Folder task completion
+    - Output: Shared folder status for data extraction phase
+    - Integrations: Kubernetes job execution via job_template_file
+    - Key Parameters: job_template_file='{{var.value.pcd_emtydir_job}}', wait_until_job_complete=True
+  • Operator or Mechanism: KubernetesJobOperator
+
+3. Start_PCD_Extract_1
+  • Objective: Synchronization point after folder checks, initiates parallel API extraction
+  • Technical Details:
+    - Input: Check_PCD_Shared_Folder completion
+    - Output: Triggers parallel HTTP API extraction tasks
+    - Integrations: None (coordination only)
+  • Operator or Mechanism: EmptyOperator
+
+4. Parallel HTTP API Extraction Segment (15 parallel tasks):
+  - Financial_Expense: POST to financial expense endpoint
+  - UPCC_Financial_Reportingr: POST to UPCC financial reporting endpoint  
+  - CHC_Financial_reporting: POST to CHC financial reporting endpoint
+  - PCN_Financial_Reporting: POST to PCN financial reporting endpoint
+  - NPPCC_Financial_Reporting: POST to NPPCC financial reporting endpoint
+  - Fiscal_Year_Reporting_Dates: POST to fiscal year dates endpoint
+  - UPCC_Primary_Care_Patient_Services: POST to UPCC patient services endpoint
+  - CHC_Primary_Care_Patient_Services: POST to CHC patient services endpoint
+  - Practitioner_Role_Mapping: POST to practitioner role mapping endpoint
+  - Status_Tracker: POST to status tracker endpoint
+  - HR_Records: POST to HR records endpoint
+  - Provincial_Risk_Tracking: POST to provincial risk tracking endpoint
+  - Decision_Log: POST to decision log endpoint
+  - HA_Hierarchy: POST to health authority hierarchy endpoint
+  - UPPC_Budget: POST to UPCC budget endpoint
+  - CHC_Budget: POST to CHC budget endpoint
+  - PCN_Budget: POST to PCN budget endpoint
+  - NPPCC_Budget: POST to NPPCC budget endpoint
+
+  • Objective: Extract PCD data from various healthcare system APIs in parallel
+  • Technical Details:
+    - Input: Start_PCD_Extract_1 completion
+    - Output: API response data with statusCode 200 validation
+    - Integrations: Multiple HTTP endpoints via Airflow Variables (pcd_*_url)
+    - Key Parameters: method='POST', response_check for statusCode==200, standardized JSON payload with health authority data
+  • Operator or Mechanism: HttpOperator
+  • Notes: All tasks validate HTTP 200 status; use standardized payload structure
+
+5. Start_PCD_Extract_2
+  • Objective: Synchronization point after Status_Tracker API call completion
+  • Technical Details:
+    - Input: Status_Tracker task completion
+    - Output: Signals readiness for file upload processing
+    - Integrations: None (coordination only)
+  • Operator or Mechanism: EmptyOperator
+
+6. PCD_file_upload
+  • Objective: Execute main ETL job to process and upload extracted PCD data
+  • Technical Details:
+    - Input: All parallel HTTP extraction tasks and Start_PCD_Extract_2 completion
+    - Output: Processed PCD data upload
+    - Integrations: Kubernetes job execution via job_template_file
+    - Key Parameters: job_template_file='{{var.value.pcd_job}}'
+  • Operator or Mechanism: KubernetesJobOperator
+  • Notes: Main data processing and loading step
+
+7. ETL_Notification
+  • Objective: Send comprehensive email notifications with success/failure status and failed task details
+  • Technical Details:
+    - Input: All upstream task completion (success or failure)
+    - Output: Email notifications to appropriate distribution lists
+    - Integrations: Airflow email system, Environment and email list Variables
+    - Key Parameters: trigger_rule="all_done", custom HTML content generation
+  • Operator or Mechanism: PythonOperator
+  • Notes: Always executes regardless of upstream success/failure; sends different emails for success vs failure scenarios
+
+Orchestration & Scheduling:
+- Schedule: Dynamic via Airflow Variable "pcd_etl_schedule" (can be None for manual triggers)
+- Start Date: January 1, 2021 (UTC)
+- Catchup: Disabled (catchup=False)
+- Timeout: 60 minutes per DAG run (dagrun_timeout)
+- Tags: ["etl", "pcd"] for categorization
+
+Infrastructure & Dependencies:
+- Kubernetes Jobs: Three distinct job templates for folder checks (emtysftp_job, emtydir_job) and main processing (pcd_job)
+- HTTP APIs: 18 different PCD-related endpoints configured via Airflow Variables
+- Email System: Uses Airflow's send_email with dynamic recipient lists (PCD_ETL_email_list_success, ETL_email_list_alerts)
+- Variables: Extensive use for configuration (Environment, airflow_url, various pcd_*_url endpoints, job templates)
+
+Failure Handling & Alerts:
+- Email notifications differentiate between success and failure scenarios
+- Success emails sent to PCD_ETL_email_list_success
+- Failure emails sent to ETL_email_list_alerts with detailed failed task IDs
+- Custom HTML content generation with environment context and timestamps
+- All-done trigger rule ensures notification always fires
+
+Pattern-Specific Notes:
+- Staged ETL: Clear stages - Folder Validation → Parallel API Extraction → Data Processing → Notification
+- Parallel Width: 18 parallel HTTP extraction tasks running concurrently
+- Mixed Pattern: Sequential folder checks → Parallel API extraction → Sequential processing/notification
+- Email-driven monitoring: Comprehensive success/failure reporting with task-level failure details

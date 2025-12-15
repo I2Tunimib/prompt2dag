@@ -1,0 +1,151 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 15:45:44.689239
+  source_analysis_file: 
+    Pipeline_Description_Dataset/stikkireddy__databricks-reusable-job-clusters__example_dag.py_description.txt
+  pipeline_name: test_dbx_aws_dag_reuse
+  pipeline_description: This pipeline orchestrates Databricks notebook executions with conditional branching logic and 
+    cluster reuse capabilities
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: '2023-06-06T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: databricks_api_connection
+    conn_type: http
+    description: Databricks API Connection
+    config:
+      base_url: https://dbc-xxxxxxxx-xxxx.cloud.databricks.com
+      host: dbc-xxxxxxxx-xxxx.cloud.databricks.com
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+      extra:
+        token_env_var: DATABRICKS_TOKEN
+  - conn_id: databricks_secrets_store
+    conn_type: generic
+    description: Databricks Secrets Store
+    config:
+      base_path:
+      base_url:
+      host:
+      port:
+      protocol:
+      database:
+      schema:
+      bucket:
+      queue_name:
+      extra:
+        token_env_var: DATABRICKS_TOKEN
+tasks:
+  - task_id: initialize_pipeline
+    task_name: Initialize Pipeline
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: initialize_pipeline
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: execute_databricks_notebook
+    task_name: Execute Databricks Notebook
+    operator_class: SimpleHttpOperator
+    operator_module: airflow.providers.http.operators.http
+    component_ref: execute_databricks_notebook
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - initialize_pipeline
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: intermediate_step
+    task_name: Intermediate Step
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: intermediate_step
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - execute_databricks_notebook
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: branch_decision
+    task_name: Branch Decision
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: branch_decision
+    config:
+      python_callable: branch_func
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - intermediate_step
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: terminal_branch
+    task_name: Terminal Branch
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: terminal_branch
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - branch_decision
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: execute_secondary_notebook
+    task_name: Execute Secondary Databricks Notebook
+    operator_class: SimpleHttpOperator
+    operator_module: airflow.providers.http.operators.http
+    component_ref: execute_secondary_notebook
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - branch_decision
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: pre_completion_step
+    task_name: Pre-Completion Step
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: pre_completion_step
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - execute_secondary_notebook
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: complete_pipeline
+    task_name: Complete Pipeline
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: complete_pipeline
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - pre_completion_step
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []

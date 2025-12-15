@@ -1,0 +1,60 @@
+
+[AirVisual_Pipeline_Lat_Long_v1] - Comprehensive Pipeline Description
+
+Opening Summary:
+- This pipeline extracts air quality data from the AirVisual API using latitude/longitude coordinates, processes the JSON response, and loads it into a PostgreSQL data warehouse with dimensional modeling. The topology is strictly sequential with three linear stages: API extraction → data validation → database loading. Key infrastructure includes PostgreSQL integration, file-based intermediate storage, and duplicate detection logic to prevent redundant data ingestion.
+
+Pipeline Steps:
+
+1. get_airvisual_data_hourly
+  • Objective: Fetch current air quality and weather data from AirVisual API and save as JSON file, with duplicate detection to skip processing if data already exists
+  • Technical Details:
+    - Input: AirVisual API endpoint, API key from config file, current timestamp
+    - Output: JSON file at /opt/airflow/data/tmp_airvisual.json, temporary .tmp file during atomic write
+    - Integrations: AirVisual API (http://api.airvisual.com/v2/nearest_city), PostgreSQL database (postgres_conn), config files
+    - Key Parameters: LATITUDE=13.79059242, LONGITUDE=100.32622308, timeout=10 seconds
+  • Operator or Mechanism: PythonOperator
+  • Notes: Implements atomic file write pattern, checks database for existing records using Bangkok timezone (+7 hours), raises AirflowSkipException if data exists
+
+2. read_data_airvisual
+  • Objective: Validate and read the JSON file created by previous task, ensuring data integrity before database loading
+  • Technical Details:
+    - Input: JSON file from get_airvisual_data_hourly (/opt/airflow/data/tmp_airvisual.json)
+    - Output: Validated JSON data structure, logging confirmation
+    - Integrations: Local filesystem for JSON file access
+    - Key Parameters: File path hardcoded to /opt/airflow/data/tmp_airvisual.json
+  • Operator or Mechanism: PythonOperator
+  • Notes: Serves as data validation checkpoint in the pipeline sequence
+
+3. load_data_airvisual_to_postgresql
+  • Objective: Transform JSON data into dimensional model and load into PostgreSQL tables with proper referential integrity
+  • Technical Details:
+    - Input: JSON file from read_data_airvisual, pollution and weather mapping files
+    - Output: Records in dimDateTimeTable, dimLocationTable, dimMainPollutionTable, factairvisualtable
+    - Integrations: PostgreSQL (postgres_conn), mapping files (/opt/airflow/config/mapping_main_pollution.json, /opt/airflow/config/mapping_weather_code.json)
+    - Key Parameters: Uses ON CONFLICT DO NOTHING for idempotency, Bangkok timezone conversion
+  • Operator or Mechanism: PythonOperator
+  • Notes: Implements full ETL with dimension table population and fact table insertion, uses transaction commit/rollback
+
+Orchestration & Scheduling:
+- Schedule: None (manual trigger only)
+- Start Date: 2025-03-20
+- Catchup: False
+- Default Args: owner='Polakorn Anantapakorn Ming', retries=2, retry_delay=3 minutes
+
+Infrastructure & Dependencies:
+- Connections: PostgreSQL connection (postgres_conn)
+- File Paths: /opt/airflow/data/tmp_airvisual.json, /opt/airflow/config/mapping_main_pollution.json, /opt/airflow/config/mapping_weather_code.json
+- Database Tables: dimDateTimeTable, dimLocationTable, dimMainPollutionTable, factairvisualtable
+- External APIs: AirVisual API (nearest_city endpoint)
+
+Failure Handling & Alerts:
+- Retry Policy: 2 retries with 3-minute delay (DAG level), get_airvisual_data_hourly has custom 2 retries with 5-minute delay
+- Transaction Safety: Database operations use explicit commit/rollback with connection management
+- Skip Logic: AirflowSkipException used when data already exists in database
+
+Pattern-Specific Notes:
+- Linear Sequential: Strict three-stage pipeline with no branching or parallelism
+- Staged ETL: Clear Extract (API call) → Validate (file read) → Load (database transformation) stages
+- Data Deduplication: Implements duplicate checking at extraction stage to prevent redundant processing
+- Atomic Operations: File writing uses temporary file rename pattern for data integrity

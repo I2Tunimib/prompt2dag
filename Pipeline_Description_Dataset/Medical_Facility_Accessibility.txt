@@ -1,0 +1,76 @@
+# Medical Facility Accessibility Pipeline Configuration
+
+## Dataset
+Medical facility locations and types.
+
+## Business Value
+Assesses medical facility accessibility by geocoding locations and calculating distances to key infrastructure like public transport and residential areas.
+
+## Pipeline Steps
+
+### 1. Load & Modify Data
+- **Objective**: Ingest facility CSV, clean and standardize address formats, convert to JSON
+- **Input**: facilities.csv from DATA_DIR
+- **Output**: table_data_2.json in DATA_DIR
+- **API Integration**: Calls the load-and-modify service (port 3003)
+- **Docker Image**: i2t-backendwithintertwino6-load-and-modify:latest
+- **Key Parameters**:
+  - DATASET_ID=2
+  - TABLE_NAME_PREFIX=JOT_
+
+### 2. Reconciliation (Geocoding - HERE)
+- **Objective**: Geocode facility locations using the address field via the HERE API
+- **Input**: table_data_2.json
+- **Output**: reconciled_table_2.json (with added latitude/longitude)
+- **API Integration**: Uses reconciliation service (port 3003)
+- **Docker Image**: i2t-backendwithintertwino6-reconciliation:latest
+- **Key Parameters**:
+  - PRIMARY_COLUMN=address
+  - RECONCILIATOR_ID=geocodingHere
+  - API_TOKEN=[HERE API token]
+  - DATASET_ID=2
+
+### 3. Distance Calculation (Public Transport)
+- **Objective**: Calculate the distance from each facility to the nearest public transportation stop/hub
+- **Input**: reconciled_table_2.json
+- **Output**: distance_pt_2.json (with added distance_to_pt column)
+- **API Integration**: Column extension service with spatial calculation
+- **Docker Image**: i2t-backendwithintertwino6-column-extension:latest
+- **Key Parameters**:
+  - EXTENDER_ID=spatialDistanceCalculator
+  - LAT_COLUMN=latitude
+  - LON_COLUMN=longitude
+  - TARGET_LAYER=public_transport
+  - TARGET_DATA_SOURCE=/app/data/transport_stops.geojson
+  - OUTPUT_COLUMN=distance_to_pt
+  - DATASET_ID=2
+
+### 4. Distance Calculation (Residential Areas)
+- **Objective**: Calculate the distance from each facility to the nearest residential area center/boundary
+- **Input**: distance_pt_2.json
+- **Output**: column_extended_2.json (with added distance_to_residential column)
+- **API Integration**: Column extension service with spatial calculation
+- **Docker Image**: i2t-backendwithintertwino6-column-extension:latest
+- **Key Parameters**:
+  - EXTENDER_ID=spatialDistanceCalculator
+  - LAT_COLUMN=latitude
+  - LON_COLUMN=longitude
+  - TARGET_LAYER=residential_areas
+  - TARGET_DATA_SOURCE=/app/data/residential_areas.geojson
+  - OUTPUT_COLUMN=distance_to_residential
+  - DATASET_ID=2
+
+### 5. Save Final Data
+- **Objective**: Export the facility accessibility data to CSV
+- **Input**: column_extended_2.json
+- **Output**: enriched_data_2.csv in DATA_DIR
+- **API Integration**: save service
+- **Docker Image**: i2t-backendwithintertwino6-save:latest
+- **Key Parameters**:
+  - DATASET_ID=2
+
+## Infrastructure & Error Handling
+- Shared volume mounting (DATA_DIR via environment variable)
+- Custom Docker network (app_network) covering dependencies such as MongoDB (port 27017) and Intertwino API (port 5005)
+- Error handling through Airflow task retries (default: 1)
+- Auto-cleanup of containers

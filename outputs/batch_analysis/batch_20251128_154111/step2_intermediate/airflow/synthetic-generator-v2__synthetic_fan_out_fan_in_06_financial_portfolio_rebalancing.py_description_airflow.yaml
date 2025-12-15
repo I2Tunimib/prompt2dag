@@ -1,0 +1,98 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 15:48:41.152963
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_fan_out_fan_in_06_financial_portfolio_rebalancing.py_description.txt
+  pipeline_name: Portfolio Rebalancing DAG
+  pipeline_description: This DAG implements a financial portfolio rebalancing pipeline using a fan-out fan-in pattern to
+    process holdings from 5 brokerage accounts in parallel, analyze each portfolio independently, aggregate results to 
+    calculate rebalancing trades, and generate final trade orders.
+  orchestrator_specific: {}
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: days_ago(1)
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: brokerage_api
+    conn_type: http
+    description: Simulated Brokerage API
+    config:
+      base_url: https://api.brokerage.example.com
+      host:
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_path:
+      extra:
+        token_env_var: BROKERAGE_API_TOKEN
+  - conn_id: local_filesystem
+    conn_type: fs
+    description: Local File System
+    config:
+      base_path: /data/portfolio_rebalancing
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+tasks:
+  - task_id: fetch_brokerage_holdings
+    task_name: Fetch Brokerage Holdings
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: fetch_brokerage_holdings
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: analyze_portfolio
+    task_name: Analyze Portfolio
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: analyze_portfolio
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - fetch_brokerage_holdings
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: aggregate_and_rebalance
+    task_name: Aggregate and Rebalance
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: aggregate_and_rebalance
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - analyze_portfolio
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: generate_trade_orders
+    task_name: Generate Trade Orders
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: generate_trade_orders
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - aggregate_and_rebalance
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

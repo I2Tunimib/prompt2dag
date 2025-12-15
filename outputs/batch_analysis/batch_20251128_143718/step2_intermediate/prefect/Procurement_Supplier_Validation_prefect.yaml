@@ -1,0 +1,105 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-11-28 14:39:47.520168
+  source_analysis_file: Pipeline_Description_Dataset/Procurement_Supplier_Validation.txt
+  pipeline_name: procurement_supplier_validation
+  pipeline_description: Validates and standardizes supplier data by reconciling names against a known database 
+    (Wikidata) for improved data quality in procurement systems.
+  orchestrator_specific:
+    flow_name: procurement_supplier_validation
+    deployment_name: procurement_supplier_validation_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections: []
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Supplier Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: load_and_modify_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-load-and-modify:latest
+          env:
+            DATASET_ID: '2'
+            TABLE_NAME_PREFIX: JOT_
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 30
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: reconcile_wikidata_entities
+    task_name: Reconcile Supplier Names with Wikidata
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: reconcile_wikidata_entities
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-reconciliation:latest
+          env:
+            PRIMARY_COLUMN: supplier_name
+            RECONCILIATOR_ID: wikidataEntity
+            DATASET_ID: '2'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 30
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: save_final_supplier_data
+    task_name: Save Final Supplier Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: save_final_supplier_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-save:latest
+          env:
+            DATASET_ID: '2'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 30
+    upstream_task_ids:
+      - reconcile_wikidata_entities
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

@@ -1,0 +1,659 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-11-28T12:38:11.309697",
+    "source_file": "Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_sensor_gated_01_file_arrival_watcher.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "Qwen3-Coder",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "sensor_driven"
+      ],
+      "task_executors_used": [
+        "python"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": true,
+      "total_components": 3,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Native sensor support"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "wait_for() or custom sensors"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "Sensors via run_status_sensor"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "file_arrival_watcher",
+    "description": "This sensor-gated pipeline monitors for daily transaction file arrivals, validates their schema, and loads data to PostgreSQL.",
+    "flow_patterns": [
+      "sequential",
+      "sensor_driven"
+    ],
+    "task_executors": [
+      "python"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "wait_for_file",
+      "name": "Wait for File Arrival",
+      "category": "Sensor",
+      "description": "Monitors for arrival of daily transaction files before allowing downstream processing to begin. Uses image default entrypoint",
+      "inputs": [
+        "/data/incoming/transactions_{{ ds_nodash }}.csv"
+      ],
+      "outputs": [
+        "file_existence_signal"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "sensor/file-monitor:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "0.5",
+          "memory": "512Mi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "incoming_file",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/data/incoming/transactions_{{ ds_nodash }}.csv",
+          "connection_id": "local_filesystem"
+        },
+        {
+          "name": "file_signal",
+          "direction": "output",
+          "kind": "object",
+          "format": "binary",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "none_failed",
+        "description": "Proceeds when file is detected or times out",
+        "timeout_seconds": 86400
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 30,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "file_not_found"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "local_filesystem",
+          "type": "filesystem",
+          "purpose": "Monitor incoming transaction files"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "file_detection_event"
+        ]
+      }
+    },
+    {
+      "id": "validate_schema",
+      "name": "Validate Transaction Schema",
+      "category": "QualityCheck",
+      "description": "Validates incoming transaction file schema meets required column structure and data types",
+      "inputs": [
+        "file_existence_signal"
+      ],
+      "outputs": [
+        "schema_validation_result"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": "validators/transaction_validator.py",
+        "entry_point": "validate_transaction_schema",
+        "environment": {
+          "PYTHONPATH": "/app"
+        },
+        "resources": {
+          "cpu": "1",
+          "memory": "1Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "input_file",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/data/incoming/transactions_{{ ds_nodash }}.csv",
+          "connection_id": "local_filesystem"
+        },
+        {
+          "name": "validation_result",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs only after successful file detection",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "validation_error",
+          "timeout"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "local_filesystem",
+          "type": "filesystem",
+          "purpose": "Access transaction files for validation"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "file_detection_event"
+        ],
+        "produces": [
+          "validated_transactions"
+        ]
+      }
+    },
+    {
+      "id": "load_db",
+      "name": "Load Transactions to Database",
+      "category": "Loader",
+      "description": "Load validated transaction data from file to PostgreSQL database table",
+      "inputs": [
+        "schema_validation_result"
+      ],
+      "outputs": [
+        "database_load_status"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": "loaders/postgres_loader.py",
+        "entry_point": "load_transactions",
+        "environment": {
+          "DB_HOST": "localhost",
+          "DB_PORT": "5432"
+        },
+        "resources": {
+          "cpu": "1",
+          "memory": "2Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "validated_data",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/data/incoming/transactions_{{ ds_nodash }}.csv",
+          "connection_id": "local_filesystem"
+        },
+        {
+          "name": "load_status",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs only after successful schema validation",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "database_error",
+          "timeout"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "postgres_db",
+          "type": "database",
+          "purpose": "Load transaction data"
+        },
+        {
+          "id": "local_filesystem",
+          "type": "filesystem",
+          "purpose": "Read transaction files"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "validated_transactions"
+        ],
+        "produces": [
+          "transactions_table"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sensor_driven",
+    "entry_points": [
+      "wait_for_file"
+    ],
+    "nodes": {
+      "wait_for_file": {
+        "kind": "Sensor",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "validate_schema"
+        ],
+        "sensor_config": {
+          "sensor_type": "file",
+          "target": "/data/incoming/transactions_{{ ds_nodash }}.csv",
+          "poke_interval_seconds": 30,
+          "timeout_seconds": 86400,
+          "mode": "poke"
+        },
+        "branch_config": null,
+        "parallel_config": null
+      },
+      "validate_schema": {
+        "kind": "Task",
+        "component_type_id": "validate_schema",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "load_db"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "load_db": {
+        "kind": "Task",
+        "component_type_id": "load_db",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "wait_for_file",
+        "to": "validate_schema",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "validate_schema",
+        "to": "load_db",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "file_arrival_watcher",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": "This sensor-gated pipeline monitors for daily transaction file arrivals, validates their schema, and loads data to PostgreSQL.",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [
+          "sensor_gated",
+          "daily",
+          "file_processing",
+          "postgresql"
+        ],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2024-01-01T00:00:00",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": "ds",
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": "daily",
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": 1,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": 86400,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 2,
+          "retry_delay": 300
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      }
+    },
+    "components": {
+      "wait_for_file": {
+        "filepath": {
+          "description": "Path to the file being monitored",
+          "type": "string",
+          "default": "/data/incoming/transactions_{{ ds_nodash }}.csv",
+          "required": true,
+          "constraints": "Must follow pattern transactions_YYYYMMDD.csv"
+        },
+        "poke_interval": {
+          "description": "Interval in seconds to check for file existence",
+          "type": "integer",
+          "default": 30,
+          "required": false,
+          "constraints": "Must be positive integer"
+        },
+        "timeout": {
+          "description": "Maximum time in seconds to wait for file",
+          "type": "integer",
+          "default": 86400,
+          "required": false,
+          "constraints": "Must be positive integer"
+        },
+        "mode": {
+          "description": "Sensor mode of operation",
+          "type": "string",
+          "default": "poke",
+          "required": false,
+          "constraints": "Must be 'poke' or 'reschedule'"
+        }
+      },
+      "validate_schema": {
+        "python_callable": {
+          "description": "Function to validate schema",
+          "type": "string",
+          "default": "validate_transaction_schema",
+          "required": true,
+          "constraints": "Must reference valid Python function"
+        }
+      },
+      "load_db": {
+        "python_callable": {
+          "description": "Function to load data to database",
+          "type": "string",
+          "default": "load_transactions_to_postgres",
+          "required": true,
+          "constraints": "Must reference valid Python function"
+        },
+        "target_table": {
+          "description": "PostgreSQL table to load data into",
+          "type": "string",
+          "default": "public.transactions",
+          "required": true,
+          "constraints": "Must be valid PostgreSQL table identifier"
+        }
+      }
+    },
+    "environment": {
+      "POSTGRES_HOST": {
+        "description": "PostgreSQL database host",
+        "type": "string",
+        "default": "localhost",
+        "required": false,
+        "associated_component_id": "load_db"
+      },
+      "POSTGRES_PORT": {
+        "description": "PostgreSQL database port",
+        "type": "integer",
+        "default": 5432,
+        "required": false,
+        "associated_component_id": "load_db"
+      },
+      "DATA_INCOMING_PATH": {
+        "description": "Path to incoming data directory",
+        "type": "string",
+        "default": "/data/incoming/",
+        "required": false,
+        "associated_component_id": "wait_for_file"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "incoming_files",
+        "name": "Incoming Transaction Files",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/data/incoming",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "wait_for_file",
+          "validate_schema"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "transactions_YYYYMMDD.csv"
+          ]
+        }
+      },
+      {
+        "id": "postgres_db",
+        "name": "PostgreSQL Database",
+        "type": "database",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": "localhost",
+          "port": 5432,
+          "protocol": "jdbc",
+          "database": null,
+          "schema": "public",
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_db"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "transactions"
+          ],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Daily transaction files named transactions_YYYYMMDD.csv in /data/incoming/ directory"
+      ],
+      "sinks": [
+        "PostgreSQL database table public.transactions"
+      ],
+      "intermediate_datasets": [
+        "transactions_YYYYMMDD.csv",
+        "validated_transactions"
+      ]
+    }
+  }
+}

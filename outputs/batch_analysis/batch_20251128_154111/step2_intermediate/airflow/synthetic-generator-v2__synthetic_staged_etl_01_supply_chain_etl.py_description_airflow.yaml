@@ -1,0 +1,179 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 15:51:23.389860
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_staged_etl_01_supply_chain_etl.py_description.txt
+  pipeline_name: Supply Chain Shipment ETL
+  pipeline_description: Comprehensive three-stage ETL pipeline for supply chain shipment data processing following a 
+    staged ETL pattern with fan-out/fan-in characteristics
+  orchestrator_specific: {}
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: vendor_a_csv_source
+    conn_type: fs
+    description: Vendor A CSV Source
+    config:
+      base_path: /data/vendor_a
+      protocol: file
+      host:
+      port:
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_url:
+  - conn_id: vendor_b_csv_source
+    conn_type: fs
+    description: Vendor B CSV Source
+    config:
+      base_path: /data/vendor_b
+      protocol: file
+      host:
+      port:
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_url:
+  - conn_id: vendor_c_csv_source
+    conn_type: fs
+    description: Vendor C CSV Source
+    config:
+      base_path: /data/vendor_c
+      protocol: file
+      host:
+      port:
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_url:
+  - conn_id: inventory_database
+    conn_type: generic
+    description: Inventory Database
+    config:
+      base_path:
+      protocol: postgresql
+      host: inventory-db.internal
+      port: 5432
+      database: inventory_db
+      schema: public
+      bucket:
+      queue_name:
+      base_url:
+      login: DB_USER
+      password: DB_PASSWORD
+  - conn_id: location_reference_data
+    conn_type: generic
+    description: Location Reference Data
+    config:
+      base_path:
+      protocol: postgresql
+      host: ref-data.internal
+      port: 5432
+      database: reference_data
+      schema: locations
+      bucket:
+      queue_name:
+      base_url:
+      login: REF_DB_USER
+      password: REF_DB_PASSWORD
+  - conn_id: email_notification_system
+    conn_type: http
+    description: Email Notification System
+    config:
+      base_path:
+      protocol: smtp
+      host: smtp.company.com
+      port: 587
+      database:
+      schema:
+      bucket:
+      queue_name:
+      base_url:
+      login: EMAIL_USER
+      password: EMAIL_PASSWORD
+tasks:
+  - task_id: extract_vendor_a
+    task_name: Extract Vendor A
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_vendor_a
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: extract_vendor_b
+    task_name: Extract Vendor B
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_vendor_b
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: extract_vendor_c
+    task_name: Extract Vendor C
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_vendor_c
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: transform_and_enrich_shipments
+    task_name: Transform and Enrich Shipments
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: transform_and_enrich_shipments
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - extract_vendor_a
+      - extract_vendor_b
+      - extract_vendor_c
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: load_shipments_to_db
+    task_name: Load Shipments to Database
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: load_shipments_to_db
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - transform_and_enrich_shipments
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: send_etl_summary_email
+    task_name: Send ETL Summary Email
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: send_etl_summary_email
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - load_shipments_to_db
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

@@ -1,0 +1,234 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-02 10:46:32.313482
+  source_analysis_file: Pipeline_Description_Dataset/Medical_Facility_Accessibility.txt
+  pipeline_name: load_modify_facilities_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir_volume
+    conn_type: fs
+    description: Shared DATA_DIR Volume
+    config:
+      base_path: $DATA_DIR
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: internal_api_service
+    conn_type: http
+    description: Internal Load‑Modify / Reconciliation / Column‑Extension / Save Service
+    config:
+      base_path:
+      base_url: http://localhost:3003
+      host: localhost
+      port: 3003
+      protocol: http
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: here_geocoding_api
+    conn_type: http
+    description: HERE Geocoding API
+    config:
+      base_path:
+      base_url: https://geocode.search.hereapi.com/v1/geocode
+      host: geocode.search.hereapi.com
+      port: 443
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+      extra:
+        token_env_var: HERE_API_TOKEN
+  - conn_id: mongo_db
+    conn_type: mongo
+    description: MongoDB Instance
+    config:
+      base_path:
+      base_url:
+      host: mongodb
+      port: 27017
+      protocol: mongodb
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: intertwino_api
+    conn_type: http
+    description: Intertwino API
+    config:
+      base_path:
+      base_url: http://localhost:5005
+      host: localhost
+      port: 5005
+      protocol: http
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: transport_stops_geojson
+    conn_type: fs
+    description: Public Transport Stops GeoJSON
+    config:
+      base_path: /app/data/transport_stops.geojson
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: residential_areas_geojson
+    conn_type: fs
+    description: Residential Areas GeoJSON
+    config:
+      base_path: /app/data/residential_areas.geojson
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+tasks:
+  - task_id: load_modify_facilities
+    task_name: Load and Modify Facilities Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: load_modify_facilities
+    config:
+      image: i2t-backendwithintertwino6-load-and-modify:latest
+      environment:
+        DATASET_ID: '2'
+        TABLE_NAME_PREFIX: JOT_
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=60)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: geocode_facilities
+    task_name: Geocode Facilities Using HERE API
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: geocode_facilities
+    config:
+      image: i2t-backendwithintertwino6-reconciliation:latest
+      environment:
+        PRIMARY_COLUMN: address
+        RECONCILIATOR_ID: geocodingHere
+        API_TOKEN: '[HERE API token]'
+        DATASET_ID: '2'
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=60)
+    upstream_task_ids:
+      - load_modify_facilities
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: calculate_distance_to_public_transport
+    task_name: Calculate Distance to Nearest Public Transport
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: calculate_distance_to_public_transport
+    config:
+      image: i2t-backendwithintertwino6-column-extension:latest
+      environment:
+        EXTENDER_ID: spatialDistanceCalculator
+        LAT_COLUMN: latitude
+        LON_COLUMN: longitude
+        TARGET_LAYER: public_transport
+        TARGET_DATA_SOURCE: /app/data/transport_stops.geojson
+        OUTPUT_COLUMN: distance_to_pt
+        DATASET_ID: '2'
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=60)
+    upstream_task_ids:
+      - geocode_facilities
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: calculate_distance_to_residential_areas
+    task_name: Calculate Distance to Nearest Residential Area
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: calculate_distance_to_residential_areas
+    config:
+      image: i2t-backendwithintertwino6-column-extension:latest
+      environment:
+        EXTENDER_ID: spatialDistanceCalculator
+        LAT_COLUMN: latitude
+        LON_COLUMN: longitude
+        TARGET_LAYER: residential_areas
+        TARGET_DATA_SOURCE: /app/data/residential_areas.geojson
+        OUTPUT_COLUMN: distance_to_residential
+        DATASET_ID: '2'
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=60)
+    upstream_task_ids:
+      - calculate_distance_to_public_transport
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: save_facilities_accessibility
+    task_name: Save Enriched Facility Accessibility Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: save_facilities_accessibility
+    config:
+      image: i2t-backendwithintertwino6-save:latest
+      environment:
+        DATASET_ID: '2'
+      network_mode: app_network
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=60)
+    upstream_task_ids:
+      - calculate_distance_to_residential_areas
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

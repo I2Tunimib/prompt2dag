@@ -1,0 +1,1135 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T12:58:30.346219",
+    "source_file": "Pipeline_Description_Dataset/Sequential_Pipeline_Prompt.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "gpt-oss-120b",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential"
+      ],
+      "task_executors_used": [
+        "docker"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": false,
+      "total_components": 5,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "load_and_modify_data_pipeline",
+    "description": "No description provided.",
+    "flow_patterns": [
+      "sequential"
+    ],
+    "task_executors": [
+      "docker"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "load_and_modify_data",
+      "name": "Load and Modify Data",
+      "category": "Extractor",
+      "description": "Ingests CSV files from the data directory, converts them to JSON format for downstream processing. Uses image default entrypoint/command.",
+      "inputs": [
+        "raw_csv_files"
+      ],
+      "outputs": [
+        "table_data_json_files"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-load-and-modify:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "DATA_DIR": "/app/data",
+          "DATASET_ID": "2",
+          "DATE_COLUMN": "Fecha_id",
+          "TABLE_NAMING": "JOT_{}"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "raw_csv_files",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/app/data/*.csv",
+          "connection_id": "data_dir_fs"
+        },
+        {
+          "name": "table_data_json_files",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/app/data/table_data_{}.json",
+          "connection_id": "data_dir_fs"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "No upstream dependencies",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 60,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "data_dir_fs",
+          "type": "filesystem",
+          "purpose": "access raw CSV and JSON files"
+        },
+        {
+          "id": "app_network",
+          "type": "network",
+          "purpose": "Docker network for inter‑container communication"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "raw_csv_dataset"
+        ],
+        "produces": [
+          "table_data_json_dataset"
+        ]
+      }
+    },
+    {
+      "id": "reconcile_city_names",
+      "name": "Data Reconciliation",
+      "category": "Reconciliator",
+      "description": "Standardizes city names using the HERE geocoding service. Uses image default entrypoint/command.",
+      "inputs": [
+        "table_data_json_files"
+      ],
+      "outputs": [
+        "reconciled_table_json_files"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-reconciliation:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "RECONCILIATOR_ID": "geocodingHere",
+          "PRIMARY_COLUMN": "City",
+          "OPTIONAL_COLUMNS": "County,Country",
+          "API_TOKEN": "<HERE_API_TOKEN>"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "table_data_json_files",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/app/data/table_data_*.json",
+          "connection_id": "data_dir_fs"
+        },
+        {
+          "name": "reconciled_table_json_files",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/app/data/reconciled_table_{}.json",
+          "connection_id": "data_dir_fs"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful completion of Load and Modify Data",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 60,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "data_dir_fs",
+          "type": "filesystem",
+          "purpose": "access JSON files"
+        },
+        {
+          "id": "app_network",
+          "type": "network",
+          "purpose": "Docker network for service calls"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "table_data_json_dataset"
+        ],
+        "produces": [
+          "reconciled_table_json_dataset"
+        ]
+      }
+    },
+    {
+      "id": "enrich_with_openmeteo",
+      "name": "OpenMeteo Data Extension",
+      "category": "Enricher",
+      "description": "Adds weather attributes from OpenMeteo to the dataset. Uses image default entrypoint/command.",
+      "inputs": [
+        "reconciled_table_json_files"
+      ],
+      "outputs": [
+        "open_meteo_json_files"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-openmeteo-extension:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "WEATHER_ATTRIBUTES": "apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_hours",
+          "DATE_SEPARATOR": "-"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "reconciled_table_json_files",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/app/data/reconciled_table_*.json",
+          "connection_id": "data_dir_fs"
+        },
+        {
+          "name": "open_meteo_json_files",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/app/data/open_meteo_{}.json",
+          "connection_id": "data_dir_fs"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful completion of Data Reconciliation",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 60,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "data_dir_fs",
+          "type": "filesystem",
+          "purpose": "access JSON files"
+        },
+        {
+          "id": "app_network",
+          "type": "network",
+          "purpose": "Docker network for external API calls"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "reconciled_table_json_dataset"
+        ],
+        "produces": [
+          "open_meteo_json_dataset"
+        ]
+      }
+    },
+    {
+      "id": "extend_columns",
+      "name": "Column Extension",
+      "category": "Enricher",
+      "description": "Appends additional properties (e.g., id, name) to each record as defined by integration parameters. Uses image default entrypoint/command.",
+      "inputs": [
+        "open_meteo_json_files"
+      ],
+      "outputs": [
+        "column_extended_json_files"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-column-extension:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "EXTENDER_ID": "reconciledColumnExt"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "open_meteo_json_files",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/app/data/open_meteo_*.json",
+          "connection_id": "data_dir_fs"
+        },
+        {
+          "name": "column_extended_json_files",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/app/data/column_extended_{}.json",
+          "connection_id": "data_dir_fs"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful completion of OpenMeteo Data Extension",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 60,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "data_dir_fs",
+          "type": "filesystem",
+          "purpose": "access JSON files"
+        },
+        {
+          "id": "app_network",
+          "type": "network",
+          "purpose": "Docker network for internal communication"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "open_meteo_json_dataset"
+        ],
+        "produces": [
+          "column_extended_json_dataset"
+        ]
+      }
+    },
+    {
+      "id": "save_final_data",
+      "name": "Save Final Data",
+      "category": "Loader",
+      "description": "Consolidates the enriched dataset and exports it as a CSV file. Uses image default entrypoint/command.",
+      "inputs": [
+        "column_extended_json_files"
+      ],
+      "outputs": [
+        "final_enriched_csv"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "i2t-backendwithintertwino6-save:latest",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "OUTPUT_DIR": "/app/data"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": "app_network"
+      },
+      "io_spec": [
+        {
+          "name": "column_extended_json_files",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/app/data/column_extended_*.json",
+          "connection_id": "data_dir_fs"
+        },
+        {
+          "name": "final_enriched_csv",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/app/data/enriched_data_{}.csv",
+          "connection_id": "data_dir_fs"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful completion of Column Extension",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 60,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "data_dir_fs",
+          "type": "filesystem",
+          "purpose": "access JSON inputs and write CSV output"
+        },
+        {
+          "id": "app_network",
+          "type": "network",
+          "purpose": "Docker network for any internal service calls"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "column_extended_json_dataset"
+        ],
+        "produces": [
+          "final_enriched_csv_dataset"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sequential",
+    "entry_points": [
+      "load_and_modify_data"
+    ],
+    "nodes": {
+      "load_and_modify_data": {
+        "kind": "Task",
+        "component_type_id": "load_and_modify_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "reconcile_city_names"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "reconcile_city_names": {
+        "kind": "Task",
+        "component_type_id": "reconcile_city_names",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "enrich_with_openmeteo"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "enrich_with_openmeteo": {
+        "kind": "Task",
+        "component_type_id": "enrich_with_openmeteo",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "extend_columns"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "extend_columns": {
+        "kind": "Task",
+        "component_type_id": "extend_columns",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "save_final_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "save_final_data": {
+        "kind": "Task",
+        "component_type_id": "save_final_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "load_and_modify_data",
+        "to": "reconcile_city_names",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "reconcile_city_names",
+        "to": "enrich_with_openmeteo",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "enrich_with_openmeteo",
+        "to": "extend_columns",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "extend_columns",
+        "to": "save_final_data",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Human‑readable description of the pipeline",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": null,
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "load_and_modify_data": {
+        "dataset_id": {
+          "description": "Identifier of the dataset to process",
+          "type": "integer",
+          "default": 2,
+          "required": false,
+          "constraints": null
+        },
+        "date_column_name": {
+          "description": "Name of the column containing date values",
+          "type": "string",
+          "default": "Fecha_id",
+          "required": false,
+          "constraints": null
+        },
+        "table_naming_convention": {
+          "description": "Pattern used to name output tables (e.g., 'JOT_{}')",
+          "type": "string",
+          "default": "JOT_{}",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "reconcile_city_names": {
+        "primary_column": {
+          "description": "Column that holds the city name to be reconciled",
+          "type": "string",
+          "default": "City",
+          "required": false,
+          "constraints": null
+        },
+        "optional_columns": {
+          "description": "Additional columns that may be used during reconciliation",
+          "type": "array",
+          "default": [
+            "County",
+            "Country"
+          ],
+          "required": false,
+          "constraints": null
+        },
+        "reconciliator_id": {
+          "description": "Identifier of the reconciliator service to use",
+          "type": "string",
+          "default": "geocodingHere",
+          "required": false,
+          "constraints": null
+        },
+        "api_token": {
+          "description": "HERE geocoding service API token",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "enrich_with_openmeteo": {
+        "date_separator": {
+          "description": "Separator character used in date formatting for OpenMeteo requests",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "extend_columns": {
+        "extender_id": {
+          "description": "Identifier of the column extender to apply",
+          "type": "string",
+          "default": "reconciledColumnExt",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "save_final_data": {
+        "output_directory": {
+          "description": "Directory where the final enriched CSV file will be stored",
+          "type": "string",
+          "default": "/app/data",
+          "required": false,
+          "constraints": null
+        }
+      }
+    },
+    "environment": {
+      "DATA_DIR": {
+        "description": "Path to the shared data directory mounted into Docker containers",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": null
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "data_dir",
+        "name": "Shared Data Directory",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/app/data",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_data",
+          "reconcile_city_names",
+          "enrich_with_openmeteo",
+          "extend_columns",
+          "save_final_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "table_data_{}.json",
+            "reconciled_table_{}.json",
+            "open_meteo_{}.json",
+            "column_extended_{}.json",
+            "enriched_data_{}.csv"
+          ],
+          "consumes": [
+            "*.csv",
+            "table_data_*.json",
+            "reconciled_table_*.json",
+            "open_meteo_*.json",
+            "column_extended_*.json"
+          ]
+        }
+      },
+      {
+        "id": "load_and_modify_service",
+        "name": "Load‑and‑Modify Service API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "http://load-modify-service:3003",
+          "host": "load-modify-service",
+          "port": 3003,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_data"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "table_data_{}.json"
+          ],
+          "consumes": [
+            "*.csv"
+          ]
+        }
+      },
+      {
+        "id": "reconciliation_service",
+        "name": "Reconciliation Service API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "http://reconciliation-service:3003",
+          "host": "reconciliation-service",
+          "port": 3003,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "RECONCILIATION_API_TOKEN",
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "reconcile_city_names"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "reconciled_table_{}.json"
+          ],
+          "consumes": [
+            "table_data_*.json"
+          ]
+        }
+      },
+      {
+        "id": "here_geocoding_service",
+        "name": "HERE Geocoding API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "https://geocode.search.hereapi.com",
+          "host": "geocode.search.hereapi.com",
+          "port": 443,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "HERE_API_TOKEN",
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "reconcile_city_names"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      },
+      {
+        "id": "openmeteo_api",
+        "name": "OpenMeteo Weather API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "https://api.open-meteo.com",
+          "host": "api.open-meteo.com",
+          "port": 443,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "enrich_with_openmeteo"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "open_meteo_{}.json"
+          ],
+          "consumes": [
+            "reconciled_table_*.json"
+          ]
+        }
+      },
+      {
+        "id": "mongodb",
+        "name": "MongoDB Instance",
+        "type": "database",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": "mongodb",
+          "port": 27017,
+          "protocol": "mongodb",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_data",
+          "reconcile_city_names",
+          "enrich_with_openmeteo",
+          "extend_columns",
+          "save_final_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      },
+      {
+        "id": "intertwino_api",
+        "name": "Intertwino API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "http://intertwino-api:5005",
+          "host": "intertwino-api",
+          "port": 5005,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_data",
+          "reconcile_city_names",
+          "enrich_with_openmeteo",
+          "extend_columns",
+          "save_final_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      },
+      {
+        "id": "app_network",
+        "name": "Custom Docker Network",
+        "type": "other",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": null,
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_and_modify_data",
+          "reconcile_city_names",
+          "enrich_with_openmeteo",
+          "extend_columns",
+          "save_final_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Raw CSV files located in the shared data directory (/app/data) matching *.csv"
+      ],
+      "sinks": [
+        "Final enriched CSV file saved as enriched_data_{}.csv in the shared data directory"
+      ],
+      "intermediate_datasets": [
+        "table_data_{}.json",
+        "reconciled_table_{}.json",
+        "open_meteo_{}.json",
+        "column_extended_{}.json"
+      ]
+    }
+  }
+}

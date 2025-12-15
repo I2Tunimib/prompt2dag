@@ -1,0 +1,228 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-11-28 15:48:49.573921
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_fan_out_only_00_multi_channel_marketing_campaign.py_description.txt
+  pipeline_name: multi_channel_marketing_campaign
+  pipeline_description: This pipeline executes a multi-channel marketing campaign by loading customer segment data and 
+    triggering parallel email, SMS, and push notification campaigns.
+  orchestrator_specific:
+    job_name: multi_channel_marketing_campaign
+    description: This pipeline executes a multi-channel marketing campaign by loading customer segment data and 
+      triggering parallel email, SMS, and push notification campaigns.
+    executor_type: multiprocess_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - sms_gateway
+      - local_filesystem
+      - push_notification_service
+      - email_service
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: customer_segment_csv
+    conn_type: fs_io_manager
+    description: Customer Segment CSV File
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: customer_segment_csv
+      config:
+        base_path: /data/customer_segments
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: email_delivery_api
+    conn_type: resource
+    description: Email Delivery API
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: email_delivery_api
+      config:
+        base_path:
+        base_url: https://api.emailservice.com/v1
+        host:
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+        token: EnvVar('EMAIL_API_TOKEN')
+  - conn_id: sms_gateway_api
+    conn_type: resource
+    description: SMS Gateway API
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: sms_gateway_api
+      config:
+        base_path:
+        base_url: https://api.smsgateway.com/messages
+        host:
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+        username: EnvVar('SMS_API_USER')
+        password: EnvVar('SMS_API_PASS')
+  - conn_id: push_notification_service
+    conn_type: resource
+    description: Push Notification Service
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: push_notification_service
+      config:
+        base_path:
+        base_url: https://api.pushservice.com/notifications
+        host:
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+tasks:
+  - task_id: load_customer_segment_csv
+    task_name: Load Customer Segment CSV
+    operator_class: Op
+    operator_module: dagster
+    component_ref: load_customer_segment_csv
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - local_filesystem
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: customer_segment_file
+          dagster_type: String
+          description: /data/customer_segment.csv
+      outs:
+        - name: segmented_customers
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: send_email_campaign
+    task_name: Send Email Campaign
+    operator_class: Op
+    operator_module: dagster
+    component_ref: send_email_campaign
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - email_service
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: segmented_customers
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: email_results
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - load_customer_segment_csv
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: send_sms_campaign
+    task_name: Send SMS Campaign
+    operator_class: Op
+    operator_module: dagster
+    component_ref: send_sms_campaign
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - sms_gateway
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: segmented_customers
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: sms_results
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - load_customer_segment_csv
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: send_push_notification
+    task_name: Send Push Notification
+    operator_class: Op
+    operator_module: dagster
+    component_ref: send_push_notification
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - push_notification_service
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: segmented_customers
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: push_results
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - load_customer_segment_csv
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

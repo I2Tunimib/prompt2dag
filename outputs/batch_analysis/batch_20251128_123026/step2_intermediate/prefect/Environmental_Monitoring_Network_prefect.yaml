@@ -1,0 +1,298 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-11-28 12:31:30.630941
+  source_analysis_file: Pipeline_Description_Dataset/Environmental_Monitoring_Network.txt
+  pipeline_name: Environmental Monitoring Network Pipeline
+  pipeline_description: Creates a comprehensive dataset for environmental risk analysis by integrating location data 
+    with geocoding, weather history, land use, and demographic information.
+  orchestrator_specific:
+    flow_name: environmental_monitoring_network_pipeline
+    deployment_name: environmental_monitoring_network_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir_filesystem
+    conn_type: LocalFileSystem
+    description: Data Directory Filesystem
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: data_dir_filesystem
+      config:
+        base_path: ${DATA_DIR}
+        protocol: file
+  - conn_id: intertwino_api
+    conn_type: Secret
+    description: Intertwino API Service
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: intertwino_api
+      config:
+        base_url: http://intertwino-api:5005
+        host: intertwino-api
+        port: 5005
+        protocol: http
+  - conn_id: reconciliation_service
+    conn_type: Secret
+    description: Reconciliation Service
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: reconciliation_service
+      config:
+        base_url: http://reconciliation-service:3003
+        host: reconciliation-service
+        port: 3003
+        protocol: http
+        token_secret_name: HERE_API_TOKEN
+  - conn_id: openmeteo_api
+    conn_type: Secret
+    description: OpenMeteo API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: openmeteo_api
+      config:
+        base_url: https://archive-api.open-meteo.com/v1/archive
+        protocol: https
+  - conn_id: gis_land_use_api
+    conn_type: Secret
+    description: GIS Land Use API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: gis_land_use_api
+      config:
+        base_url: https://api.geoapify.com/v1/geocode
+        protocol: https
+  - conn_id: demographic_data_service
+    conn_type: Secret
+    description: Demographic Data Service
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: demographic_data_service
+      config:
+        base_url: https://www.worldpop.org/rest/data
+        protocol: https
+  - conn_id: mongodb_database
+    conn_type: Secret
+    description: MongoDB Database
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: mongodb_database
+      config:
+        host: mongodb
+        port: 27017
+        database: environmental_data
+        schema:
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: load_and_modify_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-load-and-modify:latest
+          env:
+            DATASET_ID: '2'
+            DATE_COLUMN: installation_date
+            TABLE_NAME_PREFIX: JOT_
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: reconcile_geocoding
+    task_name: Reconcile Geocoding
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: reconcile_geocoding
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-reconciliation:latest
+          env:
+            PRIMARY_COLUMN: location
+            RECONCILIATOR_ID: geocodingHere
+            API_TOKEN: '[HERE API token]'
+            DATASET_ID: '2'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: extend_openmeteo_data
+    task_name: Extend OpenMeteo Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: extend_openmeteo_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-openmeteo-extension:latest
+          env:
+            LAT_COLUMN: latitude
+            LON_COLUMN: longitude
+            DATE_COLUMN: installation_date
+            WEATHER_VARIABLES: apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_hours
+            DATE_SEPARATOR_FORMAT: YYYYMMDD
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - reconcile_geocoding
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: extend_land_use
+    task_name: Extend Land Use
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: extend_land_use
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: geoapify-land-use:latest
+          env:
+            LAT_COLUMN: latitude
+            LON_COLUMN: longitude
+            OUTPUT_COLUMN: land_use_type
+            API_KEY: '[Geoapify API key]'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - extend_openmeteo_data
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: extend_population_density
+    task_name: Extend Population Density
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: extend_population_density
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: worldpop-density:latest
+          env:
+            LAT_COLUMN: latitude
+            LON_COLUMN: longitude
+            OUTPUT_COLUMN: population_density
+            RADIUS: '5000'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - extend_land_use
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: calculate_environmental_risk
+    task_name: Calculate Environmental Risk
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: calculate_environmental_risk
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-column-extension:latest
+          env:
+            EXTENDER_ID: environmentalRiskCalculator
+            INPUT_COLUMNS: precipitation_sum,population_density,land_use_type
+            OUTPUT_COLUMN: risk_score
+            CALCULATION_FORMULA: '[risk calculation parameters]'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - extend_population_density
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: save_final_data
+    task_name: Save Final Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: save_final_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-save:latest
+          env:
+            DATASET_ID: '2'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - calculate_environmental_risk
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

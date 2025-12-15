@@ -1,0 +1,164 @@
+[global_dag] - Comprehensive Pipeline Description
+
+Opening Summary:
+This ETL pipeline processes French government death records and power plant data through a staged ETL pattern with mixed topology. It extracts data from multiple government APIs, performs parallel data cleansing, and loads structured data into PostgreSQL. The pipeline features fan-out/fan-in parallelism for data ingestion and processing, branch-merge logic for conditional data loading, and uses Redis for intermediate data storage. Key infrastructure includes TaskGroups for stage organization, PostgresOperator for database operations, and conditional branching based on data availability.
+
+Pipeline Steps:
+
+Pre-Processing Stage (Ingestion):
+1. ingestion_pipeline TaskGroup
+  • Objective: Extract raw data from multiple French government data sources in parallel
+  • Technical Details:
+    - Input: External APIs (data.gouv.fr datasets)
+    - Output: Raw CSV/JSON files in ingestion directory
+    - Integrations: data.gouv.fr APIs (thermal plants, nuclear plants, death records, city geo data)
+    - Key Parameters: Multiple dataset IDs, file paths for ingestion storage
+  • Operator or Mechanism: TaskGroup with BashOperator (curl), PythonOperator
+  • Notes: Parallel extraction of 4 data sources with all_success trigger rules
+
+Parallel Segment (Data Processing):
+2. get_city_code_geo
+  • Objective: Download city geographic coordinates mapping data
+  • Technical Details:
+    - Input: CITY_GEO_DATASET_URL
+    - Output: city_geo_loc.csv in ingestion directory
+    - Integrations: static.data.gouv.fr CSV endpoint
+  • Operator or Mechanism: BashOperator
+
+3. get_nuclear_json & get_nuclear_data
+  • Objective: Fetch nuclear power plant metadata and extract CSV data
+  • Technical Details:
+    - Input: NUCLEAR_DATASET_ID API
+    - Output: nuclear_plants.json and nuclear.csv files
+    - Integrations: data.gouv.fr nuclear dataset API
+  • Operator or Mechanism: BashOperator → PythonOperator chain
+
+4. get_thermal_json & get_thermal_data  
+  • Objective: Fetch thermal power plant metadata and extract CSV data
+  • Technical Details:
+    - Input: THERMAL_DATASET_ID API
+    - Output: thermal_plants.json and thermal_plants_.csv files
+    - Integrations: data.gouv.fr thermal dataset API
+  • Operator or Mechanism: BashOperator → PythonOperator chain
+
+5. get_death_resource_list & get_death_resources
+  • Objective: Fetch death record metadata and download multiple death data files
+  • Technical Details:
+    - Input: DEATH_DATASET_ID API
+    - Output: death_resources.json and multiple death_*.txt files
+    - Integrations: data.gouv.fr death dataset API, max_resource=5 limit
+  • Operator or Mechanism: PythonOperator chain
+
+Synchronization/Join Stage:
+6. staging_pipeline TaskGroup
+  • Objective: Process and stage cleaned data with conditional branching
+  • Technical Details:
+    - Input: Raw data from ingestion phase, Redis for death data tracking
+    - Output: Cleaned CSV files and SQL insertion queries
+    - Integrations: Redis (host='redis', port=6379), PostgreSQL (postgres_default)
+  • Operator or Mechanism: TaskGroup with mixed operators
+
+7. create_death_table & create_power_plants_table
+  • Objective: Create target database tables in PostgreSQL
+  • Technical Details:
+    - Input: SQL schema files (create_death_table.sql, create_power_plant_table.sql)
+    - Output: Empty database tables ready for data insertion
+    - Integrations: PostgreSQL via postgres_default connection
+  • Operator or Mechanism: PostgresOperator
+
+8. load_data_from_ingestion
+  • Objective: Load death records from ingestion files into Redis with deduplication
+  • Technical Details:
+    - Input: death_*.txt files from ingestion directory
+    - Output: JSON records in Redis list 'death_raw', tracking in 'imported_death_files'
+    - Integrations: Redis for intermediate storage, file system scanning
+  • Operator or Mechanism: PythonOperator
+
+9. cleanse_death_data
+  • Objective: Transform death records with geographic mapping and date formatting
+  • Technical Details:
+    - Input: Redis 'death_raw' list, city_geo_loc.csv for location mapping
+    - Output: SQL insertion queries file for deaths table
+    - Integrations: Redis data, geographic coordinate mapping
+  • Operator or Mechanism: PythonOperator
+
+10. import_thermal_clean_data & import_nuclear_clean_data
+  • Objective: Clean and transform power plant data with column standardization
+  • Technical Details:
+    - Input: Raw thermal_plants_.csv and nuclear.csv files
+    - Output: Cleaned CSV files in staging directory with standardized schema
+    - Integrations: Pandas data processing
+  • Operator or Mechanism: PythonOperator (parallel execution)
+
+11. create_plant_persist_sql_query
+  • Objective: Generate SQL insertion queries for power plant data
+  • Technical Details:
+    - Input: Cleaned thermal and nuclear plant CSV files
+    - Output: SQL query file for power_plants table insertion
+    - Integrations: Data deduplication by plant name
+  • Operator or Mechanism: PythonOperator
+
+Branch-Merge Section:
+12. death_emptiness_check
+  • Objective: Check if death data processing produced valid SQL queries
+  • Technical Details:
+    - Input: DEATH_INSERTION_QUERIES_PATH file
+    - Output: Branch decision based on file content emptiness
+    - Key Parameters: Conditional branching to staging_end or store_deaths_in_postgres
+  • Operator or Mechanism: BranchPythonOperator
+
+13. Branch Path A: store_deaths_in_postgres (if data exists)
+  • Objective: Execute death data insertion into PostgreSQL
+  • Technical Details:
+    - Input: Generated SQL insertion queries file
+    - Output: Death records in PostgreSQL deaths table
+    - Integrations: PostgreSQL via postgres_default connection
+  • Operator or Mechanism: PostgresOperator
+
+14. Branch Path B: staging_end (if no death data)
+  • Objective: Skip death data insertion when no valid records
+  • Technical Details:
+    - Input: Empty SQL queries file
+    - Output: Pipeline continuation without death data
+  • Operator or Mechanism: DummyOperator
+
+15. store_plants_in_postgres
+  • Objective: Load power plant data into PostgreSQL
+  • Technical Details:
+    - Input: Generated plant SQL insertion queries
+    - Output: Power plant records in power_plants table
+    - Integrations: PostgreSQL via postgres_default connection
+  • Operator or Mechanism: PostgresOperator
+
+16. clean_tmp_death_files
+  • Objective: Clean up temporary death data from Redis and file system
+  • Technical Details:
+    - Input: Redis 'death_raw' list, temporary SQL query files
+    - Output: Cleaned intermediate storage
+    - Integrations: Redis data cleanup, file deletion
+  • Operator or Mechanism: PythonOperator
+
+Orchestration & Scheduling:
+- Schedule: None (manual trigger)
+- Start_date: days_ago(0)
+- Catchup: False
+- Concurrency: 1
+- Retries: 1 with 10-second delay
+- Template searchpath: /opt/airflow/dags/
+
+Infrastructure & Dependencies:
+- Task Groups: ingestion_pipeline (data extraction), staging_pipeline (data processing)
+- Connections: postgres_default (PostgreSQL), Redis (host='redis', port=6379, db=0)
+- Data Paths: /opt/airflow/dags/data/ingestion/, /opt/airflow/dags/data/staging/, /opt/airflow/dags/sql/tmp/
+- External APIs: data.gouv.fr datasets (death records, thermal plants, nuclear plants, city geo data)
+
+Failure Handling & Alerts:
+- Retry policy: 1 retry with 10-second delay
+- Trigger rules: all_success, none_failed for dependent tasks
+- No explicit email or alert operators visible
+
+Pattern-Specific Notes:
+- Staged ETL: Clear Extract (ingestion_pipeline) → Transform (staging_pipeline cleansing) → Load (PostgreSQL insertion) stages
+- Fan-out/fan-in: Parallel extraction of 4 data sources, joined before staging phase
+- Branch-merge: Conditional death data loading based on data availability after cleansing
+- Mixed topology: Combines parallel extraction with conditional branching and sequential loading

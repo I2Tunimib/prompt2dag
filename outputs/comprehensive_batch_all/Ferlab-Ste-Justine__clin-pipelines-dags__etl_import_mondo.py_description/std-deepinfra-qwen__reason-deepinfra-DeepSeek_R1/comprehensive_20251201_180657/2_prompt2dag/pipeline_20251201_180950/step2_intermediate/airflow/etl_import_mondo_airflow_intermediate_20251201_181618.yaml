@@ -1,0 +1,119 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-01 18:16:18.618535
+  source_analysis_file: 
+    Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_mondo.py_description.txt
+  pipeline_name: etl_import_mondo
+  pipeline_description: No description provided.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: '2022-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: github_releases
+    conn_type: http
+    description: GitHub Mondo Releases
+    config:
+      base_url: https://github.com/monarch-initiative/mondo/releases
+  - conn_id: s3_datalake
+    conn_type: s3
+    description: S3 Data Lake
+    config:
+      base_path: cqgc-{env}-app-datalake
+      protocol: s3
+  - conn_id: elasticsearch
+    conn_type: generic
+    description: Elasticsearch
+    config:
+      host:
+      port:
+      protocol: http
+      database:
+      schema:
+  - conn_id: slack_webhook
+    conn_type: http
+    description: Slack Webhook
+    config:
+      base_url:
+      extra:
+        token_env_var: SLACK_WEBHOOK_TOKEN
+tasks:
+  - task_id: params_validate
+    task_name: Validate Parameters
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: params_validate
+    config:
+      python_callable: validate_color
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: download_mondo_terms
+    task_name: Download Mondo Terms
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: download_mondo_terms
+    config:
+      python_callable: download
+    upstream_task_ids:
+      - params_validate
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: normalized_mondo_terms
+    task_name: Normalize Mondo Terms
+    operator_class: SparkSubmitOperator
+    operator_module: airflow.providers.apache.spark.operators.spark_submit
+    component_ref: normalized_mondo_terms
+    config: {}
+    upstream_task_ids:
+      - download_mondo_terms
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: index_mondo_terms
+    task_name: Index Mondo Terms
+    operator_class: SparkSubmitOperator
+    operator_module: airflow.providers.apache.spark.operators.spark_submit
+    component_ref: index_mondo_terms
+    config: {}
+    upstream_task_ids:
+      - normalized_mondo_terms
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: publish_mondo
+    task_name: Publish Mondo Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: publish_mondo
+    config:
+      python_callable: publish_index.mondo
+    upstream_task_ids:
+      - index_mondo_terms
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: slack
+    task_name: Send Slack Notification
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: slack
+    config:
+      python_callable: Slack.notify_dag_completion
+    upstream_task_ids:
+      - publish_mondo
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

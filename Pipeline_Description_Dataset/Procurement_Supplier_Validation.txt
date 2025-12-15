@@ -1,0 +1,45 @@
+# Procurement Supplier Validation Pipeline Configuration
+
+## Dataset 
+Basic supplier information CSV with fields like supplier_name, location, contact_info, etc.
+
+## Business Value
+Validates and standardizes supplier data by reconciling names against a known database (Wikidata) for improved data quality in procurement systems.
+
+## Pipeline Steps
+
+### 1. Load & Modify Data
+- **Objective**: Ingest supplier CSV, standardize formats, convert to JSON
+- **Input**: suppliers.csv from DATA_DIR
+- **Output**: table_data_2.json in DATA_DIR
+- **API Integration**: Calls the load-and-modify service (port 3003)
+- **Docker Image**: i2t-backendwithintertwino6-load-and-modify:latest
+- **Key Parameters**:
+  - DATASET_ID=2
+  - TABLE_NAME_PREFIX=JOT_
+
+### 2. Entity Reconciliation (Wikidata)
+- **Objective**: Disambiguate supplier_name using the Wikidata API to find canonical entities
+- **Input**: table_data_2.json
+- **Output**: reconciled_table_2.json (with added Wikidata ID/link)
+- **API Integration**: Uses reconciliation service (port 3003)
+- **Docker Image**: i2t-backendwithintertwino6-reconciliation:latest
+- **Key Parameters**:
+  - PRIMARY_COLUMN=supplier_name
+  - RECONCILIATOR_ID=wikidataEntity
+  - DATASET_ID=2
+
+### 3. Save Final Data
+- **Objective**: Export the validated supplier data to CSV
+- **Input**: reconciled_table_2.json
+- **Output**: enriched_data_2.csv in DATA_DIR
+- **API Integration**: save service
+- **Docker Image**: i2t-backendwithintertwino6-save:latest
+- **Key Parameters**:
+  - DATASET_ID=2
+
+## Infrastructure & Error Handling
+- Shared volume mounting (DATA_DIR via environment variable)
+- Custom Docker network (app_network) covering dependencies such as MongoDB (port 27017) and Intertwino API (port 5005)
+- Error handling through Airflow task retries (default: 1)
+- Auto-cleanup of containers

@@ -1,0 +1,240 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-11-28 15:49:49.383245
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_fan_out_only_01_data_replication_to_environments.py_description.txt
+  pipeline_name: synthetic_fan_out_only_01_data_replication_to_environments
+  pipeline_description: '[Database Replication Fanout] - Comprehensive Pipeline Description'
+  orchestrator_specific:
+    job_name: synthetic_fan_out_only_01_data_replication_to_environments
+    description: '[Database Replication Fanout] - Comprehensive Pipeline Description'
+    executor_type: multiprocess_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - qa_db_conn
+      - local_fs
+      - staging_db_conn
+      - dev_db_conn
+      - prod_db_conn
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: local_filesystem
+    conn_type: fs_io_manager
+    description: Local Filesystem for CSV Storage
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: local_filesystem
+      config:
+        base_path: /tmp
+        protocol: file
+  - conn_id: dev_database
+    conn_type: resource
+    description: Development Environment Database
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: dev_database
+      config:
+        host: dev-db-host
+        port: 5432
+        database: Dev_DB
+        schema: public
+        username: EnvVar('DEV_DB_USER')
+        password: EnvVar('DEV_DB_PASSWORD')
+  - conn_id: staging_database
+    conn_type: resource
+    description: Staging Environment Database
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: staging_database
+      config:
+        host: staging-db-host
+        port: 5432
+        database: Staging_DB
+        schema: public
+        username: EnvVar('STAGING_DB_USER')
+        password: EnvVar('STAGING_DB_PASSWORD')
+  - conn_id: qa_database
+    conn_type: resource
+    description: QA Environment Database
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: qa_database
+      config:
+        host: qa-db-host
+        port: 5432
+        database: QA_DB
+        schema: public
+        username: EnvVar('QA_DB_USER')
+        password: EnvVar('QA_DB_PASSWORD')
+tasks:
+  - task_id: dump_prod_csv
+    task_name: Dump Production Database to CSV
+    operator_class: Op
+    operator_module: dagster
+    component_ref: dump_prod_csv
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: postgres:13
+          container_kwargs:
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - local_fs
+        - prod_db_conn
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: production_db
+          dagster_type: String
+          description: ''
+      outs:
+        - name: csv_snapshot
+          dagster_type: String
+          description: Output to local_fs
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: copy_dev
+    task_name: Copy CSV to Development Environment
+    operator_class: Op
+    operator_module: dagster
+    component_ref: copy_dev
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: postgres:13
+          container_kwargs:
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - local_fs
+        - dev_db_conn
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: csv_input
+          dagster_type: String
+          description: /tmp/prod_snapshot_{{ ds_nodash }}.csv
+      outs:
+        - name: dev_database
+          dagster_type: String
+          description: Output to dev_db_conn
+    upstream_task_ids:
+      - dump_prod_csv
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: copy_staging
+    task_name: Copy CSV to Staging Environment
+    operator_class: Op
+    operator_module: dagster
+    component_ref: copy_staging
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: postgres:13
+          container_kwargs:
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - local_fs
+        - staging_db_conn
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: csv_input
+          dagster_type: String
+          description: /tmp/prod_snapshot_{{ ds_nodash }}.csv
+      outs:
+        - name: staging_database
+          dagster_type: String
+          description: Output to staging_db_conn
+    upstream_task_ids:
+      - dump_prod_csv
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: copy_qa
+    task_name: Copy CSV to QA Environment
+    operator_class: Op
+    operator_module: dagster
+    component_ref: copy_qa
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: postgres:13
+          container_kwargs:
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - local_fs
+        - qa_db_conn
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: csv_input
+          dagster_type: String
+          description: /tmp/prod_snapshot_{{ ds_nodash }}.csv
+      outs:
+        - name: qa_database
+          dagster_type: String
+          description: Output to qa_db_conn
+    upstream_task_ids:
+      - dump_prod_csv
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

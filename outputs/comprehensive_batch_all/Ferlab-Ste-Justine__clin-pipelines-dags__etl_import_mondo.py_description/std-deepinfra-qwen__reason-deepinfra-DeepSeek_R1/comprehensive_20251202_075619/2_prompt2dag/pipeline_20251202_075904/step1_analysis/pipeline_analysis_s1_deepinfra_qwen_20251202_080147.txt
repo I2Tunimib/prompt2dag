@@ -1,0 +1,208 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T08:01:47.474896
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_mondo.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+#### Overall Purpose and High-Level Flow
+The pipeline is designed to import and process Mondo ontology data. It follows a linear, sequential flow, starting with parameter validation and ending with a Slack notification upon successful completion. The main steps include downloading the latest Mondo OBO file from GitHub, normalizing the terms using Spark, indexing the data into Elasticsearch, and publishing the results. The pipeline ensures that each step must succeed before the next one begins, with no parallel execution or branching.
+
+#### Key Patterns and Complexity
+- **Sequential Flow**: The pipeline follows a strict linear sequence with no parallelism or branching.
+- **Version-Aware Downloading**: The download step includes version checking to avoid redundant processing.
+- **Spark Processing**: Spark is used for both normalization and indexing tasks, leveraging Kubernetes for execution.
+- **S3 Integration**: Data is stored and retrieved from an S3 datalake.
+- **Elasticsearch Indexing**: The normalized data is indexed into Elasticsearch for search and query capabilities.
+- **Slack Notification**: A final step sends a notification to a Slack webhook upon successful completion.
+
+### Pipeline Architecture
+
+#### Flow Patterns
+- **Sequential**: The pipeline executes tasks in a linear sequence, with each task depending on the success of the previous one.
+
+#### Execution Characteristics
+- **Task Executor Types**: Python, Spark, Kubernetes
+- **No Branching or Parallelism**: The pipeline does not include branching or parallel execution paths.
+- **No Sensors**: No sensor tasks are used to monitor external conditions.
+
+#### Component Overview
+- **QualityCheck**: Validates pipeline parameters.
+- **Extractor**: Downloads data from external sources.
+- **Transformer**: Processes and normalizes data.
+- **Loader**: Loads data into target systems.
+- **Notifier**: Sends notifications upon pipeline completion.
+
+#### Flow Description
+- **Entry Point**: The pipeline starts with the `params_validate` component.
+- **Main Sequence**:
+  1. **params_validate**: Validates the color parameter.
+  2. **download_mondo_terms**: Downloads the latest Mondo OBO file from GitHub and uploads it to S3.
+  3. **normalized_mondo_terms**: Normalizes the Mondo terms using Spark.
+  4. **index_mondo_terms**: Indexes the normalized terms into Elasticsearch.
+  5. **publish_mondo**: Publishes the indexed data.
+  6. **slack**: Sends a Slack notification upon successful completion.
+
+### Detailed Component Analysis
+
+#### Validate Parameters
+- **Purpose and Category**: Validates the color parameter to ensure proper environment targeting and configuration.
+- **Executor Type and Configuration**: Python
+- **Inputs**: DAG parameters (color)
+- **Outputs**: Validation result
+- **Retry Policy and Concurrency Settings**: No retries, no parallelism
+- **Connected Systems**: Internal parameter validation system
+
+#### Download Mondo Terms
+- **Purpose and Category**: Downloads the latest Mondo OBO file from GitHub releases and uploads it to S3, with version checking to skip if already up-to-date.
+- **Executor Type and Configuration**: Python
+- **Inputs**: GitHub Mondo releases page, current S3 file version
+- **Outputs**: Mondo OBO file in S3, version pushed to XCom
+- **Retry Policy and Concurrency Settings**: No retries, no parallelism
+- **Connected Systems**: GitHub releases, S3 datalake
+
+#### Normalize Mondo Terms
+- **Purpose and Category**: Normalizes and processes Mondo ontology terms using Spark transformation to prepare for indexing.
+- **Executor Type and Configuration**: Spark
+- **Inputs**: Mondo OBO file from S3
+- **Outputs**: Processed terms in public/mondo_terms location
+- **Retry Policy and Concurrency Settings**: No retries, supports parallelism
+- **Connected Systems**: S3 datalake, Kubernetes
+
+#### Index Mondo Terms
+- **Purpose and Category**: Indexes the normalized Mondo terms into Elasticsearch for search and query capabilities.
+- **Executor Type and Configuration**: Spark
+- **Inputs**: Normalized terms from previous Spark job
+- **Outputs**: Elasticsearch index with Mondo ontology data
+- **Retry Policy and Concurrency Settings**: No retries, no parallelism
+- **Connected Systems**: S3 datalake, Elasticsearch, Kubernetes
+
+#### Publish Mondo Data
+- **Purpose and Category**: Publishes the indexed Mondo data to make it available for consumption by downstream systems.
+- **Executor Type and Configuration**: Python
+- **Inputs**: Indexed Mondo terms from Elasticsearch
+- **Outputs**: Published Mondo dataset
+- **Retry Policy and Concurrency Settings**: No retries, no parallelism
+- **Connected Systems**: Elasticsearch, internal publishing system
+
+#### Send Slack Notification
+- **Purpose and Category**: Sends a Slack notification upon successful pipeline completion.
+- **Executor Type and Configuration**: Python
+- **Inputs**: Pipeline completion status
+- **Outputs**: Slack notification message
+- **Retry Policy and Concurrency Settings**: No retries, no parallelism
+- **Connected Systems**: Slack webhook
+
+### Parameter Schema
+
+#### Pipeline-Level Parameters
+- **name**: Pipeline identifier (string, required)
+- **description**: Comprehensive Pipeline Description (string, optional)
+- **tags**: Classification tags (array, optional)
+
+#### Schedule Configuration
+- **enabled**: Whether pipeline runs on schedule (boolean, optional)
+- **cron_expression**: Cron or preset (string, optional)
+- **start_date**: When to start scheduling (datetime, optional)
+- **end_date**: When to stop scheduling (datetime, optional)
+- **timezone**: Schedule timezone (string, optional)
+- **catchup**: Run missed intervals (boolean, optional)
+- **batch_window**: Batch window parameter name (string, optional)
+- **partitioning**: Data partitioning strategy (string, optional)
+
+#### Execution Settings
+- **max_active_runs**: Max concurrent pipeline runs (integer, optional)
+- **timeout_seconds**: Pipeline execution timeout (integer, optional)
+- **retry_policy**: Pipeline-level retry behavior (object, optional)
+- **depends_on_past**: Whether execution depends on previous run success (boolean, optional)
+
+#### Component-Specific Parameters
+- **params_validate**:
+  - **color**: Color parameter for environment targeting and configuration (string, required)
+- **download_mondo_terms**:
+  - **s3_conn_id**: S3 connection ID from configuration (string, required)
+  - **file_version**: Current S3 file version for version checking (string, optional)
+- **normalized_mondo_terms**:
+  - **k8s_context**: Kubernetes context for Spark transformation (string, required)
+  - **spark_class**: Spark class for normalization (string, required)
+  - **spark_config**: Spark configuration for normalization (string, required)
+- **index_mondo_terms**:
+  - **k8s_context**: Kubernetes context for indexing (string, required)
+  - **spark_class**: Spark class for indexing (string, required)
+  - **spark_config**: Spark configuration for indexing (string, required)
+- **publish_mondo**:
+  - **version**: Version from download task (string, required)
+  - **color**: Color parameter for environment-specific publishing (string, required)
+  - **spark_jar**: Spark JAR for publishing (string, required)
+- **slack**:
+  - **on_success_callback**: Callback function for Slack notification on success (string, required)
+
+#### Environment Variables
+- **S3_CONN_ID**: S3 connection ID from configuration (string, required)
+- **ES_URL**: Elasticsearch URL (string, required)
+
+### Integration Points
+
+#### External Systems and Connections
+- **GitHub Mondo Releases**: API connection to download the latest Mondo OBO file.
+- **S3 Datalake**: Object storage for storing and retrieving the Mondo OBO file and processed terms.
+- **Elasticsearch**: Database for indexing the normalized Mondo terms.
+- **Slack Webhook**: API for sending notifications upon pipeline completion.
+
+#### Data Sources and Sinks
+- **Sources**:
+  - GitHub Mondo Releases (https://github.com/monarch-initiative/mondo/releases)
+  - S3 Datalake (cqgc-{env}-app-datalake/raw/landing/mondo/mondo.obo)
+- **Sinks**:
+  - Elasticsearch (mondo_terms_index)
+  - Slack Webhook (notification)
+- **Intermediate Datasets**:
+  - S3 Datalake (cqgc-{env}-app-datalake/public/mondo_terms)
+
+#### Authentication Methods
+- **GitHub Mondo Releases**: No authentication
+- **S3 Datalake**: IAM authentication
+- **Elasticsearch**: No authentication
+- **Slack Webhook**: Token-based authentication
+
+#### Data Lineage
+- **Sources**: GitHub Mondo Releases, S3 Datalake
+- **Sinks**: Elasticsearch, Slack Webhook
+- **Intermediate Datasets**: S3 Datalake
+
+### Implementation Notes
+
+#### Complexity Assessment
+- **Low to Moderate**: The pipeline follows a simple, linear sequence with no complex branching or parallelism.
+- **Version-Aware Downloading**: The download step includes logic to skip processing if the file version has not changed, which adds a minor level of complexity.
+
+#### Upstream Dependency Policies
+- **All Success**: Each task must succeed for the pipeline to proceed to the next step.
+
+#### Retry and Timeout Configurations
+- **No Retries**: No retry policies are configured for any components.
+- **No Timeouts**: No explicit timeout settings are defined at the pipeline or component level.
+
+#### Potential Risks or Considerations
+- **Single Point of Failure**: The linear sequence means that a failure in any step will halt the pipeline.
+- **Version Checking**: The version-checking logic in the download step must be robust to avoid unnecessary processing.
+- **Resource Management**: The Spark tasks should be monitored for resource usage, especially during normalization and indexing.
+
+### Orchestrator Compatibility
+
+#### Assessment for Airflow, Prefect, Dagster
+- **Airflow**: The sequential flow and lack of parallelism make this pipeline straightforward to implement in Airflow. The Python and Spark operators can be used to execute the tasks.
+- **Prefect**: Prefect's flow-based approach and support for Python and Spark tasks make it a suitable orchestrator for this pipeline. The linear sequence can be easily defined using Prefect's task dependencies.
+- **Dagster**: Dagster's solid-based approach and support for Python and Spark tasks also make it a good fit. The linear sequence can be defined using Dagster's dependency graph.
+
+#### Pattern-Specific Considerations
+- **Sequential Flow**: All three orchestrators handle sequential flows well, with clear mechanisms for defining task dependencies.
+- **No Parallelism or Branching**: The lack of parallelism and branching simplifies the implementation in any orchestrator.
+- **Version-Aware Downloading**: The version-checking logic can be implemented using conditional tasks or custom logic in the download step.
+
+### Conclusion
+
+The Mondo ontology import pipeline is a straightforward, linear ETL process that ensures data integrity and efficient processing. The pipeline's simplicity and sequential nature make it compatible with various orchestrators, including Airflow, Prefect, and Dagster. Key considerations include robust version checking, resource management for Spark tasks, and ensuring that each step succeeds before proceeding to the next. The pipeline's design ensures that data is validated, downloaded, processed, indexed, and published in a controlled and reliable manner.

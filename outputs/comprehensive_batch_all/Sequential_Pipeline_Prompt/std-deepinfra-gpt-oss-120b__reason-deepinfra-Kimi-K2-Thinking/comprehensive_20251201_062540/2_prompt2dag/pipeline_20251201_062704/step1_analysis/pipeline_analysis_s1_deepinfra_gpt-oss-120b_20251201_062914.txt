@@ -1,0 +1,140 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-01T06:29:14.098367
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/Sequential_Pipeline_Prompt.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**ETL Pipeline Report**
+
+---
+
+### 1. Executive Summary
+- **Purpose** – The pipeline ingests raw CSV files, converts them to JSON, standardises city names, enriches the data with weather information, adds supplemental columns, and finally writes a fully‑enriched CSV file.  
+- **High‑level Flow** – A strictly sequential chain of five containerised components, each producing an intermediate file that becomes the input for the next step.  
+- **Key Patterns & Complexity** – The design follows a *sequential* pattern with no branching, parallelism, or sensors. All five components run in Docker containers on a shared network (`app_network`) and use a common mounted filesystem (`/app/data`). The pipeline is modest in size (5 components) and low in operational complexity (single‑attempt retries, no dynamic mapping).
+
+---
+
+### 2. Pipeline Architecture
+| Aspect | Details |
+|--------|---------|
+| **Flow Pattern** | Linear sequence: `Load → Reconcile → Enrich (OpenMeteo) → Extend Columns → Save`. |
+| **Executor Type** | All components use the **docker** executor. |
+| **Component Categories** | 1 × Extractor, 1 × Reconciliator, 2 × Enricher, 1 × Loader. |
+| **Entry Point** | `Load and Modify Data` (first component). |
+| **Main Sequence** | 1️⃣ Load CSV → JSON  → 2️⃣ Reconcile city names → 3️⃣ Add weather data → 4️⃣ Append extra columns → 5️⃣ Consolidate to final CSV. |
+| **Branching / Parallelism / Sensors** | None detected. |
+| **Network & Storage** | All containers share `app_network` and mount the same filesystem connection (`data_dir`) located at `/app/data`. |
+
+---
+
+### 3. Detailed Component Analysis  
+
+#### 3.1 Load and Modify Data  
+- **Category / Purpose** – *Extractor*: reads raw CSV files and creates JSON representations.  
+- **Executor** – Docker image `i2t-backendwithintertwino6-load-and-modify:latest`; default entrypoint; no custom command.  
+- **Inputs** – Files matching `${DATA_DIR}/*.csv` (mounted filesystem).  
+- **Outputs** – Files `table_data_*.json` stored in the same directory.  
+- **Retry Policy** – Single execution (`max_attempts: 1`).  
+- **Concurrency** – No parallelism or dynamic mapping.  
+- **Connected Systems** – Filesystem (`data_dir`), internal API `load-and-modify` (http://load-and-modify:3003), MongoDB (shared across all components).  
+
+#### 3.2 Data Reconciliation  
+- **Category / Purpose** – *Reconciliator*: normalises city names using HERE geocoding.  
+- **Executor** – Docker image `i2t-backendwithintertwino6-reconciliation:latest`.  
+- **Inputs** – `table_data_*.json`.  
+- **Outputs** – `reconciled_table_*.json`.  
+- **Retry Policy** – Single attempt.  
+- **Concurrency** – No parallelism.  
+- **Connected Systems** – Filesystem, HERE Geocoding API (`http://reconciliation:3003`) authenticated via `HERE_API_TOKEN`.  
+
+#### 3.3 OpenMeteo Data Extension  
+- **Category / Purpose** – *Enricher*: adds weather attributes from OpenMeteo.  
+- **Executor** – Docker image `i2t-backendwithintertwino6-openmeteo-extension:latest`.  
+- **Inputs** – `reconciled_table_*.json`.  
+- **Outputs** – `open_meteo_*.json`.  
+- **Retry Policy** – Single attempt.  
+- **Concurrency** – No parallelism.  
+- **Connected Systems** – Filesystem, OpenMeteo public API (`https://api.open-meteo.com/v1/forecast`).  
+
+#### 3.4 Column Extension  
+- **Category / Purpose** – *Enricher*: appends additional properties (e.g., id, name) as defined by the `extender_id`.  
+- **Executor** – Docker image `i2t-backendwithintertwino6-column-extension:latest`.  
+- **Inputs** – `open_meteo_*.json`.  
+- **Outputs** – `column_extended_*.json`.  
+- **Retry Policy** – Single attempt.  
+- **Concurrency** – No parallelism.  
+- **Connected Systems** – Filesystem; no external API beyond the shared MongoDB/Intertwino services.  
+
+#### 3.5 Save Final Data  
+- **Category / Purpose** – *Loader*: aggregates the column‑extended JSON files and writes the final enriched CSV.  
+- **Executor** – Docker image `i2t-backendwithintertwino6-save:latest`.  
+- **Inputs** – `column_extended_*.json`.  
+- **Outputs** – `enriched_data_*.csv` placed in `${DATA_DIR}` (default `/app/data`).  
+- **Retry Policy** – Single attempt.  
+- **Concurrency** – No parallelism.  
+- **Connected Systems** – Filesystem, MongoDB (read/write), Intertwino API (potential auxiliary calls).  
+
+---
+
+### 4. Parameter Schema  
+
+| Scope | Parameters |
+|-------|------------|
+| **Pipeline‑level** | `name` (string), `description` (string), `tags` (array). |
+| **Schedule** | Optional fields: `enabled` (bool), `cron_expression` (string), `start_date`, `end_date`, `timezone`, `catchup` (bool), `batch_window`, `partitioning`. No values are defined in the current configuration. |
+| **Execution** | `max_active_runs` (int), `timeout_seconds` (int), `retry_policy` (object), `depends_on_past` (bool) – all left undefined, implying defaults of the orchestrator. |
+| **Component‑specific** | • *Load*: `dataset_id` (int, default 2), `date_column_name` (string, default `Fecha_id`), `table_naming_convention` (string, default `JOT_{}`), `data_dir` (string, required at runtime). <br>• *Reconcile*: `primary_column` (`City`), `optional_columns` (`County`, `Country`), `reconciliator_id` (`geocodingHere`). <br>• *OpenMeteo*: `date_separator` (optional). <br>• *Extend Columns*: `extender_id` (`reconciledColumnExt`). <br>• *Save*: `output_dir` (`/app/data`). |
+| **Environment Variables** | `DATA_DIR` (path to shared volume – required by all components). <br>`HERE_API_TOKEN` (required for HERE service, consumed by *Reconcile*). |
+
+---
+
+### 5. Integration Points  
+
+| Integration | Type | Direction | Authentication | Role in Pipeline |
+|------------|------|-----------|----------------|------------------|
+| **Shared Data Directory Volume** (`data_dir_volume`) | Filesystem | Both (read/write) | None | Central storage for all intermediate and final files. |
+| **Load‑and‑Modify Service API** | HTTP API | Input | None | Provides transformation logic for the first component. |
+| **HERE Geocoding Reconciliation Service** | HTTP API | Input | Token (`HERE_API_TOKEN`) | Used by *Data Reconciliation* to standardise city names. |
+| **OpenMeteo Weather Service API** | HTTPS API | Input | None | Supplies weather attributes for *OpenMeteo Data Extension*. |
+| **MongoDB Instance** | Database | Both | None | Available to all components for any auxiliary data persistence. |
+| **Intertwino API** | HTTP API | Input | None | Accessible by all components; purpose not detailed but present in the environment. |
+| **Custom Docker Network** (`app_network`) | Network | Both | None | Ensures container‑to‑container communication. |
+
+**Data Lineage**  
+- **Sources**: Raw CSV files (`/app/data/*.csv`), HERE Geocoding service, OpenMeteo weather service.  
+- **Intermediate Datasets**: `table_data_*.json` → `reconciled_table_*.json` → `open_meteo_*.json` → `column_extended_*.json`.  
+- **Sink**: Final enriched CSV file `enriched_data_*.csv` written back to `/app/data`.
+
+---
+
+### 6. Implementation Notes  
+
+- **Complexity Assessment** – Low to moderate. The linear flow and single‑attempt retry policy keep operational overhead minimal. Absence of parallelism reduces resource contention but may increase total runtime for large file sets.  
+- **Upstream Dependency Policy** – Every component is gated by an *all_success* rule; a failure in any step halts downstream execution.  
+- **Retry & Timeout** – Each component is configured for a single execution (`max_attempts: 1`). No explicit timeout is set, so default executor limits apply. Consider adding retries for external API calls (HERE, OpenMeteo) to improve resilience.  
+- **Potential Risks** –  
+  1. **Single‑Attempt Execution** – Transient network glitches to external APIs could cause pipeline failure.  
+  2. **No Parallel Processing** – Large numbers of CSV files may lead to long wall‑clock times.  
+  3. **Hard‑coded Network & Volume** – Changes to Docker networking or volume paths require updates across all components.  
+  4. **Missing Environment Defaults** – `DATA_DIR` and `HERE_API_TOKEN` must be supplied at runtime; missing values will cause immediate failures.  
+
+---
+
+### 7. Orchestrator Compatibility  
+
+| Orchestrator | Compatibility Observations |
+|--------------|----------------------------|
+| **Airflow** | Supports Docker‑based execution, sequential dependencies, and environment variable injection. No DAG‑specific terminology used in this report. |
+| **Prefect** | Handles container tasks, linear flow definitions, and retry policies; can map the described components directly. |
+| **Dagster** | Provides solid asset‑centric pipelines; the sequential asset graph matches the described flow. |
+
+*All three platforms can represent the described sequential, container‑driven pipeline without requiring special constructs.*  
+
+---
+
+### 8. Conclusion  
+
+The pipeline delivers a clear, end‑to‑end data enrichment workflow using five Docker‑containerised components that operate on a shared filesystem. Its sequential design simplifies dependency management but limits scalability. Enhancements such as configurable retries for external services, optional parallel processing of independent files, and explicit timeout settings would increase robustness and performance while preserving the straightforward architecture. The pipeline is readily portable across major orchestration frameworks that support container execution and linear dependency graphs.

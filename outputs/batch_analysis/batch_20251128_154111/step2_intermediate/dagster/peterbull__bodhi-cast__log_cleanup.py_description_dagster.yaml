@@ -1,0 +1,135 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-11-28 15:45:20.475123
+  source_analysis_file: Pipeline_Description_Dataset/peterbull__bodhi-cast__log_cleanup.py_description.txt
+  pipeline_name: airflow-log-cleanup
+  pipeline_description: Comprehensive maintenance pipeline that periodically cleans up old Airflow log files to prevent 
+    disk space issues
+  orchestrator_specific:
+    job_name: airflow_log_cleanup
+    description: Comprehensive maintenance pipeline that periodically cleans up old Airflow log files to prevent disk 
+      space issues
+    executor_type: multiprocess_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - airflow_filesystem
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: days_ago(1)
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: airflow_base_log_folder
+    conn_type: fs_io_manager
+    description: Airflow Base Log Folder
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: airflow_base_log_folder
+      config:
+        base_path:
+        protocol: file
+  - conn_id: airflow_child_process_log_dir
+    conn_type: fs_io_manager
+    description: Airflow Child Process Log Directory
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: airflow_child_process_log_dir
+      config:
+        base_path:
+        protocol: file
+  - conn_id: worker_lock_file
+    conn_type: fs_io_manager
+    description: Worker Lock File
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: worker_lock_file
+      config:
+        base_path: /tmp/airflow_log_cleanup_worker.lock
+        protocol: file
+  - conn_id: airflow_variables_store
+    conn_type: resource
+    description: Airflow Variables Store
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: airflow_variables_store
+      config:
+        base_path:
+        protocol:
+  - conn_id: email_alert_system
+    conn_type: resource
+    description: Email Alert System
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: email_alert_system
+      config:
+        base_path:
+        protocol:
+tasks:
+  - task_id: start_log_cleanup
+    task_name: Start Log Cleanup
+    operator_class: Op
+    operator_module: dagster
+    component_ref: start_log_cleanup
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys: []
+      retry_policy:
+        max_retries: 1
+        delay: 60
+        backoff: CONSTANT
+      ins:
+        - name: dag_trigger
+          dagster_type: Any
+          description: ''
+      outs: []
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: cleanup_log_directory
+    task_name: Cleanup Log Directory
+    operator_class: Op
+    operator_module: dagster
+    component_ref: cleanup_log_directory
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - airflow_filesystem
+      retry_policy:
+        max_retries: 1
+        delay: 60
+        backoff: CONSTANT
+      ins:
+        - name: directory_input
+          dagster_type: String
+          description: '{directory}'
+      outs:
+        - name: cleaned_directory
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - start_log_cleanup
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []

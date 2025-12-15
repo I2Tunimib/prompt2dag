@@ -1,0 +1,251 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-11-28 14:38:10.488848
+  source_analysis_file: 
+    Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__mahidol_aqi_report_pipeline_alert.py_description.txt
+  pipeline_name: PM2.5_Risk_Alert_Pipeline
+  pipeline_description: Comprehensive ETL pipeline that scrapes Mahidol University AQI data, processes HTML to extract 
+    air quality metrics, loads structured data into PostgreSQL, and sends email alerts when PM2.5 levels exceed safe 
+    thresholds
+  orchestrator_specific:
+    job_name: pm2.5_risk_alert_pipeline
+    description: Comprehensive ETL pipeline that scrapes Mahidol University AQI data, processes HTML to extract air 
+      quality metrics, loads structured data into PostgreSQL, and sends email alerts when PM2.5 levels exceed safe 
+      thresholds
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - smtp_conn
+      - postgres_conn
+      - http_mahidol
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: mahidol_aqi_website
+    conn_type: resource
+    description: Mahidol University AQI Website
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: mahidol_aqi_website
+      config:
+        base_url: https://mahidol.ac.th/aqireport/
+        host:
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_path:
+  - conn_id: local_filesystem_data
+    conn_type: fs_io_manager
+    description: Local Data Directory
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: local_filesystem_data
+      config:
+        base_path: data
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: postgres_data_warehouse
+    conn_type: resource
+    description: PostgreSQL Data Warehouse
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: postgres_data_warehouse
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: jdbc
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: local_config_files
+    conn_type: fs_io_manager
+    description: Local Configuration Files
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: local_config_files
+      config:
+        base_path: /opt/airflow/config
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: gmail_smtp_server
+    conn_type: resource
+    description: Gmail SMTP Server
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: gmail_smtp_server
+      config:
+        base_url:
+        host: smtp.gmail.com
+        port: 587
+        protocol: smtp
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_path:
+        username: EnvVar('EMAIL_USERNAME')
+        password: EnvVar('EMAIL_PASSWORD')
+tasks:
+  - task_id: extract_mahidol_aqi
+    task_name: Extract Mahidol AQI Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: extract_mahidol_aqi
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - http_mahidol
+      retry_policy:
+        max_retries: 3
+        delay: 30
+        backoff: EXPONENTIAL
+      ins:
+        - name: mahidol_aqi_url
+          dagster_type: String
+          description: https://mahidol.ac.th/aqireport/
+      outs:
+        - name: html_output
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 3
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: parse_mahidol_aqi_html
+    task_name: Parse Mahidol AQI HTML
+    operator_class: Op
+    operator_module: dagster
+    component_ref: parse_mahidol_aqi_html
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - postgres_conn
+      retry_policy:
+        max_retries: 3
+        delay: 30
+        backoff: EXPONENTIAL
+      ins:
+        - name: html_input
+          dagster_type: String
+          description: data/mahidol_aqi.html
+      outs:
+        - name: json_output
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - extract_mahidol_aqi
+    trigger_rule: default
+    retries: 3
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: load_mahidol_aqi_postgres
+    task_name: Load Mahidol AQI to PostgreSQL
+    operator_class: Op
+    operator_module: dagster
+    component_ref: load_mahidol_aqi_postgres
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - postgres_conn
+      retry_policy:
+        max_retries: 3
+        delay: 60
+        backoff: EXPONENTIAL
+      ins:
+        - name: json_input
+          dagster_type: String
+          description: data/tmp_mahidol.json
+        - name: config_input
+          dagster_type: String
+          description: /opt/airflow/config/mapping_main_pollution.json
+      outs:
+        - name: postgres_tables
+          dagster_type: String
+          description: Output to postgres_conn
+    upstream_task_ids:
+      - parse_mahidol_aqi_html
+    trigger_rule: default
+    retries: 3
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: send_pm25_alert_email
+    task_name: Send PM2.5 Alert Email
+    operator_class: Op
+    operator_module: dagster
+    component_ref: send_pm25_alert_email
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - smtp_conn
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: json_data
+          dagster_type: String
+          description: data/tmp_mahidol.json
+        - name: email_config
+          dagster_type: String
+          description: /opt/airflow/config/config.conf
+        - name: recipient_list
+          dagster_type: String
+          description: pm25_alert_emails.txt
+      outs: []
+    upstream_task_ids:
+      - load_mahidol_aqi_postgres
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

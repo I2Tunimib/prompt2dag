@@ -1,0 +1,300 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-02 13:01:55.824869
+  source_analysis_file: Pipeline_Description_Dataset/Sequential_Pipeline_Prompt.txt
+  pipeline_name: load_and_modify_data_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    flow_name: load_and_modify_data_pipeline
+    deployment_name: load_and_modify_data_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir
+    conn_type: LocalFileSystem
+    description: Shared Data Directory
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: data_dir
+      config:
+        base_path: /app/data
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: load_and_modify_service
+    conn_type: Secret
+    description: Load‑and‑Modify Service API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: load_and_modify_service
+      config:
+        base_path:
+        base_url: http://load-modify-service:3003
+        host: load-modify-service
+        port: 3003
+        protocol: http
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: reconciliation_service
+    conn_type: Secret
+    description: Reconciliation Service API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: reconciliation_service
+      config:
+        base_path:
+        base_url: http://reconciliation-service:3003
+        host: reconciliation-service
+        port: 3003
+        protocol: http
+        database:
+        schema:
+        bucket:
+        queue_name:
+        token_secret_name: RECONCILIATION_API_TOKEN
+  - conn_id: here_geocoding_service
+    conn_type: Secret
+    description: HERE Geocoding API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: here_geocoding_service
+      config:
+        base_path:
+        base_url: https://geocode.search.hereapi.com
+        host: geocode.search.hereapi.com
+        port: 443
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+        token_secret_name: HERE_API_TOKEN
+  - conn_id: openmeteo_api
+    conn_type: Secret
+    description: OpenMeteo Weather API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: openmeteo_api
+      config:
+        base_path:
+        base_url: https://api.open-meteo.com
+        host: api.open-meteo.com
+        port: 443
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: mongodb
+    conn_type: Secret
+    description: MongoDB Instance
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: mongodb
+      config:
+        base_path:
+        base_url:
+        host: mongodb
+        port: 27017
+        protocol: mongodb
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: intertwino_api
+    conn_type: Secret
+    description: Intertwino API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: intertwino_api
+      config:
+        base_path:
+        base_url: http://intertwino-api:5005
+        host: intertwino-api
+        port: 5005
+        protocol: http
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: app_network
+    conn_type: Secret
+    description: Custom Docker Network
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: app_network
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol:
+        database:
+        schema:
+        bucket:
+        queue_name:
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: load_and_modify_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-load-and-modify:latest
+          env:
+            DATA_DIR: /app/data
+            DATASET_ID: '2'
+            DATE_COLUMN: Fecha_id
+            TABLE_NAMING: JOT_{}
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 60
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: reconcile_city_names
+    task_name: Data Reconciliation
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: reconcile_city_names
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-reconciliation:latest
+          env:
+            RECONCILIATOR_ID: geocodingHere
+            PRIMARY_COLUMN: City
+            OPTIONAL_COLUMNS: County,Country
+            API_TOKEN: <HERE_API_TOKEN>
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 60
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: enrich_with_openmeteo
+    task_name: OpenMeteo Data Extension
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: enrich_with_openmeteo
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-openmeteo-extension:latest
+          env:
+            WEATHER_ATTRIBUTES: apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_hours
+            DATE_SEPARATOR: '-'
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 60
+    upstream_task_ids:
+      - reconcile_city_names
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: extend_columns
+    task_name: Column Extension
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: extend_columns
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-column-extension:latest
+          env:
+            EXTENDER_ID: reconciledColumnExt
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 60
+    upstream_task_ids:
+      - enrich_with_openmeteo
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: save_final_data
+    task_name: Save Final Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: save_final_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-save:latest
+          env:
+            OUTPUT_DIR: /app/data
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 60
+    upstream_task_ids:
+      - extend_columns
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

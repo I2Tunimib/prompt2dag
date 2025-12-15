@@ -1,0 +1,185 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-01T04:51:32.034268
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/Multilingual_Product_Review.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+#### Overall Purpose and High-Level Flow
+The pipeline is designed to enrich multilingual product reviews with language verification, sentiment analysis, and key feature extraction. The process starts by ingesting a CSV file containing reviews, standardizing the data, and converting it to JSON. Subsequent steps include language detection, sentiment analysis, and category extraction. The final step exports the fully enriched data to a CSV file.
+
+#### Key Patterns and Complexity
+The pipeline follows a sequential pattern, with each component executing in a linear sequence. There is no branching, parallelism, or sensor-based execution. The complexity is moderate, primarily due to the sequential nature and the use of Docker containers for each transformation step.
+
+### Pipeline Architecture
+
+#### Flow Patterns
+- **Sequential**: The pipeline executes tasks in a linear sequence, with each task waiting for the previous one to succeed before starting.
+
+#### Execution Characteristics
+- **Task Executor Types**: Docker containers are used to execute all tasks.
+
+#### Component Overview
+- **Transformer**: Components that modify or enrich data (e.g., `Load and Modify Data`, `Language Detection`, `Sentiment Analysis`, `Category Extraction`).
+- **Loader**: Component that exports the final data (e.g., `Save Final Data`).
+
+#### Flow Description
+- **Entry Points**: The pipeline starts with the `Load and Modify Data` component.
+- **Main Sequence**: The main sequence of tasks is as follows:
+  1. `Load and Modify Data` → `Language Detection` → `Sentiment Analysis` → `Category Extraction` → `Save Final Data`
+- **Branching/Parallelism/Sensors**: None present.
+
+### Detailed Component Analysis
+
+#### Load and Modify Data
+- **Purpose and Category**: Ingests review CSV, standardizes date formats, and converts to JSON.
+- **Executor Type and Configuration**: Docker container with the image `i2t-backendwithintertwino6-load-and-modify:latest`.
+- **Inputs and Outputs**:
+  - Input: `reviews.csv` from `DATA_DIR`
+  - Output: `table_data_2.json` to `DATA_DIR`
+- **Retry Policy and Concurrency Settings**:
+  - Retry Policy: 1 attempt, no delay, no exponential backoff, retries on timeout and network errors.
+  - Concurrency: No parallelism or dynamic mapping.
+- **Connected Systems**: Filesystem connection to `DATA_DIR`.
+
+#### Language Detection
+- **Purpose and Category**: Verifies or corrects the language_code using language detection algorithms.
+- **Executor Type and Configuration**: Docker container with the image `jmockit/language-detection`.
+- **Inputs and Outputs**:
+  - Input: `table_data_2.json` from `DATA_DIR`
+  - Output: `lang_detected_2.json` to `DATA_DIR`
+- **Retry Policy and Concurrency Settings**:
+  - Retry Policy: 1 attempt, no delay, no exponential backoff, retries on timeout and network errors.
+  - Concurrency: No parallelism or dynamic mapping.
+- **Connected Systems**: Filesystem connection to `DATA_DIR`.
+
+#### Sentiment Analysis
+- **Purpose and Category**: Determines sentiment of reviews using LLM.
+- **Executor Type and Configuration**: Docker container with the image `huggingface/transformers-inference`.
+- **Inputs and Outputs**:
+  - Input: `lang_detected_2.json` from `DATA_DIR`
+  - Output: `sentiment_analyzed_2.json` to `DATA_DIR`
+- **Retry Policy and Concurrency Settings**:
+  - Retry Policy: 1 attempt, no delay, no exponential backoff, retries on timeout and network errors.
+  - Concurrency: No parallelism or dynamic mapping.
+- **Connected Systems**: Filesystem connection to `DATA_DIR`.
+
+#### Category Extraction
+- **Purpose and Category**: Extracts product features or categories from reviews.
+- **Executor Type and Configuration**: Docker container with the image `i2t-backendwithintertwino6-column-extension:latest`.
+- **Inputs and Outputs**:
+  - Input: `sentiment_analyzed_2.json` from `DATA_DIR`
+  - Output: `column_extended_2.json` to `DATA_DIR`
+- **Retry Policy and Concurrency Settings**:
+  - Retry Policy: 1 attempt, no delay, no exponential backoff, retries on timeout and network errors.
+  - Concurrency: No parallelism or dynamic mapping.
+- **Connected Systems**: Filesystem connection to `DATA_DIR`.
+
+#### Save Final Data
+- **Purpose and Category**: Exports the fully enriched review data to CSV.
+- **Executor Type and Configuration**: Docker container with the image `i2t-backendwithintertwino6-save:latest`.
+- **Inputs and Outputs**:
+  - Input: `column_extended_2.json` from `DATA_DIR`
+  - Output: `enriched_data_2.csv` to `DATA_DIR`
+- **Retry Policy and Concurrency Settings**:
+  - Retry Policy: 1 attempt, no delay, no exponential backoff, retries on timeout and network errors.
+  - Concurrency: No parallelism or dynamic mapping.
+- **Connected Systems**: Filesystem connection to `DATA_DIR`.
+
+### Parameter Schema
+
+#### Pipeline-Level Parameters
+- **Name**: Pipeline identifier (required, unique)
+- **Description**: Pipeline description (optional)
+- **Tags**: Classification tags (optional)
+
+#### Schedule Configuration
+- **Enabled**: Whether the pipeline runs on schedule (optional)
+- **Cron Expression**: Schedule timing (optional)
+- **Start Date**: When to start scheduling (optional)
+- **End Date**: When to stop scheduling (optional)
+- **Timezone**: Schedule timezone (optional)
+- **Catchup**: Run missed intervals (optional)
+- **Batch Window**: Batch window parameter name (optional)
+- **Partitioning**: Data partitioning strategy (optional)
+
+#### Execution Settings
+- **Max Active Runs**: Max concurrent pipeline runs (optional)
+- **Timeout Seconds**: Pipeline execution timeout (optional)
+- **Retry Policy**: Pipeline-level retry behavior (optional)
+- **Depends on Past**: Whether execution depends on previous run success (optional)
+
+#### Component-Specific Parameters
+- **Load and Modify Data**:
+  - `DATASET_ID`: Identifier for the dataset (required)
+  - `DATE_COLUMN`: Name of the column containing dates (required)
+  - `TABLE_NAME_PREFIX`: Prefix for the output table name (required)
+- **Language Detection**:
+  - `TEXT_COLUMN`: Name of the column containing text to be analyzed (required)
+  - `LANG_CODE_COLUMN`: Name of the column containing language codes (required)
+  - `OUTPUT_FILE`: Name of the output file (required)
+- **Sentiment Analysis**:
+  - `MODEL_NAME`: Name of the model to be used for sentiment analysis (required)
+  - `TEXT_COLUMN`: Name of the column containing text to be analyzed (required)
+  - `OUTPUT_COLUMN`: Name of the column to store the sentiment score (required)
+- **Category Extraction**:
+  - `EXTENDER_ID`: Identifier for the category extraction process (required)
+  - `TEXT_COLUMN`: Name of the column containing text to be analyzed (required)
+  - `OUTPUT_COLUMN`: Name of the column to store the extracted features (required)
+- **Save Final Data**:
+  - `DATASET_ID`: Identifier for the dataset (required)
+
+#### Environment Variables
+- **DATA_DIR**: Directory for data files (required)
+
+### Integration Points
+
+#### External Systems and Connections
+- **Data Directory**: Filesystem connection for data files.
+- **JSON Data**: Filesystem connection for intermediate JSON files.
+
+#### Data Sources and Sinks
+- **Sources**: `reviews.csv` from `DATA_DIR`
+- **Sinks**: `enriched_data_2.csv` in `DATA_DIR`
+- **Intermediate Datasets**: `table_data_2.json`, `lang_detected_2.json`, `sentiment_analyzed_2.json`, `column_extended_2.json`
+
+#### Authentication Methods
+- **None**: No authentication required for filesystem connections.
+
+#### Data Lineage
+- **Sources**: `reviews.csv` from `DATA_DIR`
+- **Sinks**: `enriched_data_2.csv` in `DATA_DIR`
+- **Intermediate Datasets**: `table_data_2.json`, `lang_detected_2.json`, `sentiment_analyzed_2.json`, `column_extended_2.json`
+
+### Implementation Notes
+
+#### Complexity Assessment
+The pipeline has a moderate complexity level due to the sequential nature of the tasks and the use of Docker containers for each transformation step.
+
+#### Upstream Dependency Policies
+Each component waits for all upstream tasks to succeed before starting, ensuring data integrity and consistency.
+
+#### Retry and Timeout Configurations
+Each component has a retry policy with a single attempt and no delay or exponential backoff. Retries are triggered on timeouts and network errors.
+
+#### Potential Risks or Considerations
+- **Single Attempt Retries**: This may lead to data loss or processing failures if the issue is not transient.
+- **Sequential Execution**: This can lead to longer overall pipeline execution times, especially if any single step is resource-intensive.
+- **Resource Allocation**: Each Docker container is allocated 1 CPU and 2Gi of memory, which should be sufficient for the tasks but may need adjustment based on actual resource usage.
+
+### Orchestrator Compatibility
+
+#### Assessment for Airflow, Prefect, Dagster
+- **Airflow**: The sequential pattern and Docker executor type are well-supported. The lack of branching and parallelism simplifies the implementation.
+- **Prefect**: Prefect supports sequential flows and Docker tasks, making it a suitable orchestrator for this pipeline.
+- **Dagster**: Dagster can handle sequential flows and Docker tasks, and its strong data lineage tracking capabilities align well with the pipeline's requirements.
+
+#### Pattern-Specific Considerations
+- **Sequential Pattern**: All orchestrators handle sequential flows efficiently.
+- **Docker Executor**: All orchestrators support Docker tasks, but configuration details may vary.
+
+### Conclusion
+The pipeline is designed to enrich multilingual product reviews through a series of sequential transformations. It leverages Docker containers for each step, ensuring consistency and isolation. The pipeline's moderate complexity and sequential nature make it compatible with various orchestrators, including Airflow, Prefect, and Dagster. The key considerations for implementation include the single-attempt retry policy and the potential for longer execution times due to the sequential flow.

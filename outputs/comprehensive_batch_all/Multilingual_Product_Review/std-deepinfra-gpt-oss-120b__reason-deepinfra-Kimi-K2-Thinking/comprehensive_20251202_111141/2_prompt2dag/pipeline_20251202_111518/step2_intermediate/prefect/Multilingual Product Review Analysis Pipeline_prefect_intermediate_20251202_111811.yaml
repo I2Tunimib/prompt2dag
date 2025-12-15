@@ -1,0 +1,180 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-02 11:18:11.588389
+  source_analysis_file: Pipeline_Description_Dataset/Multilingual_Product_Review.txt
+  pipeline_name: Multilingual Product Review Analysis Pipeline
+  pipeline_description: Enriches product reviews with language verification, sentiment, and key feature extraction using
+    LLM capabilities for deeper customer insight.
+  orchestrator_specific:
+    flow_name: multilingual_product_review_analysis_pipeline
+    deployment_name: multilingual_product_review_analysis_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir_volume
+    conn_type: LocalFileSystem
+    description: Shared Data Directory Volume
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: data_dir_volume
+      config:
+        base_path: /data
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: app_network
+    conn_type: Secret
+    description: Custom Docker Network
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: app_network
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol:
+        database:
+        schema:
+        bucket:
+        queue_name:
+tasks:
+  - task_id: load_and_modify_reviews
+    task_name: Load and Modify Reviews
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: load_and_modify_reviews
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-load-and-modify:latest
+          env: {}
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: detect_review_language
+    task_name: Detect Review Language
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: detect_review_language
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: jmockit/language-detection
+          env: {}
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - load_and_modify_reviews
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: analyze_sentiment
+    task_name: Sentiment Analysis
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: analyze_sentiment
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: huggingface/transformers-inference
+          env: {}
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - detect_review_language
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: extract_review_features
+    task_name: Extract Review Features
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: extract_review_features
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-column-extension:latest
+          env: {}
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - analyze_sentiment
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: save_enriched_reviews
+    task_name: Save Enriched Reviews
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: save_enriched_reviews
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-save:latest
+          env: {}
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - extract_review_features
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

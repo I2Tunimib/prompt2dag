@@ -1,0 +1,205 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 02:17:02.829099
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_linear_01_report_generation.py_description.txt
+  pipeline_name: Daily Sales Report
+  pipeline_description: Sequential linear pipeline that generates daily sales reports by querying PostgreSQL, converting
+    to CSV, creating a PDF chart, and emailing the report.
+  orchestrator_specific:
+    job_name: daily_sales_report
+    description: Sequential linear pipeline that generates daily sales reports by querying PostgreSQL, converting to 
+      CSV, creating a PDF chart, and emailing the report.
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - postgres_default
+      - email_smtp
+      - local_fs
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: postgres_sales_db
+    conn_type: resource
+    description: PostgreSQL Sales Database
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: postgres_sales_db
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: postgresql
+        database:
+        schema:
+        bucket:
+        queue_name:
+        username: EnvVar('POSTGRES_USER')
+        password: EnvVar('POSTGRES_PASSWORD')
+  - conn_id: local_tmp_fs
+    conn_type: fs_io_manager
+    description: Local Temporary Filesystem
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: local_tmp_fs
+      config:
+        base_path: /tmp
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: email_smtp_service
+    conn_type: resource
+    description: Email SMTP Service
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: email_smtp_service
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: smtp
+        database:
+        schema:
+        bucket:
+        queue_name:
+        username: EnvVar('SMTP_USER')
+        password: EnvVar('SMTP_PASSWORD')
+tasks:
+  - task_id: query_sales_data
+    task_name: Query Sales Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: query_sales_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - postgres_default
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins: []
+      outs:
+        - name: sales_query
+          dagster_type: String
+          description: Output to postgres_default
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: transform_to_csv
+    task_name: Transform Sales Data to CSV
+    operator_class: Op
+    operator_module: dagster
+    component_ref: transform_to_csv
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - local_fs
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins: []
+      outs:
+        - name: sales_csv
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - query_sales_data
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: generate_pdf_chart
+    task_name: Generate PDF Chart
+    operator_class: Op
+    operator_module: dagster
+    component_ref: generate_pdf_chart
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - local_fs
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins: []
+      outs:
+        - name: sales_chart_pdf
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - transform_to_csv
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: email_sales_report
+    task_name: Email Sales Report
+    operator_class: Op
+    operator_module: dagster
+    component_ref: email_sales_report
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - email_smtp
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: email_attachment_csv
+          dagster_type: String
+          description: /tmp/sales_report.csv
+        - name: email_attachment_pdf
+          dagster_type: String
+          description: /tmp/sales_chart.pdf
+      outs:
+        - name: email_delivery
+          dagster_type: String
+          description: Output to email_smtp
+    upstream_task_ids:
+      - generate_pdf_chart
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

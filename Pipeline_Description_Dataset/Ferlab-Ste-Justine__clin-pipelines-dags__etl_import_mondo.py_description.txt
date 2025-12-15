@@ -1,0 +1,93 @@
+[etl_import_mondo] - Comprehensive Pipeline Description
+
+Opening Summary:
+This is a linear sequential ETL pipeline for importing Mondo ontology data that downloads the Mondo OBO file from GitHub releases, normalizes terms using Spark processing, indexes the data to Elasticsearch, publishes results, and sends a Slack notification upon completion. The pipeline follows a strict linear topology pattern with no parallel execution and features version-aware downloading with skip logic, S3 integration for data storage, and Spark-based transformation and indexing.
+
+Pipeline Steps:
+
+1. params_validate
+  • Objective: Validate the color parameter to ensure proper environment targeting and configuration.
+  • Technical Details:
+    - Input: DAG parameters (color)
+    - Output: Validation result that gates downstream execution
+    - Integrations: Internal parameter validation system
+    - Key Parameters: color parameter validation
+  • Operator or Mechanism: PythonOperator (validate_color function)
+  • Notes: First step in chain that must succeed for pipeline to proceed
+
+2. download_mondo_terms
+  • Objective: Download the latest Mondo OBO file from GitHub releases and upload to S3, with version checking to skip if already up-to-date.
+  • Technical Details:
+    - Input: GitHub Mondo releases page, current S3 file version
+    - Output: mondo.obo file in S3, version pushed to XCom
+    - Integrations: GitHub releases (https://github.com/monarch-initiative/mondo/releases), S3 (cqgc-{env}-app-datalake/raw/landing/mondo/)
+    - Key Parameters: s3_conn_id from config, file version tracking via XCom
+  • Operator or Mechanism: PythonOperator (download function)
+  • Notes: Includes skip logic if version unchanged; pushes version to XCom for downstream tasks
+
+3. normalized_mondo_terms
+  • Objective: Normalize and process Mondo ontology terms using Spark transformation to prepare for indexing.
+  • Technical Details:
+    - Input: Mondo OBO file from S3 (via download_mondo_terms version)
+    - Output: Processed terms in public/mondo_terms location
+    - Integrations: Spark on Kubernetes (ETL context), S3 data lake
+    - Key Parameters: k8s_context=K8sContext.ETL, spark_class='bio.ferlab.HPOMain', spark_config='config-etl-medium'
+  • Operator or Mechanism: SparkOperator
+  • Notes: Uses obo_parser_spark_jar; processes mondo-base.obo with specific exclusion term 'MONDO:0700096'
+
+4. index_mondo_terms
+  • Objective: Index the normalized Mondo terms into Elasticsearch for search and query capabilities.
+  • Technical Details:
+    - Input: Normalized terms from previous Spark job
+    - Output: Elasticsearch index with Mondo ontology data
+    - Integrations: Elasticsearch (es_url), S3 data source, indexer Kubernetes context
+    - Key Parameters: k8s_context=indexer_context, spark_class='bio.ferlab.clin.etl.es.Indexer', spark_config='config-etl-singleton'
+  • Operator or Mechanism: SparkOperator
+  • Notes: Uses mondo_terms_template.json for index mapping; references environment config
+
+5. publish_mondo
+  • Objective: Publish the indexed Mondo data to make it available for consumption by downstream systems.
+  • Technical Details:
+    - Input: Indexed Mondo terms from Elasticsearch
+    - Output: Published Mondo dataset
+    - Integrations: Internal publishing system, color-based environment targeting
+    - Key Parameters: Version from download task, color parameter, spark_jar
+  • Operator or Mechanism: PipelineOperator (publish_index.mondo function)
+  • Notes: Uses version and color parameters for environment-specific publishing
+
+6. slack
+  • Objective: Send Slack notification upon successful pipeline completion.
+  • Technical Details:
+    - Input: Pipeline completion status
+    - Output: Slack notification message
+    - Integrations: Slack workspace via webhook
+    - Key Parameters: on_success_callback=Slack.notify_dag_completion
+  • Operator or Mechanism: EmptyOperator
+  • Notes: Final step that triggers success notification
+
+Orchestration & Scheduling:
+- Schedule: None (manually triggered)
+- Start_date: January 1, 2022
+- Catchup: Not specified (defaults to False)
+- Max_active_runs: 1
+- Max_active_tasks: 1
+- Default_args: trigger_rule=TriggerRule.NONE_FAILED, on_failure_callback=Slack.notify_task_failure
+
+Infrastructure & Dependencies:
+- Connections/IDs: s3_conn_id from config, Elasticsearch (es_url)
+- Kubernetes Contexts: K8sContext.ETL for normalization, indexer_context for indexing
+- Spark Configs: config-etl-medium (normalization), config-etl-singleton (indexing)
+- Data I/O: S3 bucket cqgc-{env}-app-datalake, paths: raw/landing/mondo/ (input), public/mondo_terms (output)
+- External Systems: GitHub Mondo releases, Elasticsearch, Slack
+
+Failure Handling & Alerts:
+- Failure callback: Slack.notify_task_failure for individual task failures
+- Success callback: Slack.notify_dag_completion for pipeline completion
+- Trigger rule: NONE_FAILED ensures downstream tasks only run if predecessors succeed
+- Retry policies: Not explicitly specified in visible code
+
+Pattern-Specific Notes:
+- Linear sequential pattern with strict task dependencies
+- Version-aware downloading with automatic skip logic for unchanged files
+- Environment-aware execution using color parameter for targeting specific deployments
+- ETL stages: Extract (download from GitHub) → Transform (Spark normalization) → Load (Elasticsearch indexing) → Publish (make available) → Notify (Slack)

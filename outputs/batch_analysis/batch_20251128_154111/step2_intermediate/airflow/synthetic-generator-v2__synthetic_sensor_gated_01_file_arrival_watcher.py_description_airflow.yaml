@@ -1,0 +1,79 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 15:50:11.297389
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_sensor_gated_01_file_arrival_watcher.py_description.txt
+  pipeline_name: file_arrival_watcher
+  pipeline_description: This sensor-gated pipeline monitors for daily transaction file arrivals, validates their schema,
+    and loads data to PostgreSQL.
+  orchestrator_specific: {}
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: incoming_files
+    conn_type: fs
+    description: Incoming Transaction Files
+    config:
+      base_path: /data/incoming
+      protocol: file
+  - conn_id: postgres_db
+    conn_type: generic
+    description: PostgreSQL Database
+    config:
+      host: localhost
+      port: 5432
+      database:
+      schema: public
+tasks:
+  - task_id: wait_for_file
+    task_name: Wait for File Arrival
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: wait_for_file
+    config:
+      image: apache/airflow:2.0.0
+      environment: {}
+      cpus: '0.5'
+      mem_limit: 512Mi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: validate_schema
+    task_name: Validate Transaction Schema
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: validate_schema
+    config:
+      python_callable: validate_schema.py
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - wait_for_file
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: load_db
+    task_name: Load Transactions to PostgreSQL
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: load_db
+    config:
+      python_callable: load_transactions.py
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - validate_schema
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

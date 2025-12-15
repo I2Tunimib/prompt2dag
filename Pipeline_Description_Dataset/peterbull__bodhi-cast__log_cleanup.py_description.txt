@@ -1,0 +1,54 @@
+[airflow-log-cleanup] - Comprehensive Pipeline Description
+
+Opening Summary:
+This is a maintenance DAG that periodically cleans up old Airflow log files to prevent disk space issues. The pipeline follows a fan-out pattern where multiple parallel workers execute log cleanup operations across different directories. Key infrastructure features include parallel BashOperator execution with worker coordination via lock files, configurable log age thresholds, and optional child process log directory cleanup.
+
+Pipeline Steps:
+
+1. start
+  • Objective: Initialize the log cleanup workflow as a starting point for all parallel workers
+  • Technical Details:
+    - Input: DAG trigger
+    - Output: Triggers all parallel log cleanup workers
+  • Operator or Mechanism: EmptyOperator
+  • Notes: Serves as the fan-out point for parallel execution
+
+2. Parallel Segment - Log Cleanup Workers
+  • Objective: Execute parallel log cleanup operations across multiple workers and directories
+  • Technical Details:
+    - Input: start task completion
+    - Output: Cleaned log directories, removal of old log files
+    - Integrations: Airflow core BASE_LOG_FOLDER, scheduler CHILD_PROCESS_LOG_DIRECTORY
+    - Key Parameters: 
+        - directory: target directory path from DIRECTORIES_TO_DELETE
+        - sleep_time: worker-specific delay (log_cleanup_id * 3 seconds) for staggered execution
+  • Operator or Mechanism: BashOperator
+  • Notes: 
+        - Creates N workers (NUMBER_OF_WORKERS) × M directories cleanup tasks
+        - Uses lock file (/tmp/airflow_log_cleanup_worker.lock) for worker coordination
+        - Each worker performs three-phase cleanup: old files, empty subdirectories, empty parent directories
+
+Orchestration & Scheduling:
+- Schedule: @daily (runs once per day at midnight)
+- Start date: days_ago(1)
+- Catchup: False
+- Default args: 1 retry, 1 minute retry delay, email_on_failure=True
+- Tags: teamclairvoyant, airflow-maintenance-dags
+
+Infrastructure & Dependencies:
+- Parallel execution: NUMBER_OF_WORKERS controls parallel width (default: 1)
+- Lock file coordination: /tmp/airflow_log_cleanup_worker.lock prevents concurrent execution on same node
+- Directory targets: BASE_LOG_FOLDER from Airflow config, optionally CHILD_PROCESS_LOG_DIRECTORY
+- Configuration sources: DAG run conf (maxLogAgeInDays), Airflow Variables (airflow_log_cleanup__max_log_age_in_days, airflow_log_cleanup__enable_delete_child_log)
+
+Failure Handling & Alerts:
+- Email alerts on failure to addresses in ALERT_EMAIL_ADDRESSES
+- 1 automatic retry with 1-minute delay
+- Lock file cleanup on failure to allow subsequent executions
+- Graceful handling of missing configurations with fallback to defaults
+
+Pattern-Specific Notes:
+- Fan-out pattern: Single start task fans out to N × M parallel BashOperator tasks
+- Parallel width: Controlled by NUMBER_OF_WORKERS × number of directories in DIRECTORIES_TO_DELETE
+- Worker coordination: Uses file-based locking to prevent concurrent log cleanup on same worker node
+- No explicit fan-in: Parallel tasks complete independently without synchronization join

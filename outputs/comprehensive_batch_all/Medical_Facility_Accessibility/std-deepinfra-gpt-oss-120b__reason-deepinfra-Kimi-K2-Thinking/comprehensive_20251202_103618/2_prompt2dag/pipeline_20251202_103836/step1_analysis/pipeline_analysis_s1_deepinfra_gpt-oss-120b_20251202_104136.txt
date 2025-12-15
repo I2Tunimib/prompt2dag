@@ -1,0 +1,217 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T10:41:36.071908
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/Medical_Facility_Accessibility.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**Medical Facility Accessibility Pipeline – Structured Report**  
+
+---
+
+## 1. Executive Summary  
+
+- **Purpose** – The pipeline ingests a raw CSV of medical facilities, normalises address data, enriches each record with geographic coordinates via the HERE geocoding service, and then calculates two spatial distances (to the nearest public‑transport stop and to the nearest residential area). The final enriched dataset is exported as a CSV for downstream consumption.  
+- **High‑level flow** – A strictly linear progression of five components: load → geocode → public‑transport distance → residential‑area distance → save.  
+- **Key patterns & complexity** – The pipeline follows a *sequential* execution pattern with no branching, parallelism, or sensor‑type waiting. All five components run inside Docker containers and share a common filesystem volume (`DATA_DIR`). Retry logic is limited to a single attempt per component with a fixed 60‑second delay on timeout or network errors. The overall design is straightforward, making the control flow easy to trace and maintain.
+
+---
+
+## 2. Pipeline Architecture  
+
+### 2.1 Flow Patterns  
+- **Sequential** – Each component starts only after the preceding component finishes successfully (`all_success` upstream policy).  
+- **No branching, parallelism, or sensors** – The pipeline does not diverge or run concurrent instances; it proceeds step‑by‑step.  
+
+### 2.2 Execution Characteristics  
+- **Executor type** – All components are executed using the **Docker** executor. Each component specifies an image, resource limits (1 CPU, 2 GiB memory), and the shared network `app_network`.  
+
+### 2.3 Component Overview (Categories)  
+| Category      | Role in the pipeline |
+|---------------|----------------------|
+| **Extractor** | `load_modify_facilities` – reads the raw CSV, cleans addresses, and produces a JSON representation. |
+| **Reconciliator** | `geocode_facilities` – enriches the JSON with latitude/longitude via the HERE API. |
+| **Enricher** | `calculate_distance_to_public_transport` – adds distance to the nearest public‑transport stop. |
+| **Enricher** | `calculate_distance_to_residential_areas` – adds distance to the nearest residential area. |
+| **Loader** | `save_facilities_accessibility` – converts the final JSON to a CSV file. |
+
+### 2.4 Flow Description  
+
+1. **Entry point** – `load_modify_facilities` reads `facilities.csv` from the shared `DATA_DIR` volume, cleans address fields, and writes `table_data_2.json`.  
+2. **Geocoding** – `geocode_facilities` consumes `table_data_2.json`, calls the HERE Geocoding API, and outputs `reconciled_table_2.json` with `latitude` and `longitude`.  
+3. **Public‑transport distance** – `calculate_distance_to_public_transport` reads the geocoded JSON, loads the static GeoJSON file `transport_stops.geojson`, computes the nearest‑stop distance, and writes `distance_pt_2.json`.  
+4. **Residential‑area distance** – `calculate_distance_to_residential_areas` consumes `distance_pt_2.json`, loads `residential_areas.geojson`, computes the nearest‑residential‑area distance, and writes `column_extended_2.json`.  
+5. **Final export** – `save_facilities_accessibility` converts `column_extended_2.json` into `enriched_data_2.csv`, completing the pipeline.  
+
+All components share the same filesystem connection (`data_dir_fs`) for input and output files, ensuring a consistent data path throughout the run.
+
+---
+
+## 3. Detailed Component Analysis  
+
+### 3.1 Load and Modify Facilities Data  
+- **Category**: Extractor  
+- **Executor**: Docker (`i2t-backendwithintertwino6-load-and-modify:latest`)  
+- **Inputs**: `facilities.csv` (filesystem)  
+- **Outputs**: `table_data_2.json` (filesystem)  
+- **Retry**: 1 attempt, 60 s delay, on timeout or network error  
+- **Concurrency**: No parallelism or dynamic mapping  
+- **Upstream policy**: Custom – no dependencies  
+- **Connections**: `data_dir_fs` (filesystem) – shared volume mounted as `DATA_DIR`  
+- **Datasets**: Consumes `facilities_raw`; produces `facilities_clean_json`  
+
+### 3.2 Geocode Facilities Using HERE API  
+- **Category**: Reconciliator  
+- **Executor**: Docker (`i2t-backendwithintertwino6-reconciliation:latest`)  
+- **Inputs**: `table_data_2.json` (filesystem)  
+- **Outputs**: `reconciled_table_2.json` (filesystem)  
+- **Environment variables**: `PRIMARY_COLUMN=address`, `RECONCILIATOR_ID=geocodingHere`, `API_TOKEN=[HERE API token]`, `DATASET_ID=2`  
+- **Retry**: Same as above  
+- **Concurrency**: None  
+- **Upstream policy**: `all_success` – runs after successful load step  
+- **Connections**: `data_dir_fs` (filesystem) and external `here_geocoding_api` (HTTPS) for address → lat/long conversion  
+- **Datasets**: Consumes `facilities_clean_json`; produces `facilities_geocoded_json`  
+
+### 3.3 Calculate Distance to Nearest Public Transport  
+- **Category**: Enricher  
+- **Executor**: Docker (`i2t-backendwithintertwino6-column-extension:latest`)  
+- **Inputs**: `reconciled_table_2.json` (filesystem)  
+- **Outputs**: `distance_pt_2.json` (filesystem)  
+- **Environment variables**: `EXTENDER_ID=spatialDistanceCalculator`, `LAT_COLUMN=latitude`, `LON_COLUMN=longitude`, `TARGET_LAYER=public_transport`, `TARGET_DATA_SOURCE=/app/data/transport_stops.geojson`, `OUTPUT_COLUMN=distance_to_pt`, `DATASET_ID=2`  
+- **Retry**: Same as above  
+- **Upstream policy**: `all_success` – after geocoding step  
+- **Connections**: `data_dir_fs` (filesystem) and static file `transport_stops.geojson` (filesystem)  
+- **Datasets**: Consumes `facilities_geocoded_json`; produces `facilities_with_pt_distance_json`  
+
+### 3.4 Calculate Distance to Nearest Residential Area  
+- **Category**: Enricher  
+- **Executor**: Docker (`i2t-backendwithintertwino6-column-extension:latest`) – same image as previous enricher  
+- **Inputs**: `distance_pt_2.json` (filesystem)  
+- **Outputs**: `column_extended_2.json` (filesystem)  
+- **Environment variables**: `EXTENDER_ID=spatialDistanceCalculator`, `LAT_COLUMN=latitude`, `LON_COLUMN=longitude`, `TARGET_LAYER=residential_areas`, `TARGET_DATA_SOURCE=/app/data/residential_areas.geojson`, `OUTPUT_COLUMN=distance_to_residential`, `DATASET_ID=2`  
+- **Retry**: Same as above  
+- **Upstream policy**: `all_success` – after public‑transport distance step  
+- **Connections**: `data_dir_fs` (filesystem) and static file `residential_areas.geojson` (filesystem)  
+- **Datasets**: Consumes `facilities_with_pt_distance_json`; produces `facilities_fully_enriched_json`  
+
+### 3.5 Save Enriched Facility Accessibility Data  
+- **Category**: Loader  
+- **Executor**: Docker (`i2t-backendwithintertwino6-save:latest`)  
+- **Inputs**: `column_extended_2.json` (filesystem)  
+- **Outputs**: `enriched_data_2.csv` (filesystem)  
+- **Environment variables**: `DATASET_ID=2`  
+- **Retry**: Same as above  
+- **Upstream policy**: `all_success` – after residential‑area distance step  
+- **Connections**: `data_dir_fs` (filesystem)  
+- **Datasets**: Consumes `facilities_fully_enriched_json`; produces `facilities_accessibility_csv`  
+
+---
+
+## 4. Parameter Schema  
+
+### 4.1 Pipeline‑level Parameters  
+| Parameter | Description | Type | Required |
+|-----------|-------------|------|----------|
+| `name` | Human‑readable pipeline name | string | No |
+| `description` | Narrative of the pipeline’s business value | string | No |
+| `tags` | Classification tags | array | No |
+
+### 4.2 Schedule Configuration (optional)  
+- `enabled` (boolean) – whether the pipeline is triggered on a schedule.  
+- `cron_expression` (string) – cron or preset expression.  
+- `start_date`, `end_date` (datetime, ISO‑8601) – schedule window.  
+- `timezone` (string) – schedule timezone.  
+- `catchup` (boolean) – run missed intervals.  
+- `batch_window` (string) – name of the batch‑window parameter.  
+- `partitioning` (string) – data partitioning strategy (e.g., daily).  
+
+*No schedule values are defined in the supplied data; the fields are present for potential configuration.*
+
+### 4.3 Execution Settings  
+- `max_active_runs` (integer) – maximum concurrent pipeline runs.  
+- `timeout_seconds` (integer) – overall pipeline timeout.  
+- `retry_policy` (object) – pipeline‑level retry defaults (not populated).  
+- `depends_on_past` (boolean) – whether a run depends on the previous run’s success.  
+
+### 4.4 Component‑specific Parameters  
+
+| Component | Parameter | Description | Type |
+|-----------|-----------|-------------|------|
+| `load_modify_facilities` | `DATASET_ID` (int) – dataset identifier. <br> `TABLE_NAME_PREFIX` (string) – prefix for generated table names. |
+| `geocode_facilities` | `PRIMARY_COLUMN` (string) – address column. <br> `RECONCILIATOR_ID` (string) – identifier of the geocoding reconciliator. <br> `API_TOKEN` (string) – HERE API token. <br> `DATASET_ID` (int). |
+| `calculate_distance_to_public_transport` | `EXTENDER_ID` (string) – spatial distance extender identifier. <br> `LAT_COLUMN`, `LON_COLUMN` (string) – latitude/longitude column names. <br> `TARGET_LAYER` (string) – “public_transport”. <br> `TARGET_DATA_SOURCE` (string) – path to transport stops GeoJSON. <br> `OUTPUT_COLUMN` (string) – name of distance column. <br> `DATASET_ID` (int). |
+| `calculate_distance_to_residential_areas` | Same set of parameters as above, with `TARGET_LAYER` = “residential_areas” and `TARGET_DATA_SOURCE` pointing to the residential GeoJSON. |
+| `save_facilities_accessibility` | `DATASET_ID` (int). |
+
+### 4.5 Environment Variables (global)  
+- `DATA_DIR` – path to the shared volume mounted into every Docker container; used by all components for file I/O.  
+
+---
+
+## 5. Integration Points  
+
+### 5.1 External Systems & Connections  
+
+| Connection ID | Type | Role | Authentication | Key Datasets |
+|---------------|------|------|----------------|--------------|
+| `data_dir_volume` | Filesystem | Shared volume for all input/output files (`facilities.csv`, GeoJSON files, intermediate JSON, final CSV). | None | Produces: all intermediate JSON files and final CSV; Consumes: raw CSV and static GeoJSON files. |
+| `internal_api_service` | API (http://localhost:3003) | Internal micro‑services that implement load‑modify, reconciliation, column‑extension, and save logic. | None | Consumed/produced by every component. |
+| `here_geocoding_api` | API (HTTPS) | External geocoding service. | Token (`HERE_API_TOKEN`) | Consumes address strings; produces latitude/longitude. |
+| `mongo_db` | Database (MongoDB) | Listed as used by all components but no explicit dataset exchange defined; likely for internal state or metadata. | None | None specified. |
+| `intertwino_api` | API (http://localhost:5005) | Additional internal service; no explicit data exchange defined. | None | None specified. |
+| `transport_stops_geojson` | Filesystem | Static GeoJSON file with public‑transport stop locations. | None | Input for public‑transport distance calculation. |
+| `residential_areas_geojson` | Filesystem | Static GeoJSON file with residential area polygons. | None | Input for residential‑area distance calculation. |
+
+### 5.2 Data Sources & Sinks  
+
+- **Sources**: `facilities.csv` (raw facility list), `transport_stops.geojson`, `residential_areas.geojson`, HERE Geocoding API (address → lat/long).  
+- **Intermediate datasets**: `table_data_2.json`, `reconciled_table_2.json`, `distance_pt_2.json`, `column_extended_2.json`.  
+- **Sink**: `enriched_data_2.csv` (final enriched accessibility table).  
+
+### 5.3 Authentication Methods  
+
+- **None** for filesystem and internal API connections.  
+- **Token‑based** for HERE Geocoding API (`HERE_API_TOKEN` environment variable).  
+
+### 5.4 Data Lineage Summary  
+
+1. Raw CSV → JSON (load/modify).  
+2. JSON → Geocoded JSON (HERE API).  
+3. Geocoded JSON → Distance‑to‑public‑transport JSON (static GeoJSON).  
+4. Result → Distance‑to‑residential‑area JSON (static GeoJSON).  
+5. Final JSON → CSV (export).  
+
+All transformations are deterministic and stored in the shared volume, providing a clear audit trail.
+
+---
+
+## 6. Implementation Notes  
+
+- **Complexity** – Low to moderate. The linear structure and single‑container execution model keep orchestration simple. The most intricate logic resides inside the Docker images (geocoding, spatial calculations).  
+- **Upstream policies** – Every component uses an `all_success` policy (except the first, which has no upstream). This guarantees that a failure halts the pipeline early, preventing downstream processing of incomplete data.  
+- **Retry & timeout** – Each component allows only one attempt with a 60‑second delay on timeout or network errors. This conservative setting may be sufficient for stable internal services but could be insufficient for intermittent external APIs (e.g., HERE). Consider increasing `max_attempts` or enabling exponential back‑off for the geocoding step.  
+- **Resource allocation** – Uniform allocation (1 CPU, 2 GiB RAM) across components; may be over‑provisioned for simple file transformations and under‑provisioned for spatial calculations depending on dataset size. Monitoring resource usage is advisable.  
+- **Potential risks**  
+  - **External API reliability** – HERE geocoding is the only external call; network latency or rate limits could cause pipeline failure.  
+  - **Static GeoJSON availability** – The transport and residential GeoJSON files must be present at the specified paths inside the container; missing files will cause immediate failure.  
+  - **Single‑attempt retries** – No automatic escalation; manual intervention may be required for transient failures.  
+  - **Shared volume contention** – All components read/write to the same volume; while sequential execution mitigates race conditions, any future parallelisation would need explicit isolation.  
+
+---
+
+## 7. Orchestrator Compatibility  
+
+| Orchestrator | Compatibility Assessment |
+|--------------|--------------------------|
+| **Airflow** | Supports Docker‑based execution via generic Docker operators; the linear dependency chain maps directly to upstream/downstream relationships. No branching or sensor logic required. |
+| **Prefect** | Prefect’s Docker task can run each component; the sequential flow can be expressed with `wait_for` dependencies. Prefect’s built‑in retry configuration can replicate the per‑component retry policy. |
+| **Dagster** | Dagster’s `@job` with a sequence of `@op`s using Docker resources fits the pattern. The `all_success` upstream policy aligns with Dagster’s default dependency handling. |
+
+*All three platforms can represent the described pipeline without needing specialized constructs. The primary consideration is to configure Docker execution, environment variables, and the shared filesystem mount consistently across the chosen platform.*
+
+---
+
+## 8. Conclusion  
+
+The Medical Facility Accessibility pipeline is a well‑structured, sequential workflow that transforms raw facility data into an enriched CSV containing geocoded locations and proximity metrics to public transport and residential zones. Its reliance on Docker containers and a shared filesystem simplifies deployment, while the explicit upstream policies and modest retry settings provide clear failure handling. Integration points are limited to a single external geocoding API and static GeoJSON assets, making the data lineage transparent. The pipeline can be readily implemented on major orchestration platforms (Airflow, Prefect, Dagster) using their generic Docker execution capabilities, with minimal adaptation required. Monitoring external API health and revisiting retry strategies are recommended to improve robustness for production use.

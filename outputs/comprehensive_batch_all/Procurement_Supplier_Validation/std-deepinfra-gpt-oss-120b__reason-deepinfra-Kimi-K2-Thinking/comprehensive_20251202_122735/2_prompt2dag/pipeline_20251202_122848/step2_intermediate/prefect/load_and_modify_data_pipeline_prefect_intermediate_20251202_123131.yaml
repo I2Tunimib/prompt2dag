@@ -1,0 +1,240 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-02 12:31:31.586380
+  source_analysis_file: Pipeline_Description_Dataset/Procurement_Supplier_Validation.txt
+  pipeline_name: load_and_modify_data_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    flow_name: load_and_modify_data_pipeline
+    deployment_name: load_and_modify_data_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: filesystem_data_dir
+    conn_type: LocalFileSystem
+    description: Shared Data Directory (DATA_DIR)
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: filesystem_data_dir
+      config:
+        base_path: /data
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: api_load_modify_service
+    conn_type: Secret
+    description: Load‑and‑Modify Service API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: api_load_modify_service
+      config:
+        base_path:
+        base_url: http://load-modify-service:3003
+        host: load-modify-service
+        port: 3003
+        protocol: http
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: api_reconciliation_service
+    conn_type: Secret
+    description: Entity Reconciliation Service API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: api_reconciliation_service
+      config:
+        base_path:
+        base_url: http://reconciliation-service:3003
+        host: reconciliation-service
+        port: 3003
+        protocol: http
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: api_save_service
+    conn_type: Secret
+    description: Save Service API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: api_save_service
+      config:
+        base_path:
+        base_url: http://save-service:3003
+        host: save-service
+        port: 3003
+        protocol: http
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: mongodb_instance
+    conn_type: Secret
+    description: MongoDB Instance
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: mongodb_instance
+      config:
+        base_path:
+        base_url:
+        host: mongo
+        port: 27017
+        protocol: mongodb
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: intertwino_api
+    conn_type: Secret
+    description: Intertwino API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: intertwino_api
+      config:
+        base_path:
+        base_url: http://intertwino-api:5005
+        host: intertwino-api
+        port: 5005
+        protocol: http
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: docker_network_app
+    conn_type: Secret
+    description: Custom Docker Network (app_network)
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: docker_network_app
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol:
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: wikidata_api
+    conn_type: Secret
+    description: Wikidata Entity API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: wikidata_api
+      config:
+        base_path:
+        base_url: https://www.wikidata.org/w/api.php
+        host: www.wikidata.org
+        port: 443
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Supplier Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: load_and_modify_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-load-and-modify:latest
+          env:
+            DATASET_ID: '2'
+            TABLE_NAME_PREFIX: JOT_
+            DATA_DIR: ${DATA_DIR}
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: reconcile_supplier_names
+    task_name: Entity Reconciliation (Wikidata)
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: reconcile_supplier_names
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-reconciliation:latest
+          env:
+            PRIMARY_COLUMN: supplier_name
+            RECONCILIATOR_ID: wikidataEntity
+            DATASET_ID: '2'
+            DATA_DIR: ${DATA_DIR}
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: save_validated_data
+    task_name: Save Final Validated Supplier Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: save_validated_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-save:latest
+          env:
+            DATASET_ID: '2'
+            DATA_DIR: ${DATA_DIR}
+          networks:
+            - app_network
+          auto_remove: true
+          stream_output: true
+      retries: 1
+    upstream_task_ids:
+      - reconcile_supplier_names
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

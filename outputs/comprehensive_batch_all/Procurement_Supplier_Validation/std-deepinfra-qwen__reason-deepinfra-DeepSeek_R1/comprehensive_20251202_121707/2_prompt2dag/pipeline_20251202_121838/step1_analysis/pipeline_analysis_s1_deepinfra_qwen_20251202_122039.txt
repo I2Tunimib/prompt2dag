@@ -1,0 +1,196 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T12:20:39.761396
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/Procurement_Supplier_Validation.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+#### Overall Purpose and High-Level Flow
+The Procurement Supplier Validation Pipeline is designed to validate and standardize supplier data by reconciling names against a known database (Wikidata). The pipeline consists of three sequential components: loading and modifying data, entity reconciliation, and saving the final data. Each component processes data in a linear sequence, ensuring that the output of one component serves as the input for the next.
+
+#### Key Patterns and Complexity
+The pipeline follows a simple sequential pattern without branching, parallelism, or sensors. The primary complexity lies in the data transformation and reconciliation steps, which involve API calls and data format conversions. The pipeline uses Docker and HTTP executors to run the components, ensuring isolation and consistency in the execution environment.
+
+### Pipeline Architecture
+
+#### Flow Patterns
+- **Sequential**: The pipeline processes data in a linear sequence, with each component dependent on the successful completion of the previous one.
+
+#### Execution Characteristics
+- **Task Executor Types**: Docker and HTTP executors are used to run the components.
+- **No Branching, Parallelism, or Sensors**: The pipeline follows a straightforward sequential flow.
+
+#### Component Overview
+- **Transformer**: Processes and standardizes data.
+- **Reconciliator**: Disambiguates supplier names using external APIs.
+- **Loader**: Exports the final validated data.
+
+#### Flow Description
+- **Entry Points**: The pipeline starts with the "Load and Modify Data" component.
+- **Main Sequence**:
+  1. **Load and Modify Data**: Ingests supplier CSV, standardizes formats, and converts to JSON.
+  2. **Entity Reconciliation**: Disambiguates supplier names using the Wikidata API.
+  3. **Save Final Data**: Exports the validated supplier data to CSV.
+
+### Detailed Component Analysis
+
+#### Load and Modify Data
+- **Purpose and Category**: Transformer
+- **Executor Type and Configuration**: Docker
+  - **Image**: i2t-backendwithintertwino6-load-and-modify:latest
+  - **Command**: `python load_and_modify.py`
+  - **Environment**:
+    - `DATASET_ID`: 2
+    - `TABLE_NAME_PREFIX`: JOT_
+    - `DATA_DIR`: /path/to/data
+  - **Network**: app_network
+- **Inputs and Outputs**:
+  - **Input**: suppliers.csv
+  - **Output**: table_data_2.json
+- **Retry Policy and Concurrency Settings**:
+  - **Max Attempts**: 1
+  - **Delay Seconds**: 0
+  - **Exponential Backoff**: False
+  - **Retry On**: Timeout, Network Error
+- **Connected Systems**:
+  - **Data Directory**: Filesystem (DATA_DIR)
+  - **Load and Modify Service**: HTTP API (localhost:3003)
+
+#### Entity Reconciliation
+- **Purpose and Category**: Reconciliator
+- **Executor Type and Configuration**: Docker
+  - **Image**: i2t-backendwithintertwino6-reconciliation:latest
+  - **Command**: `python reconcile.py`
+  - **Environment**:
+    - `PRIMARY_COLUMN`: supplier_name
+    - `RECONCILIATOR_ID`: wikidataEntity
+    - `DATASET_ID`: 2
+    - `DATA_DIR`: /path/to/data
+  - **Network**: app_network
+- **Inputs and Outputs**:
+  - **Input**: table_data_2.json
+  - **Output**: reconciled_table_2.json
+- **Retry Policy and Concurrency Settings**:
+  - **Max Attempts**: 1
+  - **Delay Seconds**: 0
+  - **Exponential Backoff**: False
+  - **Retry On**: Timeout, Network Error
+- **Connected Systems**:
+  - **Data Directory**: Filesystem (DATA_DIR)
+  - **Reconciliation Service**: HTTP API (localhost:3003)
+
+#### Save Final Data
+- **Purpose and Category**: Loader
+- **Executor Type and Configuration**: Docker
+  - **Image**: i2t-backendwithintertwino6-save:latest
+  - **Command**: `python save.py`
+  - **Environment**:
+    - `DATASET_ID`: 2
+    - `DATA_DIR`: /path/to/data
+  - **Network**: app_network
+- **Inputs and Outputs**:
+  - **Input**: reconciled_table_2.json
+  - **Output**: enriched_data_2.csv
+- **Retry Policy and Concurrency Settings**:
+  - **Max Attempts**: 1
+  - **Delay Seconds**: 0
+  - **Exponential Backoff**: False
+  - **Retry On**: Timeout, Network Error
+- **Connected Systems**:
+  - **Data Directory**: Filesystem (DATA_DIR)
+  - **Save Service**: HTTP API (localhost:3003)
+
+### Parameter Schema
+
+#### Pipeline-Level Parameters
+- **Name**: Unique identifier for the pipeline
+- **Description**: Description of the pipeline's purpose and business value
+- **Tags**: Classification tags
+
+#### Schedule Configuration
+- **Enabled**: Whether the pipeline runs on a schedule
+- **Cron Expression**: Cron or preset schedule
+- **Start Date**: When to start scheduling
+- **End Date**: When to stop scheduling
+- **Timezone**: Schedule timezone
+- **Catchup**: Run missed intervals
+- **Batch Window**: Data partitioning strategy
+
+#### Execution Settings
+- **Max Active Runs**: Max concurrent pipeline runs
+- **Timeout Seconds**: Pipeline execution timeout
+- **Retry Policy**: Pipeline-level retry behavior
+- **Depends on Past**: Whether execution depends on previous run success
+
+#### Component-Specific Parameters
+- **Load and Modify Data**:
+  - **DATASET_ID**: Identifier for the dataset
+  - **TABLE_NAME_PREFIX**: Prefix for the table name
+- **Entity Reconciliation**:
+  - **PRIMARY_COLUMN**: Primary column to reconcile
+  - **RECONCILIATOR_ID**: ID of the reconciliator service
+  - **DATASET_ID**: Identifier for the dataset
+- **Save Final Data**:
+  - **DATASET_ID**: Identifier for the dataset
+
+#### Environment Variables
+- **DATA_DIR**: Directory for data files
+
+### Integration Points
+
+#### External Systems and Connections
+- **Data Directory**: Filesystem (DATA_DIR)
+- **Load and Modify Service**: HTTP API (localhost:3003)
+- **Reconciliation Service**: HTTP API (localhost:3003)
+- **Save Service**: HTTP API (localhost:3003)
+- **MongoDB**: Database (mongodb:27017)
+- **Intertwino API**: HTTP API (intertwino:5005)
+
+#### Data Sources and Sinks
+- **Sources**: suppliers.csv from DATA_DIR
+- **Sinks**: enriched_data_2.csv in DATA_DIR
+- **Intermediate Datasets**: table_data_2.json, reconciled_table_2.json
+
+#### Authentication Methods
+- **None**: No authentication is required for the connected systems.
+
+#### Data Lineage
+- **Sources**: suppliers.csv from DATA_DIR
+- **Sinks**: enriched_data_2.csv in DATA_DIR
+- **Intermediate Datasets**: table_data_2.json, reconciled_table_2.json
+
+### Implementation Notes
+
+#### Complexity Assessment
+The pipeline is relatively simple, with a linear flow and no branching or parallelism. The main complexity lies in the data transformation and reconciliation steps, which involve API calls and data format conversions.
+
+#### Upstream Dependency Policies
+- **All Success**: All upstream tasks must succeed for the next task to start.
+
+#### Retry and Timeout Configurations
+- **Max Attempts**: 1
+- **Delay Seconds**: 0
+- **Exponential Backoff**: False
+- **Retry On**: Timeout, Network Error
+
+#### Potential Risks or Considerations
+- **API Availability**: The pipeline relies on external APIs for reconciliation, which could be a point of failure.
+- **Data Quality**: The quality of the input data can significantly impact the effectiveness of the reconciliation step.
+- **Concurrency**: The pipeline does not support parallel execution, which could be a limitation for large datasets.
+
+### Orchestrator Compatibility
+
+#### Assessment for Airflow, Prefect, Dagster
+- **Airflow**: The sequential pattern and simple retry policies are well-supported. The Docker and HTTP executors can be easily configured.
+- **Prefect**: Prefect's task-based approach and support for Docker and HTTP executors make it a good fit for this pipeline.
+- **Dagster**: Dagster's strong support for data lineage and sequential flows aligns well with the pipeline's requirements.
+
+#### Pattern-Specific Considerations
+- **Sequential Flow**: All orchestrators handle sequential flows efficiently.
+- **Docker and HTTP Executors**: All orchestrators support Docker and HTTP executors, but configuration details may vary.
+
+### Conclusion
+The Procurement Supplier Validation Pipeline is a straightforward, sequential ETL process that transforms and validates supplier data. The pipeline's simplicity and reliance on Docker and HTTP executors make it compatible with various orchestrators. The main considerations for implementation include ensuring the availability of external APIs and managing data quality.

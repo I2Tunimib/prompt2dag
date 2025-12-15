@@ -1,0 +1,198 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-01 06:30:37.104815
+  source_analysis_file: Pipeline_Description_Dataset/Sequential_Pipeline_Prompt.txt
+  pipeline_name: load_and_modify_data_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir_volume
+    conn_type: fs
+    description: Shared Data Directory Volume
+    config:
+      base_path: /app/data
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: load_modify_api
+    conn_type: http
+    description: Load‑and‑Modify Service API
+    config:
+      base_path:
+      base_url: http://load-and-modify:3003
+      host: load-and-modify
+      port: 3003
+      protocol: http
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: reconciliation_api
+    conn_type: http
+    description: HERE Geocoding Reconciliation Service API
+    config:
+      base_path:
+      base_url: http://reconciliation:3003
+      host: reconciliation
+      port: 3003
+      protocol: http
+      database:
+      schema:
+      bucket:
+      queue_name:
+      extra:
+        token_env_var: RECONCILIATION_API_TOKEN
+  - conn_id: openmeteo_api
+    conn_type: http
+    description: OpenMeteo Weather Service API
+    config:
+      base_path:
+      base_url: https://api.open-meteo.com/v1/forecast
+      host: api.open-meteo.com
+      port: 443
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: mongodb
+    conn_type: mongo
+    description: MongoDB Instance
+    config:
+      base_path:
+      base_url:
+      host: mongodb
+      port: 27017
+      protocol: mongodb
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: intertwino_api
+    conn_type: http
+    description: Intertwino API
+    config:
+      base_path:
+      base_url: http://intertwino:5005
+      host: intertwino
+      port: 5005
+      protocol: http
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: docker_network_app
+    conn_type: generic
+    description: Custom Docker Network (app_network)
+    config:
+      base_path:
+      base_url:
+      host: app_network
+      port:
+      protocol:
+      database:
+      schema:
+      bucket:
+      queue_name:
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: load_and_modify_data
+    config:
+      image: i2t-backendwithintertwino6-load-and-modify:latest
+      environment: {}
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: reconcile_city_names
+    task_name: Data Reconciliation
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: reconcile_city_names
+    config:
+      image: i2t-backendwithintertwino6-reconciliation:latest
+      environment: {}
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: enrich_with_openmeteo
+    task_name: OpenMeteo Data Extension
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: enrich_with_openmeteo
+    config:
+      image: i2t-backendwithintertwino6-openmeteo-extension:latest
+      environment: {}
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+    upstream_task_ids:
+      - reconcile_city_names
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: extend_columns
+    task_name: Column Extension
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: extend_columns
+    config:
+      image: i2t-backendwithintertwino6-column-extension:latest
+      environment: {}
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+    upstream_task_ids:
+      - enrich_with_openmeteo
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: save_final_data
+    task_name: Save Final Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: save_final_data
+    config:
+      image: i2t-backendwithintertwino6-save:latest
+      environment: {}
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+    upstream_task_ids:
+      - extend_columns
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

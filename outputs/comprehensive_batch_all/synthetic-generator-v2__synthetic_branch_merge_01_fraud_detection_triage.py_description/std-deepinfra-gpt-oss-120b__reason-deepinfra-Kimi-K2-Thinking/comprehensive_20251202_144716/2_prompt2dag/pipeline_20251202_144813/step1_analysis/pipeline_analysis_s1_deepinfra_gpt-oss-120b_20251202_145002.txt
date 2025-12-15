@@ -1,0 +1,96 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T14:50:02.135058
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_01_fraud_detection_triage.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**1. Executive Summary**  
+The pipeline implements a daily fraud‑detection triage process. It ingests transaction CSV files, computes a fraud‑risk score for each batch, and then routes the batch either to a manual‑review queue (high‑risk) or to an automatic‑approval API (low‑risk). After both routes have completed, a final notification is sent to the fraud‑detection team.  
+
+- **High‑level flow:** Extract → Compute risk → Conditional branch (high‑risk vs. low‑risk) → Parallel execution of the two branches → Merge → Notification.  
+- **Detected patterns:** Sequential, parallel, branching, and a hybrid combination of the three.  
+- **Complexity:** Moderate (≈ 5 components, clear upstream/downstream policies, simple retry logic).  
+
+---
+
+**2. Pipeline Architecture**  
+
+| Aspect | Description |
+|--------|-------------|
+| **Flow Patterns** | The pipeline starts with a linear sequence (extract → compute). At the “route_transaction” step a conditional branch splits the flow into two independent paths that can run in parallel. Both paths converge on a final “send_notification” component, forming a classic branch‑merge (hybrid) topology. |
+| **Execution Characteristics** | All five components are executed by a *python* executor. No container images, custom commands, or specialized resources are defined; the executor runs the Python code directly. |
+| **Component Overview** | • **Extractor** – *Analyze Transactions* (reads CSV, produces risk score).<br>• **Orchestrator** – *Route Transaction* (evaluates risk score, decides the branch).<br>• **Loaders** – *Route to Manual Review* (queues high‑risk items) and *Route to Auto‑Approve* (calls payment API).<br>• **Notifier** – *Send Notification* (emails the fraud‑detection team). |
+| **Flow Description** | 1. **Entry point:** *Analyze Transactions* reads daily CSV files.<br>2. **Main sequence:** Output risk score is passed to *Route Transaction*.<br>3. **Branching:** *Route Transaction* evaluates `risk_score > 0.8`. If true, the flow proceeds to *Route to Manual Review*; otherwise to *Route to Auto‑Approve*.<br>4. **Parallelism:** The two loader components are independent and may execute concurrently.<br>5. **Merge:** *Send Notification* waits for successful completion of **both** loader components before sending the final email. |
+
+---
+
+**3. Detailed Component Analysis**  
+
+| Component | Purpose & Category | Executor & Config | Inputs | Outputs | Retry Policy | Concurrency | Connections |
+|-----------|-------------------|-------------------|--------|---------|--------------|-------------|-------------|
+| **Analyze Transactions** | Reads daily transaction CSV files and calculates a fraud‑risk score. *Extractor* | Python executor (no image/command overrides). | `daily_transaction_csv_files` (file, CSV, path pattern `/data/transactions/{{ ds }}/transactions_*.csv`). | `risk_score` (JSON object). | Max 2 attempts, 300 s delay, retries on *timeout* and *network_error*. No exponential backoff. | Does **not** support parallelism or dynamic mapping. | `filesystem_conn` – filesystem source for CSV files. |
+| **Route Transaction** | Evaluates the risk score and selects the next processing path (manual review vs. auto‑approve). *Orchestrator* | Python executor (default). | `risk_score` (JSON). | `selected_route_task_id` (JSON – indicates chosen branch). | Same retry settings as above. | No parallelism support. | None (pure in‑process decision). |
+| **Route to Manual Review** | Enqueues high‑risk transactions for analyst assessment. *Loader* | Python executor (default). | `risk_score` (JSON). | `manual_review_signal` (JSON). | Same retry settings. | No parallelism support. | `manual_review_queue_conn` – AMQP message queue (basic authentication via `MQ_USERNAME` / `MQ_PASSWORD`). |
+| **Route to Auto‑Approve** | Submits low‑risk transactions to the payment processing system for automatic approval. *Loader* | Python executor (default). | `risk_score` (JSON). | `auto_approve_signal` (JSON). | Same retry settings. | No parallelism support. | `payment_processing_conn` – HTTPS API (token authentication via `PAYMENT_API_TOKEN`). |
+| **Send Notification** | Sends a final email to the fraud‑detection team after both branches finish. *Notifier* | Python executor (default). | `manual_review_signal` (JSON), `auto_approve_signal` (JSON). | `notification_sent` (JSON). | Same retry settings. | No parallelism support. | `notification_service` – SMTP service (basic authentication via `SMTP_USERNAME` / `SMTP_PASSWORD`). |
+
+*Upstream policies* ensure that each component runs only when its required predecessors succeed: the extractor is a root component, the orchestrator waits for the extractor, each loader waits for the orchestrator’s branch decision, and the notifier runs only when **none** of its upstream branches have failed.
+
+---
+
+**4. Parameter Schema**  
+
+| Scope | Parameters |
+|-------|------------|
+| **Pipeline** | `name` (default: *fraud_detection_triage*), `description` (optional), `tags` (array, default empty). |
+| **Schedule** | `enabled` (default true), `cron_expression` (default @daily), `start_date` (2024‑01‑01T00:00:00Z), `end_date` (optional), `timezone` (optional), `catchup` (default false), `batch_window` (optional), `partitioning` (optional). |
+| **Execution** | `max_active_runs` (optional), `timeout_seconds` (optional), `retry_policy` (retries 2, delay 300 s, email_on_failure true, email_on_retry false), `depends_on_past` (optional). |
+| **Components** | No component‑specific parameters are defined beyond the defaults; each component inherits the global retry policy. |
+| **Environment** | No explicit environment variables are listed; authentication credentials are expected via the environment variables referenced in the connections (e.g., `MQ_USERNAME`, `MQ_PASSWORD`, `PAYMENT_API_TOKEN`, `SMTP_USERNAME`, `SMTP_PASSWORD`). |
+
+---
+
+**5. Integration Points**  
+
+| External System | Type | Purpose | Authentication | Data Flow |
+|-----------------|------|---------|----------------|-----------|
+| **Daily Transaction CSV Files** | Filesystem | Source of raw transaction data. | None (public file system). | Consumed by *Analyze Transactions*. |
+| **Manual Review Queue** | Message queue (AMQP) | Destination for high‑risk transactions. | Basic auth (`MQ_USERNAME` / `MQ_PASSWORD`). | Produced by *Route to Manual Review*. |
+| **Payment Processing API** | REST API (HTTPS) | Destination for low‑risk transactions. | Token auth (`PAYMENT_API_TOKEN`). | Produced by *Route to Auto‑Approve*. |
+| **Notification Service** | SMTP API | Sends completion email to fraud‑detection team. | Basic auth (`SMTP_USERNAME` / `SMTP_PASSWORD`). | Produced by *Send Notification*. |
+
+*Data lineage* follows: CSV files → **risk_score** (intermediate) → **branch decision** → either **manual_review_signal** → queue, or **auto_approve_signal** → payment API → both signals → email notification.
+
+---
+
+**6. Implementation Notes**  
+
+- **Complexity Assessment:** The pipeline is straightforward; the most intricate element is the conditional branch based on a numeric threshold.  
+- **Upstream Dependency Policies:** All components use an “all_success” rule except the notifier, which uses a “none_failed” rule to ensure it runs only after both parallel branches finish without error.  
+- **Retry & Timeout:** Uniform retry policy (2 attempts, 5‑minute delay) across all components mitigates transient network or timeout issues. No exponential backoff is configured, which keeps retry timing predictable.  
+- **Parallel Execution:** Although the components themselves do not support internal parallelism, the two loader branches are independent and can be scheduled to run concurrently by the orchestrator.  
+- **Potential Risks / Considerations:**  
+  - Missing or malformed CSV files could halt the pipeline at the extractor stage.  
+  - Network failures when contacting the message queue, payment API, or SMTP server trigger retries; persistent failures will cause downstream components to be skipped.  
+  - The risk‑score threshold (`0.8`) is hard‑coded; changes require pipeline redeployment.  
+  - No explicit resource limits are defined; heavy daily volumes may require scaling the underlying execution environment.  
+
+---
+
+**7. Orchestrator Compatibility**  
+
+| Orchestrator | Compatibility Highlights |
+|--------------|--------------------------|
+| **Airflow** | Supports Python executors, branching, and merge via trigger rules. The “none_failed” upstream policy maps directly to Airflow’s `TriggerRule.NONE_FAILED`. |
+| **Prefect** | Prefect flows can express conditional branching and parallel mapping; the simple retry policy aligns with Prefect’s built‑in retry configuration. |
+| **Dagster** | Dagster assets and ops can model the sequential‑branch‑merge pattern; the retry and concurrency settings are compatible with Dagster’s `RetryPolicy` and `ConcurrencyLimit`. |
+
+All three orchestrators can represent the detected patterns (sequential, parallel, branching) and honor the defined retry and upstream policies. No orchestrator‑specific constructs (e.g., Airflow operators) are required, making the pipeline portable across these platforms.
+
+---
+
+**8. Conclusion**  
+
+The fraud‑detection triage pipeline is a well‑structured, moderately complex workflow that ingests daily transaction data, computes a risk metric, conditionally routes transactions, and finalizes with a notification. Its design leverages a clear branch‑merge topology, uniform retry behavior, and straightforward integrations with a filesystem, a message queue, a payment API, and an SMTP service. The use of a single Python executor type and generic upstream policies ensures high portability across major orchestration frameworks while maintaining robustness against transient failures.

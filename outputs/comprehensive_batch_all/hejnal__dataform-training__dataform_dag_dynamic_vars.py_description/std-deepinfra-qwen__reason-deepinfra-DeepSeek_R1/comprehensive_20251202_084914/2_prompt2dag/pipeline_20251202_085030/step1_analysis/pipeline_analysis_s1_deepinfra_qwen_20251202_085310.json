@@ -1,0 +1,870 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T08:53:10.771063",
+    "source_file": "Pipeline_Description_Dataset/hejnal__dataform-training__dataform_dag_dynamic_vars.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "qwen",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "sensor_driven",
+        "event_driven"
+      ],
+      "task_executors_used": [
+        "python",
+        "sql"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": true,
+      "total_components": 6,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Native sensor support"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "wait_for() or custom sensors"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "Sensors via run_status_sensor"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "start_pipeline",
+    "description": "No description provided.",
+    "flow_patterns": [
+      "sequential",
+      "sensor_driven",
+      "event_driven"
+    ],
+    "task_executors": [
+      "python",
+      "sql"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "start",
+      "name": "Pipeline Initialization",
+      "category": "Orchestrator",
+      "description": "Pipeline initialization and entry point, triggered by dataset updates.",
+      "inputs": [
+        "dataform-training-data-ingestion"
+      ],
+      "outputs": [
+        "parse_input_params"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "entry_point": "dummy_operator.function",
+        "environment": {},
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "dataform-training-data-ingestion",
+          "direction": "input",
+          "kind": "dataset",
+          "format": "other",
+          "path_pattern": "dataform-training-data-ingestion",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_done",
+        "description": "Pipeline starts when the dataset is updated.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "modelling_cloud_default",
+          "type": "api",
+          "purpose": "Google Cloud Dataform API access"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "dataform-training-data-ingestion"
+        ],
+        "produces": []
+      }
+    },
+    {
+      "id": "parse_input_params",
+      "name": "Parse Input Parameters",
+      "category": "Transformer",
+      "description": "Parse and prepare configuration parameters for Dataform compilation.",
+      "inputs": [
+        "DAG run configuration parameters",
+        "logical_date"
+      ],
+      "outputs": [
+        "XCom data containing compilation configuration"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "entry_point": "parse_input_params.function",
+        "environment": {},
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "DAG run configuration parameters",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "dag_run_config",
+          "connection_id": null
+        },
+        {
+          "name": "logical_date",
+          "direction": "input",
+          "kind": "object",
+          "format": "string",
+          "path_pattern": "logical_date",
+          "connection_id": null
+        },
+        {
+          "name": "compilation_configuration",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "XCom",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Triggered by the start task.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "create_compilation_result",
+      "name": "Create Compilation Result",
+      "category": "Transformer",
+      "description": "Create Dataform compilation result using parsed parameters.",
+      "inputs": [
+        "XCom data from parse_input_params task"
+      ],
+      "outputs": [
+        "Compilation result name for workflow invocation"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "entry_point": "create_compilation_result.function",
+        "environment": {
+          "GCP_CONN_ID": "modelling_cloud_default"
+        },
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "compilation_configuration",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "XCom",
+          "connection_id": null
+        },
+        {
+          "name": "compilation_result_name",
+          "direction": "output",
+          "kind": "object",
+          "format": "string",
+          "path_pattern": "XCom",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Triggered by the parse_input_params task.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "modelling_cloud_default",
+          "type": "api",
+          "purpose": "Google Cloud Dataform API access"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "create_workflow_invocation",
+      "name": "Create Workflow Invocation",
+      "category": "Transformer",
+      "description": "Trigger Dataform workflow execution using compilation result.",
+      "inputs": [
+        "Compilation result name from previous task"
+      ],
+      "outputs": [
+        "Workflow invocation ID for state monitoring"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "entry_point": "create_workflow_invocation.function",
+        "environment": {
+          "GCP_CONN_ID": "modelling_cloud_default"
+        },
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "compilation_result_name",
+          "direction": "input",
+          "kind": "object",
+          "format": "string",
+          "path_pattern": "XCom",
+          "connection_id": null
+        },
+        {
+          "name": "workflow_invocation_id",
+          "direction": "output",
+          "kind": "object",
+          "format": "string",
+          "path_pattern": "XCom",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Triggered by the create_compilation_result task.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "modelling_cloud_default",
+          "type": "api",
+          "purpose": "Google Cloud Dataform API access"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "is_workflow_invocation_done",
+      "name": "Monitor Workflow Invocation",
+      "category": "Sensor",
+      "description": "Monitor Dataform workflow execution until completion.",
+      "inputs": [
+        "Workflow invocation ID from create_workflow_invocation"
+      ],
+      "outputs": [
+        "Pipeline proceeds when workflow reaches terminal state"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "entry_point": "is_workflow_invocation_done.function",
+        "environment": {
+          "GCP_CONN_ID": "modelling_cloud_default"
+        },
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "workflow_invocation_id",
+          "direction": "input",
+          "kind": "object",
+          "format": "string",
+          "path_pattern": "XCom",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Triggered by the create_workflow_invocation task.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "modelling_cloud_default",
+          "type": "api",
+          "purpose": "Google Cloud Dataform API access"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "end",
+      "name": "Pipeline Completion",
+      "category": "Orchestrator",
+      "description": "Pipeline completion marker.",
+      "inputs": [
+        "Successful sensor completion"
+      ],
+      "outputs": [
+        "Pipeline termination"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "entry_point": "dummy_operator.function",
+        "environment": {},
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Triggered by the is_workflow_invocation_done task.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sequential",
+    "entry_points": [
+      "start"
+    ],
+    "nodes": {
+      "start": {
+        "kind": "Task",
+        "component_type_id": "start",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "parse_input_params"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "parse_input_params": {
+        "kind": "Task",
+        "component_type_id": "parse_input_params",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "create_compilation_result"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "create_compilation_result": {
+        "kind": "Task",
+        "component_type_id": "create_compilation_result",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "create_workflow_invocation"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "create_workflow_invocation": {
+        "kind": "Task",
+        "component_type_id": "create_workflow_invocation",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "is_workflow_invocation_done"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "is_workflow_invocation_done": {
+        "kind": "Sensor",
+        "component_type_id": "is_workflow_invocation_done",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "sensor_config": {
+          "sensor_type": "external_task",
+          "target": "workflow_invocation_id",
+          "poke_interval_seconds": 60,
+          "timeout_seconds": 3600,
+          "mode": "poke"
+        },
+        "next_nodes": [
+          "end"
+        ],
+        "branch_config": null,
+        "parallel_config": null
+      },
+      "end": {
+        "kind": "Task",
+        "component_type_id": "end",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "start",
+        "to": "parse_input_params"
+      },
+      {
+        "from": "parse_input_params",
+        "to": "create_compilation_result"
+      },
+      {
+        "from": "create_compilation_result",
+        "to": "create_workflow_invocation"
+      },
+      {
+        "from": "create_workflow_invocation",
+        "to": "is_workflow_invocation_done"
+      },
+      {
+        "from": "is_workflow_invocation_done",
+        "to": "end"
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "description": {
+        "description": "Comprehensive Pipeline Description",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 0
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      }
+    },
+    "components": {
+      "start": {
+        "input_dataset": {
+          "description": "Dataset trigger for pipeline initialization",
+          "type": "string",
+          "default": "dataform-training-data-ingestion",
+          "required": false
+        }
+      },
+      "parse_input_params": {
+        "description_param": {
+          "description": "Description parameter from DAG run configuration",
+          "type": "string",
+          "default": "Default Description",
+          "required": false
+        },
+        "logical_date": {
+          "description": "Logical date formatted as DD/MM/YYYY",
+          "type": "string",
+          "default": null,
+          "required": false
+        }
+      },
+      "create_compilation_result": {
+        "gcp_conn_id": {
+          "description": "Google Cloud connection ID",
+          "type": "string",
+          "default": "modelling_cloud_default",
+          "required": false
+        }
+      },
+      "create_workflow_invocation": {
+        "asynchronous": {
+          "description": "Whether to run the workflow invocation asynchronously",
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "gcp_conn_id": {
+          "description": "Google Cloud connection ID",
+          "type": "string",
+          "default": "modelling_cloud_default",
+          "required": false
+        },
+        "fully_refresh_incremental_tables_enabled": {
+          "description": "Whether to fully refresh incremental tables",
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "is_workflow_invocation_done": {
+        "expected_statuses": {
+          "description": "Expected statuses for workflow completion",
+          "type": "array",
+          "default": [
+            "SUCCEEDED",
+            "FAILED"
+          ],
+          "required": false
+        },
+        "gcp_conn_id": {
+          "description": "Google Cloud connection ID",
+          "type": "string",
+          "default": "modelling_cloud_default",
+          "required": false
+        }
+      },
+      "end": {}
+    },
+    "environment": {
+      "GCP_CONN_ID": {
+        "description": "Google Cloud connection ID",
+        "type": "string",
+        "default": "modelling_cloud_default",
+        "required": false,
+        "associated_component_id": "create_compilation_result"
+      },
+      "FULLY_REFRESH_INCREMENTAL_TABLES_ENABLED": {
+        "description": "Whether to fully refresh incremental tables",
+        "type": "boolean",
+        "default": true,
+        "required": false,
+        "associated_component_id": "create_workflow_invocation"
+      },
+      "EXPECTED_STATUSES": {
+        "description": "Expected statuses for workflow completion",
+        "type": "array",
+        "default": [
+          "SUCCEEDED",
+          "FAILED"
+        ],
+        "required": false,
+        "associated_component_id": "is_workflow_invocation_done"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "gcp_dataform_api",
+        "name": "Google Cloud Dataform API",
+        "type": "api",
+        "config": {
+          "base_url": "https://dataform.googleapis.com",
+          "project": "whejna-modelling-sandbox",
+          "repository": "training-repo",
+          "region": "europe-west3"
+        },
+        "authentication": {
+          "type": "oauth",
+          "token_env_var": "GOOGLE_APPLICATION_CREDENTIALS"
+        },
+        "used_by_components": [
+          "create_compilation_result",
+          "create_workflow_invocation",
+          "is_workflow_invocation_done"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      },
+      {
+        "id": "dataform_training_data_ingestion",
+        "name": "Dataform Training Data Ingestion",
+        "type": "data_warehouse",
+        "config": {
+          "host": null,
+          "port": null,
+          "database": null,
+          "schema": null,
+          "protocol": null
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "start"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "dataform-training-data-ingestion"
+          ]
+        }
+      },
+      {
+        "id": "xcom",
+        "name": "XCom",
+        "type": "cache",
+        "config": {
+          "host": null,
+          "port": null,
+          "database": null,
+          "schema": null,
+          "protocol": null
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "parse_input_params",
+          "create_compilation_result",
+          "create_workflow_invocation",
+          "is_workflow_invocation_done"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "compilation_result"
+          ],
+          "consumes": [
+            "compilation_result"
+          ]
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Dataform Training Data Ingestion dataset"
+      ],
+      "sinks": [
+        "Dataform workflow execution results"
+      ],
+      "intermediate_datasets": [
+        "compilation_result"
+      ]
+    }
+  }
+}

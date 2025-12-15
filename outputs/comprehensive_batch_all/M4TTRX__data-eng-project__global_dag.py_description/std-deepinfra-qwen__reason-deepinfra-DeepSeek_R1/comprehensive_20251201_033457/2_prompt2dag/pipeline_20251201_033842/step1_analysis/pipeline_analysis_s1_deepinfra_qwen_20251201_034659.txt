@@ -1,0 +1,267 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-01T03:46:59.529027
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/M4TTRX__data-eng-project__global_dag.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+#### Overall Purpose and High-Level Flow
+The ETL pipeline processes French government data, specifically death records and power plant data, through a series of stages. It extracts raw data from multiple government APIs, performs parallel data cleansing, and loads the structured data into a PostgreSQL database. The pipeline is designed with a hybrid flow pattern, combining sequential, parallel, and branching logic to handle data processing efficiently.
+
+#### Key Patterns and Complexity
+- **Sequential Flow**: The pipeline follows a sequential flow for data transformation and loading.
+- **Parallelism**: Data extraction from multiple sources is performed in parallel to optimize performance.
+- **Branching**: Conditional branching is used to handle scenarios where death data might be empty, allowing the pipeline to skip unnecessary steps.
+- **Intermediate Storage**: Redis is used for temporary storage of death records during processing.
+- **Data Lineage**: The pipeline maintains a clear lineage from data sources to the final database, ensuring traceability and integrity.
+
+### Pipeline Architecture
+
+#### Flow Patterns
+- **Sequential**: Data transformation and loading tasks follow a sequential order.
+- **Parallel**: Data extraction from multiple government APIs is executed in parallel.
+- **Branching**: Conditional branching is used to handle the presence or absence of death data.
+
+#### Execution Characteristics
+- **Task Executor Types**: The pipeline uses `bash`, `python`, and `sql` executors.
+- **Parallelism**: Parallel tasks are supported for data extraction and some data cleansing operations.
+- **Branching**: Conditional branching is used to determine whether to proceed with death data insertion.
+
+#### Component Overview
+- **Extractors**: Components that extract raw data from external APIs.
+- **Transformers**: Components that cleanse and transform data.
+- **Loaders**: Components that load data into the target database.
+- **Quality Checks**: Components that perform data validation and conditional branching.
+- **Orchestrators**: Virtual components that manage the flow between stages.
+
+#### Flow Description
+- **Entry Points**: The pipeline starts with the `ingestion_pipeline_start` virtual component.
+- **Main Sequence**: Data extraction tasks (`extract_data_from_gouv`, `download_city_geo`, `fetch_nuclear_data`, `fetch_thermal_data`, `fetch_death_records`) run in parallel.
+- **Branching/Parallelism**: After data extraction, the pipeline transitions to the `staging_pipeline_start` virtual component, where parallel tasks for creating database tables and loading data into Redis are executed.
+- **Conditional Logic**: The `check_death_data_emptiness` component branches the flow based on the presence of death data, either proceeding to `store_deaths_in_postgres` or skipping to `staging_end`.
+
+### Detailed Component Analysis
+
+#### Extract Data from data.gouv.fr
+- **Purpose and Category**: Extracts raw data from multiple French government data sources in parallel.
+- **Executor Type and Configuration**: Python executor with a script path and environment variables.
+- **Inputs and Outputs**: No inputs; outputs raw CSV and JSON files.
+- **Retry Policy and Concurrency Settings**: Supports parallelism with a maximum of 4 instances.
+- **Connected Systems**: Connects to the `data_gouv_api` for data extraction.
+
+#### Download City Geographic Coordinates
+- **Purpose and Category**: Downloads city geographic coordinates mapping data.
+- **Executor Type and Configuration**: Bash executor with a curl command.
+- **Inputs and Outputs**: No inputs; outputs a CSV file.
+- **Retry Policy and Concurrency Settings**: No parallelism support.
+- **Connected Systems**: Connects to the `data_gouv_api` for data download.
+
+#### Fetch Nuclear Power Plant Data
+- **Purpose and Category**: Fetches nuclear power plant metadata and extracts CSV data.
+- **Executor Type and Configuration**: Python executor with a script path and environment variables.
+- **Inputs and Outputs**: No inputs; outputs JSON and CSV files.
+- **Retry Policy and Concurrency Settings**: No parallelism support.
+- **Connected Systems**: Connects to the `data_gouv_api` for data extraction.
+
+#### Fetch Thermal Power Plant Data
+- **Purpose and Category**: Fetches thermal power plant metadata and extracts CSV data.
+- **Executor Type and Configuration**: Python executor with a script path and environment variables.
+- **Inputs and Outputs**: No inputs; outputs JSON and CSV files.
+- **Retry Policy and Concurrency Settings**: No parallelism support.
+- **Connected Systems**: Connects to the `data_gouv_api` for data extraction.
+
+#### Fetch Death Records
+- **Purpose and Category**: Fetches death record metadata and downloads multiple death data files.
+- **Executor Type and Configuration**: Python executor with a script path and environment variables.
+- **Inputs and Outputs**: No inputs; outputs JSON and TXT files.
+- **Retry Policy and Concurrency Settings**: No parallelism support.
+- **Connected Systems**: Connects to the `data_gouv_api` for data extraction.
+
+#### Create Death Table
+- **Purpose and Category**: Creates the target database table for death records.
+- **Executor Type and Configuration**: SQL executor with a script path.
+- **Inputs and Outputs**: Input SQL schema file; outputs a database table.
+- **Retry Policy and Concurrency Settings**: No parallelism support.
+- **Connected Systems**: Connects to the `postgres_default` database.
+
+#### Create Power Plants Table
+- **Purpose and Category**: Creates the target database table for power plants.
+- **Executor Type and Configuration**: SQL executor with a script path.
+- **Inputs and Outputs**: Input SQL schema file; outputs a database table.
+- **Retry Policy and Concurrency Settings**: No parallelism support.
+- **Connected Systems**: Connects to the `postgres_default` database.
+
+#### Load Death Records to Redis
+- **Purpose and Category**: Loads death records from ingestion files into Redis with deduplication.
+- **Executor Type and Configuration**: Python executor with a script path.
+- **Inputs and Outputs**: Input TXT files; outputs Redis objects.
+- **Retry Policy and Concurrency Settings**: No parallelism support.
+- **Connected Systems**: Connects to the `redis` cache.
+
+#### Cleanse Death Data
+- **Purpose and Category**: Transforms death records with geographic mapping and date formatting.
+- **Executor Type and Configuration**: Python executor with a script path.
+- **Inputs and Outputs**: Input Redis objects and CSV file; outputs an SQL file.
+- **Retry Policy and Concurrency Settings**: No parallelism support.
+- **Connected Systems**: Connects to the `redis` cache.
+
+#### Cleanse Power Plant Data
+- **Purpose and Category**: Cleans and transforms power plant data with column standardization.
+- **Executor Type and Configuration**: Python executor with a script path.
+- **Inputs and Outputs**: Input CSV files; outputs cleaned CSV files.
+- **Retry Policy and Concurrency Settings**: Supports parallelism with a maximum of 2 instances.
+- **Connected Systems**: No external connections.
+
+#### Generate Plant Persist SQL
+- **Purpose and Category**: Generates SQL insertion queries for power plant data.
+- **Executor Type and Configuration**: Python executor with a script path.
+- **Inputs and Outputs**: Input CSV files; outputs an SQL file.
+- **Retry Policy and Concurrency Settings**: No parallelism support.
+- **Connected Systems**: No external connections.
+
+#### Check Death Data Emptiness
+- **Purpose and Category**: Checks if death data processing produced valid SQL queries.
+- **Executor Type and Configuration**: Python executor with a script path.
+- **Inputs and Outputs**: Input SQL file; outputs a branch decision.
+- **Retry Policy and Concurrency Settings**: No parallelism support.
+- **Connected Systems**: No external connections.
+
+#### Store Deaths in PostgreSQL
+- **Purpose and Category**: Executes death data insertion into PostgreSQL.
+- **Executor Type and Configuration**: SQL executor with a script path.
+- **Inputs and Outputs**: Input SQL file; outputs a database table.
+- **Retry Policy and Concurrency Settings**: No parallelism support.
+- **Connected Systems**: Connects to the `postgres_default` database.
+
+#### Staging End
+- **Purpose and Category**: Skips death data insertion when no valid records.
+- **Executor Type and Configuration**: Python executor with a script path.
+- **Inputs and Outputs**: No inputs or outputs.
+- **Retry Policy and Concurrency Settings**: No parallelism support.
+- **Connected Systems**: No external connections.
+
+#### Store Plants in PostgreSQL
+- **Purpose and Category**: Loads power plant data into PostgreSQL.
+- **Executor Type and Configuration**: SQL executor with a script path.
+- **Inputs and Outputs**: Input SQL file; outputs a database table.
+- **Retry Policy and Concurrency Settings**: No parallelism support.
+- **Connected Systems**: Connects to the `postgres_default` database.
+
+#### Clean Temporary Death Files
+- **Purpose and Category**: Cleans up temporary death data from Redis and the file system.
+- **Executor Type and Configuration**: Python executor with a script path.
+- **Inputs and Outputs**: Input Redis objects and SQL file; no outputs.
+- **Retry Policy and Concurrency Settings**: No parallelism support.
+- **Connected Systems**: Connects to the `redis` cache.
+
+### Parameter Schema
+
+#### Pipeline-Level Parameters
+- **name**: Pipeline identifier (required, unique).
+- **description**: Comprehensive pipeline description (optional).
+- **tags**: Classification tags (optional).
+
+#### Schedule Configuration
+- **enabled**: Whether the pipeline runs on schedule (optional).
+- **cron_expression**: Cron or preset schedule (optional).
+- **start_date**: When to start scheduling (optional, ISO8601 format).
+- **end_date**: When to stop scheduling (optional, ISO8601 format).
+- **timezone**: Schedule timezone (optional).
+- **catchup**: Run missed intervals (optional).
+- **batch_window**: Batch window parameter name (optional).
+- **partitioning**: Data partitioning strategy (optional).
+
+#### Execution Settings
+- **max_active_runs**: Max concurrent pipeline runs (optional).
+- **timeout_seconds**: Pipeline execution timeout (optional).
+- **retry_policy**: Pipeline-level retry behavior (optional).
+- **depends_on_past**: Whether execution depends on previous run success (optional).
+
+#### Component-Specific Parameters
+- **extract_data_from_gouv**: Multiple dataset IDs, ingestion directory.
+- **download_city_geo**: City geo dataset URL, output file.
+- **fetch_nuclear_data**: Nuclear dataset ID, output JSON and CSV files.
+- **fetch_thermal_data**: Thermal dataset ID, output JSON and CSV files.
+- **fetch_death_records**: Death dataset ID, output JSON and TXT files, maximum resources.
+- **create_death_table**: SQL schema file.
+- **create_power_plants_table**: SQL schema file.
+- **load_death_records_to_redis**: Input files directory, Redis host, port, list key, tracking key.
+- **cleanse_death_data**: Redis list key, city geo file, output SQL file.
+- **cleanse_power_plant_data**: Input thermal and nuclear files, output directory.
+- **generate_plant_persist_sql**: Input thermal and nuclear files, output SQL file.
+- **check_death_data_emptiness**: Input SQL file.
+- **store_deaths_in_postgres**: Input SQL file.
+- **staging_end**: No parameters.
+- **store_plants_in_postgres**: Input SQL file.
+- **clean_tmp_death_files**: Redis list key, input SQL file.
+
+#### Environment Variables
+- **POSTGRES_DEFAULT_CONNECTION**: PostgreSQL connection string (required).
+- **REDIS_HOST**: Redis host for intermediate storage (optional).
+- **REDIS_PORT**: Redis port for intermediate storage (optional).
+- **REDIS_DB**: Redis database index (optional).
+- **INGESTION_DIRECTORY**: Directory for storing raw data files (optional).
+- **STAGING_DIRECTORY**: Directory for storing cleaned data files (optional).
+- **SQL_TEMPLATE_PATH**: Directory for SQL template files (optional).
+
+### Integration Points
+
+#### External Systems and Connections
+- **data.gouv.fr API**: Provides raw data for thermal plants, nuclear plants, death records, and city geo data.
+- **Redis Cache**: Used for intermediate storage of death records.
+- **PostgreSQL Database**: Target database for storing cleaned and transformed data.
+- **Ingestion Filesystem**: Stores raw data files.
+- **Staging Filesystem**: Stores cleaned data files.
+- **SQL Temporary Filesystem**: Stores temporary SQL files.
+
+#### Data Sources and Sinks
+- **Sources**: Data.gouv.fr API, ingestion filesystem, Redis cache.
+- **Sinks**: PostgreSQL database.
+
+#### Authentication Methods
+- **data.gouv.fr API**: Token-based authentication.
+- **PostgreSQL Database**: Basic authentication with username and password.
+- **Redis Cache**: No authentication.
+
+#### Data Lineage
+- **Sources**: Data.gouv.fr API, ingestion filesystem, Redis cache.
+- **Sinks**: PostgreSQL database.
+- **Intermediate Datasets**: Raw CSV/JSON files, cleaned CSV files, Redis objects, SQL files.
+
+### Implementation Notes
+
+#### Complexity Assessment
+- The pipeline is moderately complex, with a mix of sequential, parallel, and branching flows.
+- Data extraction and cleansing operations are parallelized to optimize performance.
+- Conditional branching is used to handle data availability, adding a layer of complexity.
+
+#### Upstream Dependency Policies
+- All tasks depend on the successful completion of their upstream tasks, ensuring data integrity and consistency.
+
+#### Retry and Timeout Configurations
+- Each component has a retry policy with a maximum of 1 attempt and a 10-second delay.
+- No specific timeout configurations are defined at the pipeline level.
+
+#### Potential Risks or Considerations
+- **Data Availability**: The pipeline may fail if the external APIs are unavailable or return incomplete data.
+- **Performance**: Parallel tasks can improve performance but may also introduce resource contention.
+- **Data Integrity**: Conditional branching and data validation steps are crucial to maintaining data integrity.
+
+### Orchestrator Compatibility
+
+#### Assessment for Airflow, Prefect, Dagster
+- **Airflow**: The pipeline's hybrid flow pattern, including parallelism and branching, is well-supported by Airflow's TaskGroups and Branching operators.
+- **Prefect**: Prefect's dynamic task mapping and conditional flows make it a suitable choice for this pipeline.
+- **Dagster**: Dagster's strong support for data lineage and dynamic configurations aligns well with the pipeline's requirements.
+
+#### Pattern-Specific Considerations
+- **Parallelism**: Ensure that the orchestrator supports parallel task execution and can handle resource allocation efficiently.
+- **Branching**: The orchestrator should support conditional branching based on data availability and task outcomes.
+- **Data Lineage**: The orchestrator should provide robust data lineage tracking to maintain traceability and integrity.
+
+### Conclusion
+
+The ETL pipeline is designed to efficiently process and load French government data into a PostgreSQL database. It leverages parallelism, branching, and intermediate storage to handle data extraction, transformation, and loading. The pipeline is well-structured and can be effectively managed using orchestrators like Airflow, Prefect, or Dagster. The detailed component analysis and parameter schema provide a comprehensive understanding of the pipeline's architecture and configuration.

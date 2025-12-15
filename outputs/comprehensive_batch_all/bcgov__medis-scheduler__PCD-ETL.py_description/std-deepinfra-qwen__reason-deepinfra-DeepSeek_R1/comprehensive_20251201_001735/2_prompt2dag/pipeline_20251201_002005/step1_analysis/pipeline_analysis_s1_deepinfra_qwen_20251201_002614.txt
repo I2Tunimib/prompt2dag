@@ -1,0 +1,247 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-01T00:26:14.316261
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/bcgov__medis-scheduler__PCD-ETL.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+#### Overall Purpose and High-Level Flow
+The PCD (Primary Care Data) ETL pipeline is designed to extract, transform, and load data from multiple sources, including SFTP folders, shared folders, and various HTTP APIs. The pipeline ensures that the necessary data sources are available and accessible before initiating the extraction process. It then performs parallel HTTP API calls to gather data from multiple endpoints, processes the data, and uploads the processed data to a target location. The pipeline concludes with comprehensive email notifications to stakeholders, detailing the success or failure of the ETL process.
+
+#### Key Patterns and Complexity
+The pipeline follows a hybrid pattern, combining sequential and parallel execution. It begins with sequential checks to ensure the availability of data sources, followed by parallel HTTP API extraction to efficiently gather data from multiple endpoints. The pipeline then synchronizes the parallel tasks and proceeds with sequential data processing and upload. The use of Kubernetes for containerized workloads, HTTP for API calls, and Python for orchestration and notifications adds complexity and flexibility to the pipeline.
+
+### Pipeline Architecture
+
+#### Flow Patterns
+- **Sequential**: Initial checks for SFTP and shared folders are performed sequentially.
+- **Parallel**: HTTP API extraction is executed in parallel to optimize data collection.
+- **Hybrid**: The pipeline combines sequential and parallel patterns to ensure efficient and reliable data processing.
+
+#### Execution Characteristics
+- **Task Executor Types**: Kubernetes, HTTP, Python
+
+#### Component Overview
+- **Sensors**: Components that verify the availability of data sources (SFTP and shared folders).
+- **Orchestrators**: Components that manage the flow and synchronization of tasks.
+- **Extractors**: Components that extract data from HTTP APIs.
+- **Loaders**: Components that process and upload the extracted data.
+- **Notifiers**: Components that send notifications about the pipeline's status.
+
+#### Flow Description
+1. **Entry Point**: The pipeline starts with the `Check PCD SFTP Folder` component.
+2. **Main Sequence**:
+   - `Check PCD SFTP Folder` verifies the SFTP folder's availability.
+   - `Check PCD Shared Folder` validates the shared folder's accessibility.
+   - `Start PCD Extract 1` acts as a synchronization point to initiate parallel HTTP API extraction.
+   - `Parallel HTTP API Extraction` performs parallel data extraction from multiple endpoints.
+   - `Start PCD Extract 2` synchronizes the parallel tasks and signals readiness for file upload processing.
+   - `PCD File Upload` processes and uploads the extracted data.
+3. **Notification**: The `ETL Notification` component sends comprehensive email notifications to stakeholders, detailing the pipeline's status.
+
+### Detailed Component Analysis
+
+#### Check PCD SFTP Folder
+- **Purpose and Category**: Sensor
+- **Executor Type and Configuration**: Kubernetes
+- **Inputs**: None
+- **Outputs**: Folder status verification for downstream processing
+- **Retry Policy and Concurrency Settings**: No retries, no parallelism
+- **Connected Systems**: Kubernetes cluster
+
+#### Check PCD Shared Folder
+- **Purpose and Category**: Sensor
+- **Executor Type and Configuration**: Kubernetes
+- **Inputs**: Folder status verification for downstream processing
+- **Outputs**: Shared folder status for data extraction phase
+- **Retry Policy and Concurrency Settings**: No retries, no parallelism
+- **Connected Systems**: Kubernetes cluster
+
+#### Start PCD Extract 1
+- **Purpose and Category**: Orchestrator
+- **Executor Type and Configuration**: Python
+- **Inputs**: Shared folder status for data extraction phase
+- **Outputs**: Triggers parallel HTTP API extraction tasks
+- **Retry Policy and Concurrency Settings**: No retries, no parallelism
+- **Connected Systems**: None
+
+#### Parallel HTTP API Extraction
+- **Purpose and Category**: Extractor
+- **Executor Type and Configuration**: HTTP
+- **Inputs**: Triggers parallel HTTP API extraction tasks
+- **Outputs**: API response data with statusCode 200 validation
+- **Retry Policy and Concurrency Settings**: No retries, supports dynamic mapping, max parallel instances: 18
+- **Connected Systems**: Various HTTP APIs
+
+#### Start PCD Extract 2
+- **Purpose and Category**: Orchestrator
+- **Executor Type and Configuration**: Python
+- **Inputs**: API response data with statusCode 200 validation
+- **Outputs**: Signals readiness for file upload processing
+- **Retry Policy and Concurrency Settings**: No retries, no parallelism
+- **Connected Systems**: None
+
+#### PCD File Upload
+- **Purpose and Category**: Loader
+- **Executor Type and Configuration**: Kubernetes
+- **Inputs**: Signals readiness for file upload processing
+- **Outputs**: Processed PCD data upload
+- **Retry Policy and Concurrency Settings**: No retries, no parallelism
+- **Connected Systems**: Kubernetes cluster
+
+#### ETL Notification
+- **Purpose and Category**: Notifier
+- **Executor Type and Configuration**: Python
+- **Inputs**: All upstream task completion (success or failure)
+- **Outputs**: Email notifications to appropriate distribution lists
+- **Retry Policy and Concurrency Settings**: No retries, no parallelism
+- **Connected Systems**: Email system
+
+### Parameter Schema
+
+#### Pipeline-Level Parameters
+- **name**: Pipeline identifier (string, required, unique)
+- **description**: Pipeline description (string, optional)
+- **tags**: Classification tags (array, optional)
+
+#### Schedule Configuration
+- **enabled**: Whether the pipeline runs on schedule (boolean, optional)
+- **cron_expression**: Cron or preset schedule (string, optional)
+- **start_date**: When to start scheduling (datetime, optional)
+- **end_date**: When to stop scheduling (datetime, optional)
+- **timezone**: Schedule timezone (string, optional)
+- **catchup**: Run missed intervals (boolean, optional)
+- **batch_window**: Batch window parameter name (string, optional)
+- **partitioning**: Data partitioning strategy (string, optional)
+
+#### Execution Settings
+- **max_active_runs**: Max concurrent pipeline runs (integer, optional)
+- **timeout_seconds**: Pipeline execution timeout (integer, optional)
+- **retry_policy**: Pipeline-level retry behavior (object, optional)
+- **depends_on_past**: Whether execution depends on previous run success (boolean, optional)
+
+#### Component-Specific Parameters
+- **check_pcd_sftp_folder**:
+  - **job_template_file**: Kubernetes job template file for SFTP folder check (string, required)
+  - **wait_until_job_complete**: Wait until the Kubernetes job completes (boolean, required)
+- **check_pcd_shared_folder**:
+  - **job_template_file**: Kubernetes job template file for shared folder check (string, required)
+  - **wait_until_job_complete**: Wait until the Kubernetes job completes (boolean, required)
+- **parallel_http_api_extraction**:
+  - **method**: HTTP method for API calls (string, required)
+  - **response_check**: Response check for HTTP status code (string, required)
+  - **payload**: Standardized JSON payload for API calls (object, required)
+- **pcd_file_upload**:
+  - **job_template_file**: Kubernetes job template file for PCD file upload (string, required)
+- **etl_notification**:
+  - **trigger_rule**: Trigger rule for notification (string, required)
+  - **custom_html_content**: Custom HTML content for email notifications (string, optional)
+
+#### Environment Variables
+- **PCD_ETL_EMAIL_LIST_SUCCESS**: Email list for success notifications (string, optional)
+- **ETL_EMAIL_LIST_ALERTS**: Email list for failure notifications (string, optional)
+- **PCD_EMTYSFTP_JOB**: Kubernetes job template for SFTP folder check (string, optional)
+- **PCD_EMTYDIR_JOB**: Kubernetes job template for shared folder check (string, optional)
+- **PCD_JOB**: Kubernetes job template for PCD file upload (string, optional)
+- **PCD_FINANCIAL_EXPENSE_URL**: URL for financial expense endpoint (string, optional)
+- **PCD_UPCC_FINANCIAL_REPORTING_URL**: URL for UPCC financial reporting endpoint (string, optional)
+- **PCD_CHC_FINANCIAL_REPORTING_URL**: URL for CHC financial reporting endpoint (string, optional)
+- **PCD_PCN_FINANCIAL_REPORTING_URL**: URL for PCN financial reporting endpoint (string, optional)
+- **PCD_NPPCC_FINANCIAL_REPORTING_URL**: URL for NPPCC financial reporting endpoint (string, optional)
+- **PCD_FISCAL_YEAR_REPORTING_DATES_URL**: URL for fiscal year dates endpoint (string, optional)
+- **PCD_UPCC_PRIMARY_CARE_PATIENT_SERVICES_URL**: URL for UPCC patient services endpoint (string, optional)
+- **PCD_CHC_PRIMARY_CARE_PATIENT_SERVICES_URL**: URL for CHC patient services endpoint (string, optional)
+- **PCD_PRACTITIONER_ROLE_MAPPING_URL**: URL for practitioner role mapping endpoint (string, optional)
+- **PCD_STATUS_TRACKER_URL**: URL for status tracker endpoint (string, optional)
+- **PCD_HR_RECORDS_URL**: URL for HR records endpoint (string, optional)
+- **PCD_PROVINCIAL_RISK_TRACKING_URL**: URL for provincial risk tracking endpoint (string, optional)
+- **PCD_DECISION_LOG_URL**: URL for decision log endpoint (string, optional)
+- **PCD_HA_HIERARCHY_URL**: URL for health authority hierarchy endpoint (string, optional)
+- **PCD_UPPC_BUDGET_URL**: URL for UPCC budget endpoint (string, optional)
+- **PCD_CHC_BUDGET_URL**: URL for CHC budget endpoint (string, optional)
+- **PCD_PCN_BUDGET_URL**: URL for PCN budget endpoint (string, optional)
+- **PCD_NPPCC_BUDGET_URL**: URL for NPPCC budget endpoint (string, optional)
+
+### Integration Points
+
+#### External Systems and Connections
+- **SFTP Folder Check**: Filesystem (SFTP, key pair authentication)
+- **Shared Folder Check**: Filesystem (file, no authentication)
+- **Financial Expense API**: API (HTTPS, token authentication)
+- **UPCC Financial Reporting API**: API (HTTPS, token authentication)
+- **CHC Financial Reporting API**: API (HTTPS, token authentication)
+- **PCN Financial Reporting API**: API (HTTPS, token authentication)
+- **NPPCC Financial Reporting API**: API (HTTPS, token authentication)
+- **Fiscal Year Reporting Dates API**: API (HTTPS, token authentication)
+- **UPCC Patient Services API**: API (HTTPS, token authentication)
+- **CHC Patient Services API**: API (HTTPS, token authentication)
+- **Practitioner Role Mapping API**: API (HTTPS, token authentication)
+- **Status Tracker API**: API (HTTPS, token authentication)
+- **HR Records API**: API (HTTPS, token authentication)
+- **Provincial Risk Tracking API**: API (HTTPS, token authentication)
+- **Decision Log API**: API (HTTPS, token authentication)
+- **Health Authority Hierarchy API**: API (HTTPS, token authentication)
+- **UPPC Budget API**: API (HTTPS, token authentication)
+- **CHC Budget API**: API (HTTPS, token authentication)
+- **PCN Budget API**: API (HTTPS, token authentication)
+- **NPPCC Budget API**: API (HTTPS, token authentication)
+- **ETL Notification Email**: Other (SMTP, no authentication)
+
+#### Data Sources and Sinks
+- **Sources**:
+  - SFTP folder for initial checks
+  - Shared folder for data extraction
+  - Multiple HTTP APIs for financial, patient, and other data
+- **Sinks**:
+  - Processed PCD data upload
+- **Intermediate Datasets**:
+  - Folder status
+  - Shared folder status
+  - Various API response data
+  - All upstream task status
+
+#### Authentication Methods
+- **SFTP Folder Check**: Key pair
+- **HTTP APIs**: Token-based authentication
+
+#### Data Lineage
+- **Sources**: SFTP folder, shared folder, multiple HTTP APIs
+- **Sinks**: Processed PCD data upload
+- **Intermediate Datasets**: Various status and data outputs
+
+### Implementation Notes
+
+#### Complexity Assessment
+The pipeline is moderately complex due to the combination of sequential and parallel execution patterns, the use of multiple executor types, and the integration with various external systems. The parallel HTTP API extraction and the need for comprehensive notifications add to the complexity.
+
+#### Upstream Dependency Policies
+- **All Success**: Most components depend on the successful completion of their upstream tasks.
+- **All Done**: The `ETL Notification` component runs regardless of the success or failure of upstream tasks.
+
+#### Retry and Timeout Configurations
+- **Retry Policy**: No retries are configured for any components.
+- **Timeout**: The pipeline has a default execution timeout of 3600 seconds.
+
+#### Potential Risks or Considerations
+- **API Rate Limits**: Ensure that the rate limits of the HTTP APIs are respected to avoid throttling.
+- **Kubernetes Resource Limits**: Monitor the resource usage of Kubernetes jobs to prevent resource exhaustion.
+- **Email Notifications**: Ensure that the email system is reliable and that the distribution lists are correctly configured.
+
+### Orchestrator Compatibility
+
+#### Assessment for Airflow, Prefect, Dagster
+- **Airflow**: The pipeline's hybrid pattern, use of Kubernetes and HTTP executors, and comprehensive notifications are well-supported by Airflow.
+- **Prefect**: Prefect's support for dynamic mapping and parallel tasks makes it a suitable choice for the parallel HTTP API extraction.
+- **Dagster**: Dagster's strong support for data lineage and complex flow patterns aligns well with the pipeline's requirements.
+
+#### Pattern-Specific Considerations
+- **Sequential and Parallel Patterns**: All orchestrators support sequential and parallel execution, but the configuration and management of parallel tasks may vary.
+- **Dynamic Mapping**: Prefect and Dagster have built-in support for dynamic mapping, which is crucial for the parallel HTTP API extraction.
+- **Notifications**: Airflow and Prefect have built-in mechanisms for sending notifications, while Dagster may require additional configuration.
+
+### Conclusion
+
+The PCD ETL pipeline is a well-structured and efficient process that ensures the availability of data sources, performs parallel data extraction, and processes and uploads the data with comprehensive notifications. The pipeline's hybrid pattern and use of multiple executor types make it flexible and robust. While the pipeline is moderately complex, it is well-suited for implementation in various orchestrators, with each offering unique strengths in managing the pipeline's requirements.

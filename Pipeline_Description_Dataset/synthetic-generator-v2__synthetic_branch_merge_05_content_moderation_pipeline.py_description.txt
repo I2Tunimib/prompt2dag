@@ -1,0 +1,94 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_branch_merge_05_content_moderation_pipeline.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** branch_merge  
+**Complexity Score:** 4/10  
+
+---
+
+[Content Moderation Pipeline] - Comprehensive Pipeline Description
+
+Opening Summary:
+This content moderation pipeline scans user-generated content for toxicity levels and routes processing based on a toxicity threshold, implementing a branch-merge pattern. The workflow extracts content from CSV files, performs toxicity scoring, branches to either remove toxic content or publish safe content, then merges both paths for audit logging. Key infrastructure includes BranchPythonOperator for conditional routing, XCom for data passing between tasks, and daily scheduled execution with email alerting on failures.
+
+Pipeline Steps:
+
+1. scan_csv
+  • Objective: Extract and scan user-generated content from CSV files for processing
+  • Technical Details:
+    - Input: CSV file at /data/user_content.csv
+    - Output: Content metadata including total item count (150 items) and file path via XCom
+    - Integrations: Local file system for CSV data access
+    - Key Parameters: provide_context=True for XCom access
+  • Operator or Mechanism: PythonOperator
+  • Notes: Initial data extraction step that feeds content metadata to downstream branching logic
+
+2. toxicity_check
+  • Objective: Evaluate toxicity levels and determine processing path based on threshold (0.7)
+  • Technical Details:
+    - Input: XCom data from scan_csv task (total_items, file_path)
+    - Output: Branch decision - returns either 'remove_and_flag_content' or 'publish_content' task_id
+    - Integrations: Mock toxicity scoring system (random simulation)
+    - Key Parameters: BranchPythonOperator with conditional routing logic
+  • Operator or Mechanism: BranchPythonOperator
+  • Notes: Branching gateway that routes to different processing paths based on toxicity threshold
+
+3. remove_and_flag_content
+  • Objective: Remove toxic content from platform and flag user accounts for review
+  • Technical Details:
+    - Input: XCom data from scan_csv task, triggered when toxicity_score > 0.7
+    - Output: Removal confirmation with action details via XCom
+    - Integrations: Platform content management system
+    - Key Parameters: provide_context=True for XCom access
+  • Operator or Mechanism: PythonOperator
+  • Notes: High-toxicity branch path - executes when toxicity exceeds threshold
+
+4. publish_content
+  • Objective: Publish safe content to platform for user visibility
+  • Technical Details:
+    - Input: XCom data from scan_csv task, triggered when toxicity_score ≤ 0.7
+    - Output: Publication confirmation with status details via XCom
+    - Integrations: Platform publishing system
+    - Key Parameters: provide_context=True for XCom access
+  • Operator or Mechanism: PythonOperator
+  • Notes: Low-toxicity branch path - executes when toxicity meets safety threshold
+
+5. audit_log
+  • Objective: Create consolidated audit log entry capturing outcomes from both processing branches
+  • Technical Details:
+    - Input: XCom data from both remove_and_flag_content and publish_content tasks
+    - Output: Audit log entry with completion status and timestamp
+    - Integrations: Audit logging system
+    - Key Parameters: provide_context=True for XCom access from multiple upstream tasks
+  • Operator or Mechanism: PythonOperator
+  • Notes: Merge point that consolidates both branch paths for final logging
+
+Orchestration & Scheduling:
+- Schedule: @daily execution
+- Start Date: January 1, 2024
+- Catchup: Disabled (catchup=False)
+- Default Args: 2 retries, 5-minute retry delay, email_on_failure enabled, email_on_retry disabled
+
+Infrastructure & Dependencies:
+- Branching: BranchPythonOperator for conditional routing based on toxicity threshold (0.7)
+- Data Passing: XCom used extensively for passing content metadata and processing results
+- File I/O: CSV file at /data/user_content.csv as content source
+- Content Processing: Mock toxicity scoring system with random simulation
+
+Failure Handling & Alerts:
+- Email notifications configured for task failures (email_on_failure=True)
+- Automatic retry policy: 2 retries with 5-minute delays between attempts
+- No retry email notifications (email_on_retry=False)
+
+Pattern-Specific Notes:
+- Branch-Merge Pattern: Clear conditional branching at toxicity_check based on toxicity threshold (0.7)
+- Branch Conditions: 
+  - High toxicity (>0.7): Routes to remove_and_flag_content
+  - Low toxicity (≤0.7): Routes to publish_content
+- Convergence: Both branches merge at audit_log task for consolidated logging
+- Parallel Width: Maximum 1 active branch path at runtime (mutually exclusive routing)
+- Data Flow: XCom ensures both branch outcomes are available at merge point for audit logging

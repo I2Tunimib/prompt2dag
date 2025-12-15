@@ -1,0 +1,92 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-01 18:26:39.936503
+  source_analysis_file: 
+    Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_mondo.py_description.txt
+  pipeline_name: etl_import_mondo
+  pipeline_description: Comprehensive Pipeline Description
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: '2022-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections: []
+tasks:
+  - task_id: validate_params
+    task_name: Validate Parameters
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: validate_params
+    config:
+      python_callable: validate_color
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: download_mondo_terms
+    task_name: Download Mondo OBO File
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: download_mondo_terms
+    config:
+      python_callable: download_mondo_obo
+    upstream_task_ids:
+      - validate_params
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: normalize_mondo_terms
+    task_name: Normalize Mondo Terms
+    operator_class: SparkSubmitOperator
+    operator_module: airflow.providers.apache.spark.operators.spark_submit
+    component_ref: normalize_mondo_terms
+    config: {}
+    upstream_task_ids:
+      - download_mondo_terms
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: index_mondo_terms
+    task_name: Index Mondo Terms
+    operator_class: SparkSubmitOperator
+    operator_module: airflow.providers.apache.spark.operators.spark_submit
+    component_ref: index_mondo_terms
+    config: {}
+    upstream_task_ids:
+      - normalize_mondo_terms
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: publish_mondo
+    task_name: Publish Mondo Dataset
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: publish_mondo
+    config:
+      python_callable: publish_index.mondo
+    upstream_task_ids:
+      - index_mondo_terms
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: slack_notification
+    task_name: Send Slack Notification
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: slack_notification
+    config:
+      python_callable: Slack.notify_dag_completion
+    upstream_task_ids:
+      - publish_mondo
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

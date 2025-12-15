@@ -1,0 +1,189 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-01T16:09:24.135839
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__mahidol_aqi_report_pipeline_alert.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+**Overall Purpose and High-Level Flow:**
+The pipeline is designed to scrape air quality index (AQI) data from the Mahidol University website, process the data to extract structured information, load it into a PostgreSQL data warehouse, and send email alerts if the PM2.5 levels exceed safe thresholds. The pipeline follows a sequential flow with strict dependencies, ensuring that each step is completed successfully before the next one begins.
+
+**Key Patterns and Complexity:**
+- **Sequential Flow:** The pipeline processes tasks in a linear sequence.
+- **Branching:** There is a branching pattern where the pipeline can skip tasks if certain conditions are met (e.g., data already exists in the database).
+- **Data Freshness Checks:** The pipeline includes checks to ensure that only new data is processed, preventing duplicate entries.
+- **Conditional Execution:** The email alert task is conditionally executed based on AQI thresholds.
+
+### Pipeline Architecture
+
+**Flow Patterns:**
+- **Sequential:** The pipeline processes tasks in a linear sequence.
+- **Branching:** The pipeline includes a branching pattern where tasks can be skipped based on data freshness checks.
+
+**Execution Characteristics:**
+- **Task Executor Types:** Python is used as the task executor for all components.
+
+**Component Overview:**
+- **Extractor:** Scrapes data from the Mahidol University website.
+- **Transformer:** Parses the HTML content to extract structured AQI data and validates data freshness.
+- **Loader:** Loads the structured data into PostgreSQL tables.
+- **Notifier:** Sends email alerts based on AQI thresholds.
+
+**Flow Description:**
+- **Entry Points:** The pipeline starts with the `get_data_mahidol_aqi_report` task.
+- **Main Sequence:** The tasks are executed in the following order: `get_data_mahidol_aqi_report` → `create_json_object` → `load_mahidol_aqi_to_postgres` → `alert_email`.
+- **Branching/Parallelism/Sensors:** The pipeline includes a branching pattern where the `create_json_object` task can skip execution if the data already exists in the database. There is no parallelism or sensor-based execution.
+
+### Detailed Component Analysis
+
+**1. Get Mahidol AQI Report**
+- **Purpose and Category:** Extractor
+- **Executor Type and Configuration:** Python
+  - **Environment:** `HTTP_TIMEOUT=10`, `HTML_ENCODING=UTF-8`
+- **Inputs:** `https://mahidol.ac.th/aqireport/`
+- **Outputs:** `data/mahidol_aqi.html`
+- **Retry Policy and Concurrency Settings:** No retries, no parallelism
+- **Connected Systems:** Mahidol University AQI Website (HTTP API), Local Filesystem
+
+**2. Create JSON Object**
+- **Purpose and Category:** Transformer
+- **Executor Type and Configuration:** Python
+  - **Environment:** `PARSING_TOOL=BeautifulSoup`, `DATETIME_FORMAT=specific_format`
+- **Inputs:** `data/mahidol_aqi.html`, `data/existing_json_file.json`
+- **Outputs:** `data/tmp_mahidol.json`
+- **Retry Policy and Concurrency Settings:** No retries, no parallelism
+- **Connected Systems:** PostgreSQL Database, Local Filesystem
+
+**3. Load Mahidol AQI to PostgreSQL**
+- **Purpose and Category:** Loader
+- **Executor Type and Configuration:** Python
+  - **Environment:** `ON_CONFLICT=DO NOTHING`, `DATA_CLEANING=numeric_values`
+- **Inputs:** `data/tmp_mahidol.json`, `/opt/airflow/config/mapping_main_pollution.json`
+- **Outputs:** PostgreSQL tables (`dimDateTimeTable`, `dimLocationTable`, `dimMainPollutionTable`, `factmahidolaqitable`)
+- **Retry Policy and Concurrency Settings:** No retries, no parallelism
+- **Connected Systems:** PostgreSQL Database, Local Filesystem
+
+**4. Send Email Alert**
+- **Purpose and Category:** Notifier
+- **Executor Type and Configuration:** Python
+  - **Environment:** `SMTP_SERVER=smtp.gmail.com:587`, `AQI_THRESHOLD=0-50 safe, 51-100 moderate, 101-200 unhealthy, >200 hazardous`
+- **Inputs:** `data/tmp_mahidol.json`, `/opt/airflow/config/email_credentials.conf`, `pm25_alert_emails.txt`
+- **Outputs:** Email notifications
+- **Retry Policy and Concurrency Settings:** No retries, no parallelism
+- **Connected Systems:** SMTP Server, Local Filesystem
+
+### Parameter Schema
+
+**Pipeline-Level Parameters:**
+- **Name:** Unique identifier for the pipeline
+- **Description:** Detailed description of the pipeline
+- **Tags:** Classification tags
+
+**Schedule Configuration:**
+- **Enabled:** Whether the pipeline runs on schedule
+- **Cron Expression:** Schedule timing (e.g., `@daily`, `0 0 * * *`)
+- **Start Date:** When to start scheduling
+- **End Date:** When to stop scheduling
+- **Timezone:** Schedule timezone
+- **Catchup:** Run missed intervals
+- **Batch Window:** Batch window parameter name
+
+**Execution Settings:**
+- **Max Active Runs:** Maximum concurrent pipeline runs
+- **Timeout Seconds:** Pipeline execution timeout
+- **Retry Policy:** Pipeline-level retry behavior
+- **Depends on Past:** Whether execution depends on previous run success
+
+**Component-Specific Parameters:**
+- **Get Mahidol AQI Report:**
+  - **URL:** URL of the Mahidol AQI website
+  - **Output File:** Path to save the HTML file
+  - **HTTP Timeout:** Timeout for HTTP request
+  - **Encoding:** Encoding for HTML file
+- **Create JSON Object:**
+  - **Input File:** Path to the HTML file from the previous task
+  - **Output File:** Path to save the structured JSON file
+  - **PostgreSQL Connection:** PostgreSQL connection identifier
+  - **Datetime Format:** Datetime format for conversion
+- **Load Mahidol AQI to PostgreSQL:**
+  - **Input File:** Path to the JSON file from the previous task
+  - **Config File:** Path to the pollution mapping config file
+  - **PostgreSQL Connection:** PostgreSQL connection identifier
+  - **On Conflict:** Conflict resolution strategy for dimension tables
+- **Send Email Alert:**
+  - **Input File:** Path to the JSON data file
+  - **SMTP Server:** SMTP server address and port
+  - **Config File:** Path to the email configuration file
+  - **Recipient List File:** Path to the recipient list file
+  - **AQI Thresholds:** AQI threshold levels
+
+**Environment Variables:**
+- **POSTGRES_CONN:** PostgreSQL connection identifier
+- **SMTP_SERVER:** SMTP server address and port
+- **BASE_DIR:** Base directory for data and config files
+- **EMAIL_CONFIG_FILE:** Path to the email configuration file
+- **PM25_ALERT_EMAILS_FILE:** Path to the recipient list file
+- **MAPPING_MAIN_POLLUTION_FILE:** Path to the pollution mapping config file
+
+### Integration Points
+
+**External Systems and Connections:**
+- **Mahidol University AQI Website:** HTTP API for scraping AQI data
+- **Local Filesystem:** Storage for intermediate and final data files
+- **PostgreSQL Database:** Data warehouse for storing structured AQI data
+- **SMTP Server:** Email server for sending alerts
+- **Configuration Files:** Filesystem for storing configuration files
+
+**Data Sources and Sinks:**
+- **Sources:** Mahidol University AQI Website (https://mahidol.ac.th/aqireport/)
+- **Sinks:** PostgreSQL Data Warehouse (airquality database), Email Notifications via SMTP Server (smtp.gmail.com:587)
+- **Intermediate Datasets:** `data/mahidol_aqi.html`, `data/tmp_mahidol.json`
+
+**Authentication Methods:**
+- **Mahidol University AQI Website:** No authentication
+- **PostgreSQL Database:** Key-pair authentication using environment variables
+- **SMTP Server:** Key-pair authentication using environment variables
+- **Configuration Files:** No authentication
+
+**Data Lineage:**
+- **Sources:** Mahidol University AQI Website
+- **Sinks:** PostgreSQL Data Warehouse, Email Notifications
+- **Intermediate Datasets:** `data/mahidol_aqi.html`, `data/tmp_mahidol.json`
+
+### Implementation Notes
+
+**Complexity Assessment:**
+- The pipeline is moderately complex due to the sequential flow, data freshness checks, and conditional execution of the email alert task.
+- The branching pattern adds a layer of complexity by allowing tasks to be skipped based on data checks.
+
+**Upstream Dependency Policies:**
+- Each task waits for all upstream tasks to succeed before starting.
+- The `create_json_object` task includes a check to skip execution if the data already exists in the database.
+
+**Retry and Timeout Configurations:**
+- No retry policies are configured for any tasks.
+- No timeout settings are specified at the pipeline or task level.
+
+**Potential Risks or Considerations:**
+- **Data Freshness:** The pipeline relies on data freshness checks to prevent duplicate processing. If the data source changes format or content, the checks may fail.
+- **Email Alerts:** The email alert task is conditionally executed based on AQI thresholds. If the thresholds are not correctly configured, alerts may not be sent when needed.
+- **Error Handling:** The pipeline lacks retry policies, which could lead to failures if transient issues occur during execution.
+
+### Orchestrator Compatibility
+
+**Assessment for Airflow, Prefect, Dagster:**
+- **Airflow:** The pipeline's sequential flow and branching pattern are well-supported by Airflow. The lack of parallelism and sensors is not a limitation.
+- **Prefect:** Prefect can handle the sequential flow and branching pattern effectively. The Python-based tasks and environment configurations are well-supported.
+- **Dagster:** Dagster can manage the pipeline's sequential flow and branching. The Python-based tasks and environment configurations are compatible with Dagster's execution model.
+
+**Pattern-Specific Considerations:**
+- **Sequential Flow:** All orchestrators can handle sequential flows without issues.
+- **Branching:** Airflow and Prefect have built-in support for branching, while Dagster can handle branching using dynamic tasks.
+- **Data Freshness Checks:** All orchestrators can implement data freshness checks using custom logic or built-in features.
+
+### Conclusion
+
+The Mahidol AQI ETL pipeline is a well-structured and modular system designed to scrape, process, load, and alert on air quality data. The pipeline follows a sequential flow with branching for data freshness checks and conditional execution of email alerts. The use of Python as the task executor and the integration with PostgreSQL and SMTP servers make it a robust solution for monitoring and alerting on AQI levels. The pipeline is compatible with multiple orchestrators, making it flexible for deployment in various environments.

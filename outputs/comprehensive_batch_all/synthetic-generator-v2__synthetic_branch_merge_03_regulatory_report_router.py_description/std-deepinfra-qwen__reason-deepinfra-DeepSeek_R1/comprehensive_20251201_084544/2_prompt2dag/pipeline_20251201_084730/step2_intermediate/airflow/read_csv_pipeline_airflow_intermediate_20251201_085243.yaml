@@ -1,0 +1,116 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-01 08:52:43.308138
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_03_regulatory_report_router.py_description.txt
+  pipeline_name: read_csv_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific: {}
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: local_filesystem
+    conn_type: fs
+    description: Local File System
+    config:
+      base_path: /path/to/csv/files
+      protocol: file
+  - conn_id: fatca_api
+    conn_type: http
+    description: FATCA Regulatory Compliance System
+    config:
+      base_url: https://fatca-regulatory-system.com/api
+      protocol: https
+      extra:
+        token_env_var: FATCA_API_TOKEN
+  - conn_id: irs_api
+    conn_type: http
+    description: IRS Regulatory Compliance System
+    config:
+      base_url: https://irs-regulatory-system.com/api
+      protocol: https
+      extra:
+        token_env_var: IRS_API_TOKEN
+  - conn_id: secure_archive
+    conn_type: s3
+    description: Secure Archive Storage
+    config:
+      base_path: /path/to/archive
+      protocol: s3
+      bucket: regulatory-reports-archive
+tasks:
+  - task_id: read_csv
+    task_name: Read CSV
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: read_csv
+    config:
+      python_callable: synthetic/synthetic_branch_merge_03_regulatory_report_router.py
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: account_check
+    task_name: Account Check
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: account_check
+    config:
+      python_callable: synthetic/synthetic_branch_merge_03_regulatory_report_router.py
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - read_csv
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: route_to_fatca
+    task_name: Route to FATCA
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: route_to_fatca
+    config:
+      python_callable: synthetic/synthetic_branch_merge_03_regulatory_report_router.py
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - account_check
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: route_to_irs
+    task_name: Route to IRS
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: route_to_irs
+    config:
+      python_callable: synthetic/synthetic_branch_merge_03_regulatory_report_router.py
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - account_check
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: archive_reports
+    task_name: Archive Reports
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: archive_reports
+    config:
+      python_callable: synthetic/synthetic_branch_merge_03_regulatory_report_router.py
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - route_to_fatca
+      - route_to_irs
+    trigger_rule: all_done
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

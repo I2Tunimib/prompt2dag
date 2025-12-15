@@ -1,0 +1,168 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-11-28 14:38:02.868488
+  source_analysis_file: 
+    Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_ensembl.py_description.txt
+  pipeline_name: etl_import_ensembl
+  pipeline_description: Comprehensive ETL pipeline that imports genomic mapping data from Ensembl's FTP server to an S3 
+    data lake and processes it with Spark
+  orchestrator_specific:
+    job_name: etl_import_ensembl
+    description: Comprehensive ETL pipeline that imports genomic mapping data from Ensembl's FTP server to an S3 data 
+      lake and processes it with Spark
+    executor_type: k8s_job_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - config_s3_conn_id
+      - ftp_server
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: '2022-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: ensembl_ftp_server
+    conn_type: fs_io_manager
+    description: Ensembl FTP Server
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: ensembl_ftp_server
+      config:
+        base_path: /pub/current_tsv/homo_sapiens
+        base_url: ftp://ftp.ensembl.org/pub/current_tsv/homo_sapiens
+        host: ftp.ensembl.org
+        port: 21
+        protocol: ftp
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: s3_datalake_raw
+    conn_type: s3_resource
+    description: S3 Data Lake Raw Landing Zone
+    config:
+      resource_type: s3_resource
+      resource_module: dagster_aws.s3
+      resource_key: s3_datalake_raw
+      config:
+        base_path: raw/landing/ensembl/
+        base_url:
+        host:
+        port:
+        protocol: s3
+        database:
+        schema:
+        bucket: cqgc-{env}-app-datalake
+        queue_name:
+  - conn_id: spark_kubernetes_etl
+    conn_type: resource
+    description: Spark on Kubernetes ETL Context
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: spark_kubernetes_etl
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol:
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: slack_notification_service
+    conn_type: resource
+    description: Slack Notification Service
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: slack_notification_service
+      config:
+        base_path:
+        base_url: https://hooks.slack.com
+        host: hooks.slack.com
+        port: 443
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+        token: EnvVar('SLACK_WEBHOOK_TOKEN')
+tasks:
+  - task_id: check_and_download_ensembl_files
+    task_name: Check and Download Ensembl Files
+    operator_class: Op
+    operator_module: dagster
+    component_ref: check_and_download_ensembl_files
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: ensembl-etl:latest
+          container_kwargs:
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - config_s3_conn_id
+        - ftp_server
+      retry_policy:
+        max_retries: 3
+        delay: 60
+        backoff: EXPONENTIAL
+      ins:
+        - name: ensembl_ftp_source
+          dagster_type: String
+          description: ftp.ensembl.org/pub/current_tsv/homo_sapiens/*
+      outs:
+        - name: s3_landing_zone
+          dagster_type: String
+          description: Output to config.s3_conn_id
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 3
+    retry_delay_seconds: 60
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: process_ensembl_with_spark
+    task_name: Process Ensembl with Spark
+    operator_class: Op
+    operator_module: dagster
+    component_ref: process_ensembl_with_spark
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - config_s3_conn_id
+      retry_policy:
+        max_retries: 2
+        delay: 120
+        backoff: CONSTANT
+      ins:
+        - name: s3_landing_files
+          dagster_type: String
+          description: s3://cqgc-{env}-app-datalake/raw/landing/ensembl/
+      outs:
+        - name: data_lake_tables
+          dagster_type: String
+          description: Output to config.s3_conn_id
+    upstream_task_ids:
+      - check_and_download_ensembl_files
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 120
+    validation_warnings: []

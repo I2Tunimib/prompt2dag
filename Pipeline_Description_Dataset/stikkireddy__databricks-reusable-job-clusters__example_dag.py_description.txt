@@ -1,0 +1,106 @@
+# DAG Documentation
+
+**Source Repository:** stikkireddy/databricks-reusable-job-clusters  
+**File Path:** docker/dags/example_dag.py  
+**Stars:** 0  
+**License:** Apache-2.0  
+**Detected Version:** 2.x  
+**Topology Pattern:** unknown  
+**Complexity Score:** 6/10  
+
+---
+
+[test_dbx_aws_dag_reuse] - Comprehensive Pipeline Description
+
+Opening Summary:
+This pipeline orchestrates Databricks notebook executions with conditional branching logic and cluster reuse capabilities. The main data flow involves executing Databricks notebooks on reusable clusters with a branch-merge pattern topology. Key infrastructure features include DatabricksSubmitRunOperator for notebook execution, BranchPythonOperator for conditional routing, and AirflowDBXClusterReuseBuilder for cluster management. The pipeline is manually triggered with no scheduled execution.
+
+Pipeline Steps:
+
+1. start_task
+  • Objective: Initialize the pipeline execution as a starting point
+  • Technical Details:
+    - Input: Pipeline trigger (manual)
+    - Output: Triggers notebook_task
+    - Integrations: None
+  • Operator or Mechanism: DummyOperator
+
+2. spark_jar_task
+  • Objective: Execute the primary Databricks notebook for data processing
+  • Technical Details:
+    - Input: Completion of start_task
+    - Output: Triggers dummy_task_1
+    - Integrations: Databricks (databricks_default connection), existing cluster (existing_cluster_id)
+    - Key Parameters: databricks_conn_id="databricks_default", existing_cluster_id="existing_cluster_id", notebook_path="/Users/sri.tikkireddy@databricks.com/workflow-mirroring/helloworld"
+  • Operator or Mechanism: DatabricksSubmitRunOperator
+
+3. dummy_task_1
+  • Objective: Serve as intermediate step between notebook execution and branching decision
+  • Technical Details:
+    - Input: Completion of spark_jar_task
+    - Output: Triggers branch_task
+    - Integrations: None
+  • Operator or Mechanism: DummyOperator
+
+4. branch_task
+  • Objective: Determine execution path based on conditional logic
+  • Technical Details:
+    - Input: Completion of dummy_task_1
+    - Output: Routes to either dummy_task_3 or notebook_task_2 based on branch_func result
+    - Integrations: None
+    - Key Parameters: python_callable=branch_func, provide_context=True
+  • Operator or Mechanism: BranchPythonOperator
+
+5. dummy_task_3 (Branch Path 1)
+  • Objective: Serve as terminal branch when branch_func returns "dummy_task_3"
+  • Technical Details:
+    - Input: Selected by branch_task
+    - Output: No downstream dependencies (pipeline ends)
+    - Integrations: None
+  • Operator or Mechanism: DummyOperator
+
+6. spark_jar_task_2 (Branch Path 2)
+  • Objective: Execute secondary Databricks notebook when alternative branch is selected
+  • Technical Details:
+    - Input: Selected by branch_task
+    - Output: Triggers dummy_task_2
+    - Integrations: Databricks (databricks_default connection), existing cluster (existing_cluster_id)
+    - Key Parameters: databricks_conn_id="databricks_default", existing_cluster_id="existing_cluster_id", notebook_path="/Users/sri.tikkireddy@databricks.com/workflow-mirroring/helloworld"
+  • Operator or Mechanism: DatabricksSubmitRunOperator
+
+7. dummy_task_2
+  • Objective: Intermediate step between secondary notebook execution and pipeline completion
+  • Technical Details:
+    - Input: Completion of spark_jar_task_2
+    - Output: Triggers end_task
+    - Integrations: None
+  • Operator or Mechanism: DummyOperator
+
+8. end_task
+  • Objective: Mark successful pipeline completion for the secondary branch path
+  • Technical Details:
+    - Input: Completion of dummy_task_2
+    - Output: Pipeline completion
+    - Integrations: None
+  • Operator or Mechanism: DummyOperator
+
+Orchestration & Scheduling:
+- Schedule: None (manual trigger only)
+- Start Date: June 6, 2023
+- Catchup: Not specified (defaults to False)
+- Max Active Runs: Not specified
+- Default Args: 1 retry, 5-minute retry delay, owner='airflow'
+
+Infrastructure & Dependencies:
+- Cluster Configuration: Job cluster with driver_node_type_id="n2-highmem-4", node_type_id="n2-highmem-4", num_workers=2, spark_version="12.2.x-scala2.12"
+- Spark Configuration: spark.databricks.delta.preview.enabled=true
+- Connections: databricks_default connection for Databricks integration
+- Secrets: airflow_host and airflow_auth_header stored in Databricks secrets scope "sri-scope-2"
+
+Failure Handling & Alerts:
+- Retry Policy: 1 retry attempt with 5-minute delay between retries
+- No explicit email alerts or failure callbacks configured
+
+Pattern-Specific Notes:
+- Branch-Merge Pattern: The pipeline implements conditional branching where branch_task evaluates branch_func and routes to either dummy_task_3 (terminal path) or spark_jar_task_2 (secondary execution path). The branch paths do not converge - one path terminates immediately while the other continues to completion.
+- Cluster Reuse: The AirflowDBXClusterReuseBuilder enables Databricks job cluster reuse across executions, configured with specific cluster specifications and authentication secrets.

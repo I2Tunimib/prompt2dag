@@ -1,0 +1,158 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T06:48:28.481880
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/bcgov__medis-scheduler__PCD-ETL.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**ETL Pipeline Report – Primary Care Data (PCD) Processing**
+
+---
+
+### 1. Executive Summary
+- **Purpose** – The pipeline orchestrates a staged ETL workflow that validates source storage, extracts data from a set of 18 PCD‑related HTTP APIs in parallel, processes the collected payloads, and stores the final dataset in object storage. A notification component reports the overall run status.
+- **High‑level Flow** –  
+  1. Sequential checks of an SFTP folder and a shared filesystem folder.  
+  2. A virtual synchronization point that launches a dynamic‑map parallel extraction across the 18 API endpoints.  
+  3. A single processing step that aggregates all API responses and writes a Parquet dataset.  
+  4. A final notification component that runs regardless of success or failure of the upstream steps.
+- **Key Patterns & Complexity** – The pipeline exhibits a **hybrid** pattern: sequential start‑up checks, a **dynamic parallel** block (dynamic mapping over the list of API endpoints), and a concluding sequential block. Overall, 24 components are estimated, but the concrete definition includes 5 distinct component types (two sensors, one extractor, one loader, one notifier) plus the virtual coordination nodes. Parallelism is limited to the extractor (max 18 concurrent HTTP calls). No branching logic is present.
+
+---
+
+### 2. Pipeline Architecture
+#### Flow Patterns
+- **Sequential** – Initial folder checks and final notification are strictly ordered.
+- **Parallel (Dynamic Mapping)** – The extractor maps over the `api_endpoints` list, creating up to 18 concurrent HTTP calls.
+- **Hybrid** – Combination of the above yields a hybrid execution model.
+
+#### Execution Characteristics
+| Executor Type | Components Using It | Typical Resource Allocation |
+|---------------|---------------------|-----------------------------|
+| **Kubernetes** | `check_pcd_sftp_folder`, `check_pcd_shared_folder`, `upload_pcd_data` | CPU 0.5‑2, Memory 512 Mi‑4 Gi |
+| **HTTP** | `extract_pcd_api` | CPU 1, Memory 1 Gi (network‑bound) |
+| **Python** | `send_etl_notification` | CPU 0.2, Memory 256 Mi |
+
+#### Component Overview
+| Category | Role |
+|----------|------|
+| **Sensor** | Validate external storage (SFTP, shared folder) before proceeding. |
+| **Extractor** | Issue POST requests to multiple PCD API endpoints, collect JSON responses. |
+| **Loader** | Process the aggregated API payloads and write a Parquet dataset to object storage. |
+| **Notifier** | Assemble run status and send an email summary (success/failure). |
+
+#### Flow Description
+1. **Entry Point** – `check_pcd_sftp_folder` (sensor) runs first, producing `sftp_folder_status`.
+2. **Sequential Step** – `check_pcd_shared_folder` consumes `sftp_folder_status` and yields `shared_folder_status`.
+3. **Virtual Sync** – `start_pcd_extract_1` simply forwards control to the parallel block.
+4. **Parallel Extraction** – `extract_pcd_api_parallel` dynamically maps over the 18 `api_endpoints`, each instance producing a JSON file under `api_responses/{{api_endpoint}}.json`. All instances must succeed before the join node.
+5. **Virtual Sync** – `start_pcd_extract_2` waits for the parallel block to finish.
+6. **Processing & Load** – `upload_pcd_data` consumes the collection of API responses and writes `processed_pcd_dataset` (Parquet) to object storage.
+7. **Notification** – `send_etl_notification` runs with an “all‑done” upstream policy, receiving the overall run status and any failure details, then sends an email.
+
+---
+
+### 3. Detailed Component Analysis
+
+#### 3.1 `check_pcd_sftp_folder` (Sensor)
+- **Purpose** – Verify that the remote SFTP folder exists and contains expected files before any extraction begins.  
+- **Executor** – Kubernetes; resources: 0.5 CPU, 512 Mi memory.  
+- **I/O** – No inputs; outputs `sftp_folder_status` (JSON) via connection `sftp_folder_conn`.  
+- **Retry** – Up to 3 attempts, 30 s delay, exponential back‑off; retries on timeout or network errors.  
+- **Concurrency** – Not parallelizable; runs once per pipeline execution.  
+- **External System** – SFTP server (filesystem connection, no authentication required).  
+
+#### 3.2 `check_pcd_shared_folder` (Sensor)
+- **Purpose** – Confirm accessibility of a shared filesystem folder used for staging.  
+- **Executor** – Kubernetes; resources: 0.5 CPU, 512 Mi memory.  
+- **I/O** – Input `sftp_folder_status`; output `shared_folder_status` (JSON) via `shared_folder_conn`.  
+- **Retry** – Same policy as the SFTP sensor (3 attempts, 30 s, exponential back‑off).  
+- **Concurrency** – Single instance.  
+- **External System** – Local/shared filesystem (no auth).  
+
+#### 3.3 `extract_pcd_api` (Extractor)
+- **Purpose** – Retrieve raw data from 18 distinct PCD HTTP endpoints using POST requests; each response must return HTTP 200.  
+- **Executor** – HTTP; resources: 1 CPU, 1 Gi memory.  
+- **I/O** – Input `shared_folder_status`; output `pcd_api_responses` (JSON files) stored via `pcd_api_conn`. Path pattern includes the endpoint name.  
+- **Retry** – Up to 2 attempts, 20 s fixed delay; retries on timeout or HTTP errors.  
+- **Parallelism** – Supports dynamic mapping; up to 18 concurrent calls (`max_parallel_instances: 18`).  
+- **External System** – PCD API service (HTTPS, no explicit auth in the definition).  
+
+#### 3.4 `upload_pcd_data` (Loader)
+- **Purpose** – Process all collected API JSON files and generate a consolidated Parquet dataset.  
+- **Executor** – Kubernetes; resources: 2 CPU, 4 Gi memory.  
+- **I/O** – Input `pcd_api_responses`; output `processed_pcd_dataset` (Parquet) via `pcd_storage_conn`.  
+- **Retry** – No retries (single attempt).  
+- **Concurrency** – Runs once after the parallel extraction completes.  
+- **External System** – Object storage bucket (e.g., S3‑compatible).  
+
+#### 3.5 `send_etl_notification` (Notifier)
+- **Purpose** – Email a summary of the ETL run, indicating overall success or failure and listing any failed components.  
+- **Executor** – Python; resources: 0.2 CPU, 256 Mi memory.  
+- **I/O** – Inputs: `run_status` (JSON), `failed_task_details` (JSON). Output: `notification_email_sent` (JSON) via `email_service_conn`.  
+- **Retry** – Up to 2 attempts, 60 s delay; retries on network or SMTP errors.  
+- **Upstream Policy** – “All‑done” – executes irrespective of upstream success/failure.  
+- **External System** – SMTP email service (basic authentication via environment variables).  
+
+---
+
+### 4. Parameter Schema
+| Scope | Parameter | Type | Default / Required | Notes |
+|-------|-----------|------|--------------------|-------|
+| **Pipeline** | `name` | string | optional | Identifier for the pipeline. |
+| | `description` | string | “Staged ETL pipeline for Primary Care Data processing” | Human‑readable description. |
+| | `tags` | array | `["etl","pcd"]` | Classification tags. |
+| **Schedule** | `enabled` | boolean | optional | Whether the pipeline is scheduled. |
+| | `cron_expression` | string | optional | Cron syntax for periodic runs. |
+| | `start_date` | datetime | “2021‑01‑01T00:00:00Z” | First scheduled execution. |
+| | `catchup` | boolean | `false` | Do not run missed intervals. |
+| **Execution** | `max_active_runs` | integer | optional | Upper bound on concurrent runs. |
+| | `timeout_seconds` | integer | `3600` | Global execution timeout (1 hour). |
+| **Component‑specific** | Various (see “Components” section) | – | – | Include job template paths, HTTP method, response check, trigger rule, email recipient variable names, etc. |
+| **Environment** | `PCD_ETL_SCHEDULE`, `PCD_EMTYSFTP_JOB`, `PCD_EMTYDIR_JOB`, `PCD_JOB`, `PCD_ETL_EMAIL_LIST_SUCCESS`, `ETL_EMAIL_LIST_ALERTS`, `ENVIRONMENT`, `AIRFLOW_URL` | string | optional | Supplied via environment variables; map to respective components. |
+
+---
+
+### 5. Integration Points
+| Connection ID | Type | Purpose | Authentication | Datasets |
+|---------------|------|---------|----------------|----------|
+| `sftp_folder_conn` | filesystem (SFTP) | Source folder validation | none | Produces `sftp_folder_status`. |
+| `shared_folder_conn` | filesystem (local) | Staging folder validation | none | Produces `shared_folder_status`. |
+| `pcd_api_conn` | API (HTTPS) | 18 PCD endpoint calls | none (assumed token‑less) | Produces 18 raw JSON datasets (`raw_*`). |
+| `kubernetes_job_conn` | other (K8s API) | Executes Kubernetes jobs for sensors and loader | IAM token via service account | Produces job status artifacts. |
+| `email_smtp_conn` | other (SMTP) | Sends ETL run notification email | Basic auth (username/password env vars) | Consumes email content, produces no dataset. |
+| `pcd_storage_conn` (implicit in loader) | object storage | Destination for processed Parquet dataset | – | Produces `processed_pcd_dataset`. |
+
+**Data Lineage**  
+- **Sources**: SFTP folder, shared folder, 18 HTTP API endpoints.  
+- **Intermediate**: Folder‑check job status, raw JSON response files, processed Parquet dataset, email content.  
+- **Sink**: Object storage bucket holding the final PCD dataset; email service receives the notification.
+
+---
+
+### 6. Implementation Notes
+- **Complexity Assessment** – Moderate. The most intricate part is the dynamic parallel extraction, which requires mapping over a list of endpoints and handling up to 18 concurrent HTTP calls. All other components are straightforward single‑instance tasks.
+- **Upstream Dependency Policies** – Sensors and the loader use an “all‑success” policy, ensuring strict ordering. The notifier uses an “all‑done” policy to guarantee execution even on failure.
+- **Retry & Timeout** – Sensors have aggressive retry (3 attempts, exponential back‑off). The extractor retries only once with a fixed delay, reflecting the expectation of relatively stable API endpoints. The loader does not retry, assuming the processing job is idempotent or that failures will be captured by the notifier. Global pipeline timeout is set to 1 hour, which should comfortably accommodate the parallel extraction (max 18 concurrent calls) and the processing job.
+- **Potential Risks**  
+  - **Network/Authentication** – No authentication is defined for the SFTP, shared folder, or API connections; if credentials become required, the pipeline will need updates.  
+  - **API Rate Limits** – No rate‑limit configuration is present; if the external API enforces limits, the parallelism may need throttling.  
+  - **Resource Contention** – The Kubernetes loader job requests 2 CPU/4 Gi; ensure the cluster can provision these resources concurrently with the sensor jobs.  
+  - **Email Delivery** – SMTP credentials are sourced from environment variables; missing or expired credentials will cause notification failures.  
+
+---
+
+### 7. Orchestrator Compatibility
+| Orchestrator | Compatibility Observations |
+|--------------|----------------------------|
+| **Airflow‑style** | Supports sensors, HTTP calls, Kubernetes jobs, and Python callables; the described upstream policies and retry settings map cleanly to generic execution semantics. |
+| **Prefect‑style** | The component definitions (sensors, extractors, loaders, notifiers) align with Prefect tasks and flows; dynamic mapping over `api_endpoints` is directly supported. |
+| **Dagster‑style** | The pipeline can be expressed as a Dagster job with solid definitions for each component; the hybrid pattern (sequential + dynamic parallel) is native to Dagster’s graph constructs. |
+
+*No orchestrator‑specific terminology is used in the pipeline definition; therefore, the pipeline can be instantiated on any system that supports generic task execution, dependency handling, and retry policies.*
+
+---
+
+### 8. Conclusion
+The PCD ETL pipeline is a well‑structured hybrid workflow that begins with deterministic storage validation, proceeds to a scalable parallel data collection phase, consolidates the data via a Kubernetes‑based processing job, and concludes with robust run‑status notification. Its design balances simplicity (sequential checks, single loader) with scalability (dynamic parallel API extraction). Proper attention to external connection authentication, potential API rate limits, and resource availability will ensure reliable operation across environments.

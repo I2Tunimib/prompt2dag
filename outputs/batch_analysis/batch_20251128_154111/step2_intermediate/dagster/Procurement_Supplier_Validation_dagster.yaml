@@ -1,0 +1,239 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-11-28 15:44:05.863803
+  source_analysis_file: Pipeline_Description_Dataset/Procurement_Supplier_Validation.txt
+  pipeline_name: procurement_supplier_validation
+  pipeline_description: Validates and standardizes supplier data by reconciling names against a known database 
+    (Wikidata) for improved data quality in procurement systems.
+  orchestrator_specific:
+    job_name: procurement_supplier_validation
+    description: Validates and standardizes supplier data by reconciling names against a known database (Wikidata) for 
+      improved data quality in procurement systems.
+    executor_type: docker_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - data_volume
+      - intertwino_api
+      - wikidata_api
+      - save_service
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir_filesystem
+    conn_type: fs_io_manager
+    description: Shared Data Directory Filesystem
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: data_dir_filesystem
+      config:
+        base_path: ${DATA_DIR}
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: intertwino_api
+    conn_type: resource
+    description: Intertwino Backend API
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: intertwino_api
+      config:
+        base_path:
+        base_url: http://intertwino-api:5005
+        host: intertwino-api
+        port: 5005
+        protocol: http
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: wikidata_api
+    conn_type: resource
+    description: Wikidata Reconciliation API
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: wikidata_api
+      config:
+        base_path:
+        base_url: https://www.wikidata.org/w/api.php
+        host: www.wikidata.org
+        port: 443
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: mongodb_database
+    conn_type: pymongo_resource
+    description: MongoDB Database
+    config:
+      resource_type: pymongo_resource
+      resource_module: dagster_mongo
+      resource_key: mongodb_database
+      config:
+        base_path:
+        base_url:
+        host: mongodb
+        port: 27017
+        protocol: mongodb
+        database: intertwino
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: docker_network
+    conn_type: resource
+    description: Custom Docker Network
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: docker_network
+      config:
+        base_path:
+        base_url:
+        host: app_network
+        port:
+        protocol:
+        database:
+        schema:
+        bucket:
+        queue_name:
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Supplier Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: load_and_modify_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-load-and-modify:latest
+          container_kwargs:
+            environment:
+              DATASET_ID: '2'
+              TABLE_NAME_PREFIX: JOT_
+            network_mode: app_network
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - data_volume
+        - intertwino_api
+      retry_policy:
+        max_retries: 1
+        delay: 30
+        backoff: CONSTANT
+      ins:
+        - name: input_csv
+          dagster_type: String
+          description: ${DATA_DIR}/suppliers.csv
+      outs:
+        - name: output_json
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: reconcile_wikidata_entities
+    task_name: Reconcile Supplier Names with Wikidata
+    operator_class: Op
+    operator_module: dagster
+    component_ref: reconcile_wikidata_entities
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-reconciliation:latest
+          container_kwargs:
+            environment:
+              PRIMARY_COLUMN: supplier_name
+              RECONCILIATOR_ID: wikidataEntity
+              DATASET_ID: '2'
+            network_mode: app_network
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - data_volume
+        - wikidata_api
+      retry_policy:
+        max_retries: 1
+        delay: 30
+        backoff: CONSTANT
+      ins:
+        - name: input_json
+          dagster_type: String
+          description: ${DATA_DIR}/table_data_2.json
+      outs:
+        - name: output_json
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: save_final_supplier_data
+    task_name: Save Final Supplier Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: save_final_supplier_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-save:latest
+          container_kwargs:
+            environment:
+              DATASET_ID: '2'
+            network_mode: app_network
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - data_volume
+        - save_service
+      retry_policy:
+        max_retries: 1
+        delay: 30
+        backoff: CONSTANT
+      ins:
+        - name: input_json
+          dagster_type: String
+          description: ${DATA_DIR}/reconciled_table_2.json
+      outs:
+        - name: output_csv
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - reconcile_wikidata_entities
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

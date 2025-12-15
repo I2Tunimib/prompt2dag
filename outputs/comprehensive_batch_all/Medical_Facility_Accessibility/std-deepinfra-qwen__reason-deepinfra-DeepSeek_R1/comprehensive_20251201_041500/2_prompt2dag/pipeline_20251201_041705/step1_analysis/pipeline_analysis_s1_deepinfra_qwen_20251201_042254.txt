@@ -1,0 +1,207 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-01T04:22:54.808862
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/Medical_Facility_Accessibility.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+# Medical Facility Accessibility Pipeline Report
+
+## 1. Executive Summary
+### Overall Purpose and High-Level Flow
+The Medical Facility Accessibility Pipeline is designed to assess the accessibility of medical facilities by geocoding their locations and calculating distances to key infrastructure such as public transport and residential areas. The pipeline is sequential, with each step processing the output of the previous step to produce a final enriched dataset.
+
+### Key Patterns and Complexity
+- **Sequential Flow**: The pipeline follows a linear sequence of tasks, with no branching or parallelism.
+- **Docker Executor**: All tasks are executed using Docker containers, ensuring consistent and isolated environments.
+- **Data Transformation**: The pipeline involves multiple data transformation steps, including data cleaning, geocoding, and distance calculations.
+- **API Integration**: The pipeline integrates with external APIs for geocoding and spatial calculations, requiring API tokens and configuration.
+
+## 2. Pipeline Architecture
+### Flow Patterns
+- **Sequential**: The pipeline consists of a linear sequence of tasks, where each task depends on the successful completion of the previous task.
+
+### Execution Characteristics
+- **Task Executor Types**: All tasks are executed using Docker containers.
+
+### Component Overview
+- **Transformer**: Components that modify and transform data.
+- **Reconciliator**: Components that reconcile and geocode data.
+- **Loader**: Components that load and save data.
+
+### Flow Description
+- **Entry Point**: The pipeline starts with the `load_and_modify_data` component.
+- **Main Sequence**:
+  1. **Load and Modify Data**: Ingests and cleans facility data, converting it to JSON.
+  2. **Reconcile Geocoding**: Geocodes the facility locations using the HERE API.
+  3. **Calculate Distance to Public Transport**: Calculates the distance to the nearest public transport stop.
+  4. **Calculate Distance to Residential Areas**: Calculates the distance to the nearest residential area.
+  5. **Save Final Data**: Exports the final enriched data to a CSV file.
+
+## 3. Detailed Component Analysis
+### Load and Modify Data
+- **Purpose and Category**: Ingests and cleans facility data, converting it to JSON. (Transformer)
+- **Executor Type and Configuration**: Docker container with the image `i2t-backendwithintertwino6-load-and-modify:latest`.
+- **Inputs and Outputs**:
+  - **Inputs**: `facilities.csv` from the `DATA_DIR`.
+  - **Outputs**: `table_data_2.json` in the `DATA_DIR`.
+- **Retry Policy and Concurrency Settings**:
+  - **Retry Policy**: 1 attempt, no delay, retries on timeout and network errors.
+  - **Concurrency**: No parallelism or dynamic mapping.
+- **Connected Systems**: Filesystem (`DATA_DIR`).
+
+### Reconcile Geocoding
+- **Purpose and Category**: Geocodes facility locations using the HERE API. (Reconciliator)
+- **Executor Type and Configuration**: Docker container with the image `i2t-backendwithintertwino6-reconciliation:latest`.
+- **Inputs and Outputs**:
+  - **Inputs**: `table_data_2.json` from the `DATA_DIR`.
+  - **Outputs**: `reconciled_table_2.json` in the `DATA_DIR`.
+- **Retry Policy and Concurrency Settings**:
+  - **Retry Policy**: 1 attempt, no delay, retries on timeout and network errors.
+  - **Concurrency**: No parallelism or dynamic mapping.
+- **Connected Systems**: Filesystem (`DATA_DIR`), HERE API (`here_api`).
+
+### Calculate Distance to Public Transport
+- **Purpose and Category**: Calculates the distance from each facility to the nearest public transport stop. (Transformer)
+- **Executor Type and Configuration**: Docker container with the image `i2t-backendwithintertwino6-column-extension:latest`.
+- **Inputs and Outputs**:
+  - **Inputs**: `reconciled_table_2.json` from the `DATA_DIR`.
+  - **Outputs**: `distance_pt_2.json` in the `DATA_DIR`.
+- **Retry Policy and Concurrency Settings**:
+  - **Retry Policy**: 1 attempt, no delay, retries on timeout and network errors.
+  - **Concurrency**: No parallelism or dynamic mapping.
+- **Connected Systems**: Filesystem (`DATA_DIR`), Public Transport GeoJSON (`transport_stops_geojson`).
+
+### Calculate Distance to Residential Areas
+- **Purpose and Category**: Calculates the distance from each facility to the nearest residential area. (Transformer)
+- **Executor Type and Configuration**: Docker container with the image `i2t-backendwithintertwino6-column-extension:latest`.
+- **Inputs and Outputs**:
+  - **Inputs**: `distance_pt_2.json` from the `DATA_DIR`.
+  - **Outputs**: `column_extended_2.json` in the `DATA_DIR`.
+- **Retry Policy and Concurrency Settings**:
+  - **Retry Policy**: 1 attempt, no delay, retries on timeout and network errors.
+  - **Concurrency**: No parallelism or dynamic mapping.
+- **Connected Systems**: Filesystem (`DATA_DIR`), Residential Areas GeoJSON (`residential_areas_geojson`).
+
+### Save Final Data
+- **Purpose and Category**: Exports the final enriched data to a CSV file. (Loader)
+- **Executor Type and Configuration**: Docker container with the image `i2t-backendwithintertwino6-save:latest`.
+- **Inputs and Outputs**:
+  - **Inputs**: `column_extended_2.json` from the `DATA_DIR`.
+  - **Outputs**: `enriched_data_2.csv` in the `DATA_DIR`.
+- **Retry Policy and Concurrency Settings**:
+  - **Retry Policy**: 1 attempt, no delay, retries on timeout and network errors.
+  - **Concurrency**: No parallelism or dynamic mapping.
+- **Connected Systems**: Filesystem (`DATA_DIR`).
+
+## 4. Parameter Schema
+### Pipeline-Level Parameters
+- **Name**: Unique identifier for the pipeline.
+- **Description**: Detailed description of the pipeline's purpose and functionality.
+- **Tags**: Classification tags.
+
+### Schedule Configuration
+- **Enabled**: Whether the pipeline runs on a schedule.
+- **Cron Expression**: Cron or preset schedule.
+- **Start Date**: When to start scheduling.
+- **End Date**: When to stop scheduling.
+- **Timezone**: Schedule timezone.
+- **Catchup**: Run missed intervals.
+- **Batch Window**: Batch window parameter name.
+- **Partitioning**: Data partitioning strategy.
+
+### Execution Settings
+- **Max Active Runs**: Maximum concurrent pipeline runs.
+- **Timeout Seconds**: Pipeline execution timeout.
+- **Retry Policy**: Pipeline-level retry behavior.
+- **Depends on Past**: Whether execution depends on previous run success.
+
+### Component-Specific Parameters
+- **Load and Modify Data**:
+  - **DATASET_ID**: Identifier for the dataset.
+  - **TABLE_NAME_PREFIX**: Prefix for the table name.
+- **Reconcile Geocoding**:
+  - **PRIMARY_COLUMN**: Primary column for geocoding.
+  - **RECONCILIATOR_ID**: Identifier for the geocoding service.
+  - **API_TOKEN**: API token for the HERE API.
+  - **DATASET_ID**: Identifier for the dataset.
+- **Calculate Distance to Public Transport**:
+  - **EXTENDER_ID**: Identifier for the spatial distance calculator.
+  - **LAT_COLUMN**: Latitude column name.
+  - **LON_COLUMN**: Longitude column name.
+  - **TARGET_LAYER**: Target layer for distance calculation.
+  - **TARGET_DATA_SOURCE**: Path to the target data source.
+  - **OUTPUT_COLUMN**: Name of the output column.
+  - **DATASET_ID**: Identifier for the dataset.
+- **Calculate Distance to Residential Areas**:
+  - **EXTENDER_ID**: Identifier for the spatial distance calculator.
+  - **LAT_COLUMN**: Latitude column name.
+  - **LON_COLUMN**: Longitude column name.
+  - **TARGET_LAYER**: Target layer for distance calculation.
+  - **TARGET_DATA_SOURCE**: Path to the target data source.
+  - **OUTPUT_COLUMN**: Name of the output column.
+  - **DATASET_ID**: Identifier for the dataset.
+- **Save Final Data**:
+  - **DATASET_ID**: Identifier for the dataset.
+
+### Environment Variables
+- **DATA_DIR**: Directory for data files.
+- **HERE_API_TOKEN**: API token for the HERE API.
+
+## 5. Integration Points
+### External Systems and Connections
+- **Data Directory**: Filesystem for data storage.
+- **Load and Modify Service**: API for data loading and modification.
+- **Reconciliation Service**: API for geocoding using the HERE API.
+- **Column Extension Service**: API for spatial distance calculations.
+- **Save Service**: API for saving the final data.
+- **Transport Stops GeoJSON**: Filesystem for public transport data.
+- **Residential Areas GeoJSON**: Filesystem for residential area data.
+- **MongoDB**: Database (not used in this pipeline).
+- **Intertwino API**: API (not used in this pipeline).
+
+### Data Sources and Sinks
+- **Sources**:
+  - `facilities.csv` from `DATA_DIR`.
+  - `transport_stops.geojson` from `/app/data`.
+  - `residential_areas.geojson` from `/app/data`.
+- **Sinks**:
+  - `enriched_data_2.csv` in `DATA_DIR`.
+
+### Authentication Methods
+- **HERE API**: Token-based authentication using the `HERE_API_TOKEN` environment variable.
+
+### Data Lineage
+- **Sources**: `facilities.csv`, `transport_stops.geojson`, `residential_areas.geojson`.
+- **Sinks**: `enriched_data_2.csv`.
+- **Intermediate Datasets**: `table_data_2.json`, `reconciled_table_2.json`, `distance_pt_2.json`, `column_extended_2.json`.
+
+## 6. Implementation Notes
+### Complexity Assessment
+The pipeline is relatively straightforward, with a linear sequence of tasks and no branching or parallelism. The main complexity lies in the integration with external APIs and the handling of spatial data.
+
+### Upstream Dependency Policies
+- **All Success**: All upstream tasks must succeed for the next task to start.
+
+### Retry and Timeout Configurations
+- **Retry Policy**: 1 attempt, no delay, retries on timeout and network errors.
+- **Timeout**: No specific timeout configuration at the pipeline level.
+
+### Potential Risks or Considerations
+- **API Rate Limits**: Ensure that the HERE API and other external services have sufficient rate limits to handle the pipeline's requests.
+- **Data Consistency**: Ensure that the input data is consistent and well-formatted to avoid errors in the transformation and geocoding steps.
+- **Docker Image Management**: Regularly update and test Docker images to ensure they are up-to-date and secure.
+
+## 7. Orchestrator Compatibility
+### Assessment for Airflow, Prefect, Dagster
+- **Airflow**: The sequential flow and Docker executor type are well-supported. The pipeline can be easily mapped to Airflow tasks with dependencies.
+- **Prefect**: Prefect supports sequential flows and Docker execution, making it a suitable orchestrator for this pipeline.
+- **Dagster**: Dagster also supports sequential flows and Docker execution, and its strong data lineage features can be beneficial for tracking data transformations.
+
+### Pattern-Specific Considerations
+- **Sequential Flow**: All orchestrators handle sequential flows well, with clear dependency management.
+- **Docker Execution**: Ensure that the orchestrator supports Docker execution and can manage Docker resources effectively.
+
+## 8. Conclusion
+The Medical Facility Accessibility Pipeline is a well-structured and straightforward ETL pipeline that processes medical facility data to assess accessibility. The pipeline's sequential flow and Docker-based execution make it easy to implement and maintain. The integration with external APIs and spatial data handling adds some complexity, but the overall design is robust and can be effectively managed using various orchestrators.

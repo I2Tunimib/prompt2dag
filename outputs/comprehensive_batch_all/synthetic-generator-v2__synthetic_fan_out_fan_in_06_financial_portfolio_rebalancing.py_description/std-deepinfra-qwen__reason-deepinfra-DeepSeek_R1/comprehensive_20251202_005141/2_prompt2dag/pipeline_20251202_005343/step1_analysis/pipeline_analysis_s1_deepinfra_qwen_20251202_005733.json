@@ -1,0 +1,863 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T00:57:33.401059",
+    "source_file": "Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_fan_out_fan_in_06_financial_portfolio_rebalancing.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "qwen",
+    "analysis_results": {
+      "detected_patterns": [
+        "parallel"
+      ],
+      "task_executors_used": [
+        "python"
+      ],
+      "has_branching": false,
+      "has_parallelism": true,
+      "has_sensors": false,
+      "total_components": 4,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Parallelism via TaskFlow API expand()"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "map() for parallel execution"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "DynamicOutput for fan-out"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "fetch_brokerage_holdings_pipeline",
+    "description": "This DAG implements a financial portfolio rebalancing pipeline using a fan-out fan-in pattern to process holdings from 5 brokerage accounts in parallel, analyze each portfolio independently, aggregate results to calculate rebalancing trades, and generate final trade orders.",
+    "flow_patterns": [
+      "parallel"
+    ],
+    "task_executors": [
+      "python"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "fetch_brokerage_holdings",
+      "name": "Fetch Brokerage Holdings",
+      "category": "Extractor",
+      "description": "Fetches holdings CSV data from a brokerage account using simulated API calls.",
+      "inputs": [
+        {
+          "name": "brokerage_id",
+          "direction": "input",
+          "kind": "object",
+          "format": "string",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "holdings_data",
+          "direction": "output",
+          "kind": "object",
+          "format": "dictionary",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "brokerage_id",
+          "direction": "input",
+          "kind": "object",
+          "format": "string",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "holdings_data",
+          "direction": "output",
+          "kind": "object",
+          "format": "dictionary",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "holdings_data"
+        ]
+      }
+    },
+    {
+      "id": "analyze_portfolio",
+      "name": "Analyze Portfolio",
+      "category": "Transformer",
+      "description": "Calculates portfolio metrics (total value, allocation percentages, risk score) for each brokerage account.",
+      "inputs": [
+        {
+          "name": "holdings_data",
+          "direction": "input",
+          "kind": "object",
+          "format": "dictionary",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "analysis_results",
+          "direction": "output",
+          "kind": "object",
+          "format": "dictionary",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "holdings_data",
+          "direction": "input",
+          "kind": "object",
+          "format": "dictionary",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "analysis_results",
+          "direction": "output",
+          "kind": "object",
+          "format": "dictionary",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": true,
+        "map_over_param": "holdings_data",
+        "max_parallel_instances": 5
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "holdings_data"
+        ],
+        "produces": [
+          "analysis_results"
+        ]
+      }
+    },
+    {
+      "id": "aggregate_and_rebalance",
+      "name": "Aggregate and Rebalance",
+      "category": "Aggregator",
+      "description": "Aggregates all portfolio analysis results and calculates rebalancing trades based on target allocations.",
+      "inputs": [
+        {
+          "name": "analysis_results",
+          "direction": "input",
+          "kind": "object",
+          "format": "list",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "rebalancing_trades",
+          "direction": "output",
+          "kind": "object",
+          "format": "list",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "analysis_results",
+          "direction": "input",
+          "kind": "object",
+          "format": "list",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "rebalancing_trades",
+          "direction": "output",
+          "kind": "object",
+          "format": "list",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "analysis_results"
+        ],
+        "produces": [
+          "rebalancing_trades"
+        ]
+      }
+    },
+    {
+      "id": "generate_trade_orders",
+      "name": "Generate Trade Orders",
+      "category": "Loader",
+      "description": "Generates a final trade orders CSV file with rebalancing instructions.",
+      "inputs": [
+        {
+          "name": "rebalancing_trades",
+          "direction": "input",
+          "kind": "object",
+          "format": "list",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "trade_orders_csv",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "trade_orders_YYYYMMDD.csv",
+          "connection_id": null
+        }
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "rebalancing_trades",
+          "direction": "input",
+          "kind": "object",
+          "format": "list",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "trade_orders_csv",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "trade_orders_YYYYMMDD.csv",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "All upstream tasks must succeed",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "rebalancing_trades"
+        ],
+        "produces": [
+          "trade_orders_csv"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "parallel",
+    "entry_points": [
+      "fetch_brokerage_holdings",
+      "fetch_brokerage_holdings",
+      "fetch_brokerage_holdings",
+      "fetch_brokerage_holdings",
+      "fetch_brokerage_holdings"
+    ],
+    "nodes": {
+      "fetch_brokerage_holdings": {
+        "kind": "Task",
+        "component_type_id": "fetch_brokerage_holdings",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "analyze_portfolio"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "analyze_portfolio": {
+        "kind": "Task",
+        "component_type_id": "analyze_portfolio",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "aggregate_and_rebalance"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "aggregate_and_rebalance": {
+        "kind": "Task",
+        "component_type_id": "aggregate_and_rebalance",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "generate_trade_orders"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "generate_trade_orders": {
+        "kind": "Task",
+        "component_type_id": "generate_trade_orders",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "fetch_brokerage_holdings",
+        "to": "analyze_portfolio",
+        "edge_type": "success"
+      },
+      {
+        "from": "fetch_brokerage_holdings",
+        "to": "analyze_portfolio",
+        "edge_type": "success"
+      },
+      {
+        "from": "fetch_brokerage_holdings",
+        "to": "analyze_portfolio",
+        "edge_type": "success"
+      },
+      {
+        "from": "fetch_brokerage_holdings",
+        "to": "analyze_portfolio",
+        "edge_type": "success"
+      },
+      {
+        "from": "fetch_brokerage_holdings",
+        "to": "analyze_portfolio",
+        "edge_type": "success"
+      },
+      {
+        "from": "analyze_portfolio",
+        "to": "aggregate_and_rebalance",
+        "edge_type": "success"
+      },
+      {
+        "from": "analyze_portfolio",
+        "to": "aggregate_and_rebalance",
+        "edge_type": "success"
+      },
+      {
+        "from": "analyze_portfolio",
+        "to": "aggregate_and_rebalance",
+        "edge_type": "success"
+      },
+      {
+        "from": "analyze_portfolio",
+        "to": "aggregate_and_rebalance",
+        "edge_type": "success"
+      },
+      {
+        "from": "analyze_portfolio",
+        "to": "aggregate_and_rebalance",
+        "edge_type": "success"
+      },
+      {
+        "from": "aggregate_and_rebalance",
+        "to": "generate_trade_orders",
+        "edge_type": "success"
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "description": {
+        "description": "Comprehensive Pipeline Description",
+        "type": "string",
+        "default": "This DAG implements a financial portfolio rebalancing pipeline using a fan-out fan-in pattern to process holdings from 5 brokerage accounts in parallel, analyze each portfolio independently, aggregate results to calculate rebalancing trades, and generate final trade orders.",
+        "required": false
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "days_ago(1)",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 2,
+          "retry_delay": "timedelta(minutes=5)"
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      }
+    },
+    "components": {
+      "fetch_brokerage_holdings": {
+        "brokerage_id": {
+          "description": "Brokerage account identifier",
+          "type": "string",
+          "default": null,
+          "required": true,
+          "constraints": "Must be one of BROKERAGE_001, BROKERAGE_002, BROKERAGE_003, BROKERAGE_004, BROKERAGE_005"
+        }
+      },
+      "analyze_portfolio": {
+        "holdings_data": {
+          "description": "Holdings data from corresponding fetch_brokerage_holdings task",
+          "type": "object",
+          "default": null,
+          "required": true,
+          "constraints": null
+        }
+      },
+      "aggregate_and_rebalance": {
+        "analysis_results": {
+          "description": "List of analysis results from all 5 analyze_portfolio tasks",
+          "type": "array",
+          "default": null,
+          "required": true,
+          "constraints": null
+        }
+      },
+      "generate_trade_orders": {
+        "rebalancing_trades": {
+          "description": "Rebalancing trades list from aggregate_and_rebalance task",
+          "type": "array",
+          "default": null,
+          "required": true,
+          "constraints": null
+        }
+      }
+    },
+    "environment": {
+      "RETRY_POLICY_RETRIES": {
+        "description": "Number of retries for pipeline tasks",
+        "type": "integer",
+        "default": 2,
+        "required": false,
+        "associated_component_id": null
+      },
+      "RETRY_POLICY_RETRY_DELAY": {
+        "description": "Delay between retries for pipeline tasks",
+        "type": "string",
+        "default": "timedelta(minutes=5)",
+        "required": false,
+        "associated_component_id": null
+      },
+      "EMAIL_ON_FAILURE": {
+        "description": "Enable email alerts on failure",
+        "type": "boolean",
+        "default": false,
+        "required": false,
+        "associated_component_id": null
+      },
+      "EMAIL_ON_RETRY": {
+        "description": "Enable email alerts on retry",
+        "type": "boolean",
+        "default": false,
+        "required": false,
+        "associated_component_id": null
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "brokerage_api_001",
+        "name": "Brokerage API 001",
+        "type": "api",
+        "config": {
+          "base_url": "https://api.brokerage001.com",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "BROKERAGE_API_001_TOKEN"
+        },
+        "used_by_components": [
+          "fetch_brokerage_holdings"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": 10,
+          "burst": 20
+        },
+        "datasets": {
+          "produces": [
+            "holdings_data_brokerage_001"
+          ]
+        }
+      },
+      {
+        "id": "brokerage_api_002",
+        "name": "Brokerage API 002",
+        "type": "api",
+        "config": {
+          "base_url": "https://api.brokerage002.com",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "BROKERAGE_API_002_TOKEN"
+        },
+        "used_by_components": [
+          "fetch_brokerage_holdings"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": 10,
+          "burst": 20
+        },
+        "datasets": {
+          "produces": [
+            "holdings_data_brokerage_002"
+          ]
+        }
+      },
+      {
+        "id": "brokerage_api_003",
+        "name": "Brokerage API 003",
+        "type": "api",
+        "config": {
+          "base_url": "https://api.brokerage003.com",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "BROKERAGE_API_003_TOKEN"
+        },
+        "used_by_components": [
+          "fetch_brokerage_holdings"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": 10,
+          "burst": 20
+        },
+        "datasets": {
+          "produces": [
+            "holdings_data_brokerage_003"
+          ]
+        }
+      },
+      {
+        "id": "brokerage_api_004",
+        "name": "Brokerage API 004",
+        "type": "api",
+        "config": {
+          "base_url": "https://api.brokerage004.com",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "BROKERAGE_API_004_TOKEN"
+        },
+        "used_by_components": [
+          "fetch_brokerage_holdings"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": 10,
+          "burst": 20
+        },
+        "datasets": {
+          "produces": [
+            "holdings_data_brokerage_004"
+          ]
+        }
+      },
+      {
+        "id": "brokerage_api_005",
+        "name": "Brokerage API 005",
+        "type": "api",
+        "config": {
+          "base_url": "https://api.brokerage005.com",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "BROKERAGE_API_005_TOKEN"
+        },
+        "used_by_components": [
+          "fetch_brokerage_holdings"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": 10,
+          "burst": 20
+        },
+        "datasets": {
+          "produces": [
+            "holdings_data_brokerage_005"
+          ]
+        }
+      },
+      {
+        "id": "local_filesystem",
+        "name": "Local Filesystem",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/data/trade_orders",
+          "protocol": "file"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "generate_trade_orders"
+        ],
+        "direction": "output",
+        "rate_limit": null,
+        "datasets": {
+          "produces": [
+            "trade_orders_YYYYMMDD.csv"
+          ]
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Holdings data from Brokerage API 001",
+        "Holdings data from Brokerage API 002",
+        "Holdings data from Brokerage API 003",
+        "Holdings data from Brokerage API 004",
+        "Holdings data from Brokerage API 005"
+      ],
+      "sinks": [
+        "Trade orders CSV file generated on the local filesystem"
+      ],
+      "intermediate_datasets": [
+        "holdings_data_brokerage_001",
+        "holdings_data_brokerage_002",
+        "holdings_data_brokerage_003",
+        "holdings_data_brokerage_004",
+        "holdings_data_brokerage_005",
+        "portfolio_analysis_results_001",
+        "portfolio_analysis_results_002",
+        "portfolio_analysis_results_003",
+        "portfolio_analysis_results_004",
+        "portfolio_analysis_results_005",
+        "rebalancing_trades"
+      ]
+    }
+  }
+}

@@ -1,0 +1,224 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-01 07:50:30.482145
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_00_data_quality_gate.py_description.txt
+  pipeline_name: data_quality_gate
+  pipeline_description: Implements a data quality gate for customer CSV data that ingests raw data, performs quality 
+    assessment, and conditionally routes to production or quarantine based on quality scores.
+  orchestrator_specific:
+    flow_name: data_quality_gate
+    deployment_name: data_quality_gate_deployment
+    work_pool: default-agent-pool
+    task_runner: ConcurrentTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression: '@daily'
+  start_date: '2024-01-01'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: raw_csv_filesystem
+    conn_type: LocalFileSystem
+    description: Raw CSV Filesystem
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: raw_csv_filesystem
+      config:
+        base_path: /data/raw/
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: production_db
+    conn_type: Secret
+    description: Production Database
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: production_db
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: jdbc
+        database: production_db
+        schema: public
+        bucket:
+        queue_name:
+  - conn_id: quarantine_storage
+    conn_type: LocalFileSystem
+    description: Quarantine Storage
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: quarantine_storage
+      config:
+        base_path: /data/quarantine/
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: smtp_email
+    conn_type: Secret
+    description: SMTP Email Service
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: smtp_email
+      config:
+        base_path:
+        base_url: smtp://smtp.company.com
+        host: smtp.company.com
+        port: 587
+        protocol: smtp
+        database:
+        schema:
+        bucket:
+        queue_name:
+        username_secret_name: SMTP_USER
+        password_secret_name: SMTP_PASS
+  - conn_id: temp_files_cleanup
+    conn_type: LocalFileSystem
+    description: Temporary Files Cleanup
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: temp_files_cleanup
+      config:
+        base_path: /data/tmp/
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+tasks:
+  - task_id: ingest_csv
+    task_name: Ingest Customer CSV
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: ingest_csv
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 1
+      retry_delay_seconds: 300
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: quality_check
+    task_name: Assess Data Quality
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: quality_check
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 1
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - ingest_csv
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: production_load
+    task_name: Load High-Quality Data to Production
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: production_load
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 1
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - quality_check
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: quarantine_and_alert
+    task_name: Quarantine Low-Quality Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: quarantine_and_alert
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 1
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - quality_check
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: send_alert_email
+    task_name: Send Quality Alert Email
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: send_alert_email
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 1
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - quarantine_and_alert
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: cleanup
+    task_name: Cleanup Temporary Resources
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: cleanup
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 1
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - production_load
+      - send_alert_email
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []

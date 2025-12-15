@@ -1,0 +1,214 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T18:36:45.723774
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_fan_out_fan_in_03_retail_inventory_reconciliation.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**Retail Inventory Reconciliation Pipeline – Structured Report**  
+
+---
+
+## 1. Executive Summary  
+
+**Purpose**  
+The pipeline consolidates daily inventory information from four regional warehouse management systems (North, South, East, West). It extracts raw CSV files, normalizes SKU formats to a common schema, reconciles the four inventories to surface discrepancies, and produces a final PDF reconciliation report for distribution to business stakeholders.  
+
+**High‑level Flow**  
+1. **Fan‑out (parallel)** – Four independent extraction components retrieve CSV inventories from the respective warehouse APIs.  
+2. **Parallel transformation** – Each extracted CSV is passed to a dedicated SKU‑normalization component.  
+3. **Fan‑in (sequential)** – The four normalized files are merged by a reconciliation component that generates a discrepancy CSV.  
+4. **Final load** – The discrepancy CSV is rendered into a PDF report.  
+
+**Key Patterns & Complexity**  
+- Detected patterns: *sequential*, *parallel*, and a *hybrid* fan‑out/fan‑in topology.  
+- Estimated 10 components, all implemented with a Python executor.  
+- Moderate complexity (score ≈ 6/10) due to the parallel branches and the final aggregation step.  
+
+---
+
+## 2. Pipeline Architecture  
+
+### Flow Patterns  
+- **Hybrid fan‑out/fan‑in**: Four extraction branches run concurrently, each feeding a downstream normalizer. The four normalizers converge into a single reconciliation step, followed by a linear final‑report step.  
+- **No branching logic** (no conditional splits).  
+- **No sensors** or event‑driven triggers.  
+
+### Execution Characteristics  
+- **Executor type**: Python (all components).  
+- **Resource configuration**: Not explicitly defined (CPU, memory, GPU left null).  
+- **Parallelism**: Achieved at the pipeline level by running the four extraction components simultaneously; individual components do not support internal parallelism.  
+
+### Component Overview  
+
+| Category      | Components (count) | Role |
+|---------------|--------------------|------|
+| Extractor     | 4 (fetch_*_warehouse_csv) | Pull raw inventory CSVs from regional warehouse APIs. |
+| Transformer   | 4 (normalize_*_skus)      | Convert warehouse‑specific SKU formats to a unified schema. |
+| Reconciliator | 1 (reconcile_all_inventories) | Merge normalized inventories, compute discrepancies, output CSV. |
+| Loader        | 1 (generate_final_report) | Render discrepancy CSV into a PDF report. |
+
+### Flow Description  
+
+1. **Entry points** – `fetch_north_warehouse_csv`, `fetch_south_warehouse_csv`, `fetch_east_warehouse_csv`, `fetch_west_warehouse_csv`. Each has **no upstream dependencies** and can start immediately when the pipeline is triggered.  
+2. **Downstream sequence** – Each fetch component is linked to its matching normalizer (`normalize_*_skus`). The upstream policy for every normalizer is *all_success* on its paired fetch.  
+3. **Fan‑in** – All four normalizers must complete successfully before `reconcile_all_inventories` is invoked (upstream policy: *all_success* on the four normalizers).  
+4. **Final step** – `generate_final_report` runs after successful reconciliation (upstream policy: *all_success*).  
+
+No sensors, branching configurations, or dynamic mapping are present.
+
+---
+
+## 3. Detailed Component Analysis  
+
+### 3.1 Extractors  
+
+| Component ID | Purpose | Executor | Inputs | Outputs | Retry Policy | Concurrency | Connections | Datasets |
+|--------------|---------|----------|--------|---------|--------------|-------------|-------------|----------|
+| `fetch_north_warehouse_csv` | Retrieve inventory CSV from North warehouse API. | Python | API endpoint (`north_warehouse_api`) – JSON response | `warehouse_north_inventory.csv` (file) | Max 2 attempts, 300 s delay, retry on timeout & network_error. | No parallel instances. | API connection `warehouse_north_api` (token auth). | Consumes `north_warehouse_inventory_raw`; produces `north_warehouse_inventory_csv`. |
+| `fetch_south_warehouse_csv` | Retrieve inventory CSV from South warehouse API. | Python | API endpoint (`south_warehouse_api`) | `warehouse_south_inventory.csv` | Same as North. | – | API connection `warehouse_south_api`. | Consumes `south_warehouse_inventory_raw`; produces `south_warehouse_inventory_csv`. |
+| `fetch_east_warehouse_csv` | Retrieve inventory CSV from East warehouse API. | Python | API endpoint (`east_warehouse_api`) | `warehouse_east_inventory.csv` | Same as North. | – | API connection `warehouse_east_api`. | Consumes `east_warehouse_inventory_raw`; produces `east_warehouse_inventory_csv`. |
+| `fetch_west_warehouse_csv` | Retrieve inventory CSV from West warehouse API. | Python | API endpoint (`west_warehouse_api`) | `warehouse_west_inventory.csv` | Same as North. | – | API connection `warehouse_west_api`. | Consumes `west_warehouse_inventory_raw`; produces `west_warehouse_inventory_csv`. |
+
+*All four extractors share identical retry and concurrency settings and rely on token‑based authentication via environment variables (`*_WAREHOUSE_TOKEN`).*
+
+### 3.2 Transformers  
+
+| Component ID | Purpose | Executor | Inputs | Outputs | Retry Policy | Concurrency | Connections | Datasets |
+|--------------|---------|----------|--------|---------|--------------|-------------|-------------|----------|
+| `normalize_north_skus` | Standardize SKU format for North inventory. | Python | `warehouse_north_inventory.csv` (file) | `normalized_north_inventory.csv` | Same retry as extractors. | No parallel instances. | None. | Consumes `north_warehouse_inventory_csv`; produces `north_normalized_inventory_csv`. |
+| `normalize_south_skus` | Standardize SKU format for South inventory. | Python | `warehouse_south_inventory.csv` | `normalized_south_inventory.csv` | Same. | – | – | Consumes `south_warehouse_inventory_csv`; produces `south_normalized_inventory_csv`. |
+| `normalize_east_skus` | Standardize SKU format for East inventory. | Python | `warehouse_east_inventory.csv` | `normalized_east_inventory.csv` | Same. | – | – | Consumes `east_warehouse_inventory_csv`; produces `east_normalized_inventory_csv`. |
+| `normalize_west_skus` | Standardize SKU format for West inventory. | Python | `warehouse_west_inventory.csv` | `normalized_west_inventory.csv` | Same. | – | – | Consumes `west_warehouse_inventory_csv`; produces `west_normalized_inventory_csv`. |
+
+*Each transformer runs only after its paired extractor succeeds (upstream policy: *all_success*).*
+
+### 3.3 Reconciliator  
+
+| Component ID | Purpose | Executor | Inputs | Output | Retry Policy | Concurrency | Connections | Datasets |
+|--------------|---------|----------|--------|--------|--------------|-------------|-------------|----------|
+| `reconcile_all_inventories` | Merge the four normalized CSVs, compute discrepancies, emit a discrepancy CSV. | Python | Normalized CSVs from all four regions | `inventory_discrepancies_report.csv` | Same retry settings (2 attempts, 5 min delay). | No parallel instances. | None. | Consumes all four normalized inventories; produces `inventory_discrepancies_report_csv`. |
+
+*Upstream policy requires *all_success* of the four normalizers.*
+
+### 3.4 Loader  
+
+| Component ID | Purpose | Executor | Input | Output | Retry Policy | Concurrency | Connections | Datasets |
+|--------------|---------|----------|-------|--------|--------------|-------------|-------------|----------|
+| `generate_final_report` | Convert the discrepancy CSV into a PDF reconciliation report. | Python | `inventory_discrepancies_report.csv` | `retail_inventory_reconciliation_final.pdf` | Same retry settings. | No parallel instances. | None. | Consumes `inventory_discrepancies_report_csv`; produces `final_reconciliation_report_pdf`. |
+
+*Runs after successful reconciliation (upstream policy: *all_success*).*
+
+---
+
+## 4. Parameter Schema  
+
+### Pipeline‑level Parameters  
+
+| Parameter | Type | Default | Required | Description |
+|-----------|------|---------|----------|-------------|
+| `name` | string | – | No | Identifier of the pipeline. |
+| `description` | string | – | No | Human‑readable description. |
+| `tags` | array | `["retail","inventory","reconciliation"]` | No | Classification tags. |
+
+### Schedule Configuration  
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `enabled` | boolean | – | Whether the pipeline is scheduled. |
+| `cron_expression` | string | `@daily` | Daily execution schedule. |
+| `start_date` | datetime (ISO‑8601) | `2024‑01‑01T00:00:00Z` | First scheduled run. |
+| `end_date` | datetime | – | Optional termination date. |
+| `timezone` | string | – | Timezone for schedule evaluation. |
+| `catchup` | boolean | `false` | Do not run missed intervals. |
+| `batch_window` | string | – | Not used. |
+| `partitioning` | string | – | Not used. |
+
+### Execution Settings  
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `max_active_runs` | integer | – | No explicit limit on concurrent runs. |
+| `timeout_seconds` | integer | – | No global timeout defined. |
+| `retry_policy` | object | `{ "retries": 2, "retry_delay_minutes": 5 }` | Pipeline‑level retry fallback (mirrors component retry). |
+| `depends_on_past` | boolean | `false` | Runs are independent of previous executions. |
+
+### Component‑specific Parameters  
+
+| Component | Parameter | Type | Default | Description |
+|-----------|-----------|------|---------|-------------|
+| All `fetch_*_warehouse_csv` | `warehouse_id` | string | region name (north/south/east/west) | Identifier used for logging / API selection. |
+| All `normalize_*_skus` | `warehouse_id` | string | region name | Mirrors fetch component. |
+| All `normalize_*_skus` | `csv_file` | string | `warehouse_<region>_inventory.csv` | Source CSV filename. |
+| `reconcile_all_inventories` | `provide_context` | boolean | `true` | Enables passing of intermediate data (e.g., XCom‑style). |
+| `generate_final_report` | `provide_context` | boolean | `true` | Same as above. |
+
+### Environment Variables  
+
+No explicit environment variables are defined at the pipeline level; authentication tokens for the warehouse APIs are expected via the following env vars:
+
+- `NORTH_WAREHOUSE_TOKEN`
+- `SOUTH_WAREHOUSE_TOKEN`
+- `EAST_WAREHOUSE_TOKEN`
+- `WEST_WAREHOUSE_TOKEN`
+
+---
+
+## 5. Integration Points  
+
+| External System | Connection ID | Type | Authentication | Data Produced |
+|-----------------|---------------|------|----------------|---------------|
+| North Warehouse Management System | `north_warehouse_api` | API (HTTPS) | Token (`NORTH_WAREHOUSE_TOKEN`) | `warehouse_north_inventory.csv` |
+| South Warehouse Management System | `south_warehouse_api` | API (HTTPS) | Token (`SOUTH_WAREHOUSE_TOKEN`) | `warehouse_south_inventory.csv` |
+| East Warehouse Management System | `east_warehouse_api` | API (HTTPS) | Token (`EAST_WAREHOUSE_TOKEN`) | `warehouse_east_inventory.csv` |
+| West Warehouse Management System | `west_warehouse_api` | API (HTTPS) | Token (`WEST_WAREHOUSE_TOKEN`) | `warehouse_west_inventory.csv` |
+
+**Data Lineage**  
+
+- **Sources** – Four warehouse APIs delivering raw inventory CSV data.  
+- **Intermediate datasets** – Raw CSVs → Normalized CSVs → Discrepancy CSV.  
+- **Sink** – Final PDF report (`retail_inventory_reconciliation_final.pdf`).  
+
+All connections are **input‑only** for the pipeline; no outbound API calls are defined beyond the final PDF generation (assumed to be stored locally or in a downstream file store).
+
+---
+
+## 6. Implementation Notes  
+
+- **Complexity** – Moderate; the fan‑out/fan‑in structure introduces parallel execution but each branch is straightforward.  
+- **Upstream policies** – Uniform *all_success* across the graph; a failure in any fetch or normalize component prevents reconciliation and final report generation.  
+- **Retry & timeout** – Each component retries twice with a fixed 5‑minute delay, targeting timeout and network errors. No exponential back‑off is configured.  
+- **Concurrency** – Parallelism is achieved only at the pipeline level (four independent fetches). Individual components do not spawn multiple instances; `max_parallel_instances` is undefined.  
+- **Resource limits** – Not specified; default execution environment resources will apply. Consider adding CPU/memory caps if the warehouse CSVs are large.  
+- **Potential Risks**  
+  - Network or authentication failures on any warehouse API halt the entire run.  
+  - Missing or malformed CSV files could cause downstream normalizers to fail.  
+  - Absence of explicit timeouts may lead to hung runs; adding component‑level timeout values is advisable.  
+  - No rate‑limit configuration; if APIs enforce limits, throttling may be required.  
+
+---
+
+## 7. Orchestrator Compatibility  
+
+| Orchestrator | Compatibility Assessment | Pattern‑specific Considerations |
+|--------------|--------------------------|--------------------------------|
+| **Airflow‑style** (generic Python‑based orchestration) | Fully compatible – supports parallel task execution, fan‑out/fan‑in, Python executor, retry policies, and schedule definitions. | Ensure the executor environment can access the required token env vars; configure `max_active_runs` if concurrent pipeline runs are expected. |
+| **Prefect‑style** | Compatible – Prefect’s flow model naturally expresses parallel branches and downstream dependencies. | Use `wait_for` or `trigger` mechanisms to enforce *all_success* upstream policies; map the four fetches if dynamic scaling is desired. |
+| **Dagster‑style** | Compatible – Dagster’s solid/graph model can represent the hybrid pattern; resources and retry can be declared per solid. | Define `IOManager` for file handling; leverage `@multi_asset` for the four fetch‑normalize pairs if desired. |
+
+All three orchestrators can implement the required retry, schedule, and dependency semantics without needing specialized features beyond standard parallel execution and dependency handling.
+
+---
+
+## 8. Conclusion  
+
+The retail inventory reconciliation pipeline is a well‑structured hybrid workflow that extracts, normalizes, reconciles, and reports on inventory data from four regional warehouses. Its design leverages parallelism for the independent fetch and normalize stages, followed by a deterministic fan‑in aggregation. The use of a single Python executor simplifies deployment, while the defined retry policies and token‑based API authentication provide basic resilience.  
+
+Future enhancements could include:
+
+- Explicit resource limits and timeouts per component.  
+- Rate‑limiting or back‑off strategies for API calls.  
+- Dynamic scaling of the fetch/normalize branches based on data volume.  
+
+Overall, the pipeline is ready for deployment on any modern, orchestrator‑agnostic execution platform that supports Python‑based tasks, parallel execution, and standard scheduling.

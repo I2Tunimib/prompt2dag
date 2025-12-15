@@ -1,0 +1,178 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-11-28 12:34:33.030911
+  source_analysis_file: Pipeline_Description_Dataset/keeyong__airflow-bootcamp__run_elt_error.py_description.txt
+  pipeline_name: RunELT_Alert
+  pipeline_description: Comprehensive Pipeline Description
+  orchestrator_specific:
+    job_name: runelt_alert
+    description: Comprehensive Pipeline Description
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - snowflake_conn
+      - slack_conn
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2025-01-10T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: snowflake_analytics_db
+    conn_type: resource
+    description: Snowflake Analytics Database
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: snowflake_analytics_db
+      config:
+        host: your_account.snowflakecomputing.com
+        port: 443
+        protocol: https
+        database: analytics_db
+        schema: analytics
+  - conn_id: slack_alert_webhook
+    conn_type: resource
+    description: Slack Alert Webhook
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: slack_alert_webhook
+      config:
+        base_url: https://hooks.slack.com/services
+        protocol: https
+        token: EnvVar('SLACK_WEBHOOK_TOKEN')
+tasks:
+  - task_id: run_ctas_for_table
+    task_name: Run CTAS for Analytics Table
+    operator_class: Op
+    operator_module: dagster
+    component_ref: run_ctas_for_table
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - snowflake_conn
+      retry_policy:
+        max_retries: 3
+        delay: 60
+        backoff: EXPONENTIAL
+      ins:
+        - name: raw_session_data
+          dagster_type: String
+          description: raw_data.session_timestamp
+        - name: raw_user_session_data
+          dagster_type: String
+          description: raw_data.user_session_channel
+      outs:
+        - name: analytics_table
+          dagster_type: String
+          description: Output to snowflake_conn
+        - name: temp_analytics_table
+          dagster_type: String
+          description: Output to snowflake_conn
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 3
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: validate_temp_table
+    task_name: Validate Temporary Table
+    operator_class: Op
+    operator_module: dagster
+    component_ref: validate_temp_table
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - snowflake_conn
+      retry_policy:
+        max_retries: 2
+        delay: 30
+        backoff: CONSTANT
+      ins:
+        - name: temp_table
+          dagster_type: String
+          description: analytics.temp_{table_name}
+      outs: []
+    upstream_task_ids:
+      - run_ctas_for_table
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: swap_table_atomic
+    task_name: Atomic Table Swap
+    operator_class: Op
+    operator_module: dagster
+    component_ref: swap_table_atomic
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - snowflake_conn
+      retry_policy:
+        max_retries: 1
+        delay: 0
+        backoff: CONSTANT
+      ins:
+        - name: temp_table
+          dagster_type: String
+          description: analytics.temp_{table_name}
+        - name: target_table
+          dagster_type: String
+          description: analytics.{table_name}
+      outs:
+        - name: swapped_table
+          dagster_type: String
+          description: Output to snowflake_conn
+    upstream_task_ids:
+      - validate_temp_table
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: send_slack_alert
+    task_name: Send Slack Failure Alert
+    operator_class: Op
+    operator_module: dagster
+    component_ref: send_slack_alert
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - slack_conn
+      retry_policy:
+        max_retries: 3
+        delay: 30
+        backoff: CONSTANT
+      ins:
+        - name: slack_webhook
+          dagster_type: String
+          description: https://hooks.slack.com/services/{webhook_path}
+      outs: []
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 3
+    retry_delay_seconds: 30
+    validation_warnings: []

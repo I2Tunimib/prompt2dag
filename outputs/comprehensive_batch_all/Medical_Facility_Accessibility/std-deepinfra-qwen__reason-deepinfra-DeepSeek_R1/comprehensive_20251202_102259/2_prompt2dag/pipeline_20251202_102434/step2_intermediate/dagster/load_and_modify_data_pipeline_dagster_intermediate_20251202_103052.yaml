@@ -1,0 +1,351 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 10:30:52.459544
+  source_analysis_file: Pipeline_Description_Dataset/Medical_Facility_Accessibility.txt
+  pipeline_name: load_and_modify_data_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    job_name: load_and_modify_data_pipeline
+    description: No description provided.
+    executor_type: docker_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - app_network
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir
+    conn_type: fs_io_manager
+    description: Data Directory
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: data_dir
+      config:
+        base_path: ${DATA_DIR}
+        protocol: file
+  - conn_id: load_and_modify_service
+    conn_type: resource
+    description: Load and Modify Service
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: load_and_modify_service
+      config:
+        base_url: http://load-and-modify-service:3003
+        protocol: http
+  - conn_id: reconciliation_service
+    conn_type: resource
+    description: Reconciliation Service
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: reconciliation_service
+      config:
+        base_url: http://reconciliation-service:3003
+        protocol: http
+        token: EnvVar('HERE_API_TOKEN')
+  - conn_id: column_extension_service
+    conn_type: resource
+    description: Column Extension Service
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: column_extension_service
+      config:
+        base_url: http://column-extension-service:3003
+        protocol: http
+  - conn_id: save_service
+    conn_type: resource
+    description: Save Service
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: save_service
+      config:
+        base_url: http://save-service:3003
+        protocol: http
+  - conn_id: transport_stops_geojson
+    conn_type: fs_io_manager
+    description: Transport Stops GeoJSON
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: transport_stops_geojson
+      config:
+        base_path: /app/data
+        protocol: file
+  - conn_id: residential_areas_geojson
+    conn_type: fs_io_manager
+    description: Residential Areas GeoJSON
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: residential_areas_geojson
+      config:
+        base_path: /app/data
+        protocol: file
+  - conn_id: mongodb
+    conn_type: pymongo_resource
+    description: MongoDB
+    config:
+      resource_type: pymongo_resource
+      resource_module: dagster_mongo
+      resource_key: mongodb
+      config:
+        host: mongodb
+        port: 27017
+        protocol: mongodb
+  - conn_id: intertwino_api
+    conn_type: resource
+    description: Intertwino API
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: intertwino_api
+      config:
+        base_url: http://intertwino-api:5005
+        protocol: http
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: load_and_modify_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-load-and-modify:latest
+          container_kwargs:
+            command:
+              - python
+              - load_and_modify.py
+            environment:
+              DATASET_ID: '2'
+              TABLE_NAME_PREFIX: JOT_
+            network_mode: app_network
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - app_network
+      retry_policy:
+        max_retries: 1
+        delay: 0
+        backoff: CONSTANT
+      ins:
+        - name: facilities.csv
+          dagster_type: String
+          description: ${DATA_DIR}/facilities.csv
+      outs:
+        - name: table_data_2.json
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: reconcile_geocoding
+    task_name: Reconcile Geocoding
+    operator_class: Op
+    operator_module: dagster
+    component_ref: reconcile_geocoding
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-reconciliation:latest
+          container_kwargs:
+            command:
+              - python
+              - reconcile_geocoding.py
+            environment:
+              PRIMARY_COLUMN: address
+              RECONCILIATOR_ID: geocodingHere
+              API_TOKEN: '[HERE API token]'
+              DATASET_ID: '2'
+            network_mode: app_network
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - app_network
+      retry_policy:
+        max_retries: 1
+        delay: 0
+        backoff: CONSTANT
+      ins:
+        - name: table_data_2.json
+          dagster_type: String
+          description: ${DATA_DIR}/table_data_2.json
+      outs:
+        - name: reconciled_table_2.json
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: calculate_distance_pt
+    task_name: Calculate Distance to Public Transport
+    operator_class: Op
+    operator_module: dagster
+    component_ref: calculate_distance_pt
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-column-extension:latest
+          container_kwargs:
+            command:
+              - python
+              - calculate_distance.py
+            environment:
+              EXTENDER_ID: spatialDistanceCalculator
+              LAT_COLUMN: latitude
+              LON_COLUMN: longitude
+              TARGET_LAYER: public_transport
+              TARGET_DATA_SOURCE: /app/data/transport_stops.geojson
+              OUTPUT_COLUMN: distance_to_pt
+              DATASET_ID: '2'
+            network_mode: app_network
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - app_network
+      retry_policy:
+        max_retries: 1
+        delay: 0
+        backoff: CONSTANT
+      ins:
+        - name: reconciled_table_2.json
+          dagster_type: String
+          description: ${DATA_DIR}/reconciled_table_2.json
+      outs:
+        - name: distance_pt_2.json
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - reconcile_geocoding
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: calculate_distance_residential
+    task_name: Calculate Distance to Residential Areas
+    operator_class: Op
+    operator_module: dagster
+    component_ref: calculate_distance_residential
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-column-extension:latest
+          container_kwargs:
+            command:
+              - python
+              - calculate_distance.py
+            environment:
+              EXTENDER_ID: spatialDistanceCalculator
+              LAT_COLUMN: latitude
+              LON_COLUMN: longitude
+              TARGET_LAYER: residential_areas
+              TARGET_DATA_SOURCE: /app/data/residential_areas.geojson
+              OUTPUT_COLUMN: distance_to_residential
+              DATASET_ID: '2'
+            network_mode: app_network
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - app_network
+      retry_policy:
+        max_retries: 1
+        delay: 0
+        backoff: CONSTANT
+      ins:
+        - name: distance_pt_2.json
+          dagster_type: String
+          description: ${DATA_DIR}/distance_pt_2.json
+      outs:
+        - name: column_extended_2.json
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - calculate_distance_pt
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: save_final_data
+    task_name: Save Final Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: save_final_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: docker_executor
+        module: dagster_docker
+        config:
+          image: i2t-backendwithintertwino6-save:latest
+          container_kwargs:
+            command:
+              - python
+              - save_data.py
+            environment:
+              DATASET_ID: '2'
+            network_mode: app_network
+            cpu_count: '1'
+            mem_limit: 2Gi
+          registry:
+            url:
+      config_schema: {}
+      required_resource_keys:
+        - app_network
+      retry_policy:
+        max_retries: 1
+        delay: 0
+        backoff: CONSTANT
+      ins:
+        - name: column_extended_2.json
+          dagster_type: String
+          description: ${DATA_DIR}/column_extended_2.json
+      outs:
+        - name: enriched_data_2.csv
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - calculate_distance_residential
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 0
+    validation_warnings: []

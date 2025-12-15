@@ -1,0 +1,189 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-02 14:13:06.880334
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_00_data_quality_gate.py_description.txt
+  pipeline_name: ingest_csv_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    flow_name: ingest_csv_pipeline
+    deployment_name: ingest_csv_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: ConcurrentTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: raw_csv_source
+    conn_type: LocalFileSystem
+    description: Raw CSV Source
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: raw_csv_source
+      config:
+        base_path: /data/raw/
+        protocol: file
+  - conn_id: production_database
+    conn_type: Secret
+    description: Production Database
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: production_database
+      config:
+        host: production-db-host
+        port: 5432
+        protocol: jdbc
+        database: production_db
+        schema: public
+        username_secret_name: PROD_DB_USERNAME
+        password_secret_name: PROD_DB_PASSWORD
+  - conn_id: quarantine_storage
+    conn_type: LocalFileSystem
+    description: Quarantine Storage
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: quarantine_storage
+      config:
+        base_path: /data/quarantine/
+        protocol: file
+  - conn_id: email_system
+    conn_type: Secret
+    description: Email System
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: email_system
+      config:
+        base_url: https://smtp.company.com
+        protocol: smtp
+        username_secret_name: SMTP_USERNAME
+        password_secret_name: SMTP_PASSWORD
+tasks:
+  - task_id: ingest_csv
+    task_name: Ingest CSV
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: ingest_csv
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: synthetic/synthetic_branch_merge_00_data_quality_gate.py
+      retries: 1
+      retry_delay_seconds: 300
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: quality_check
+    task_name: Quality Check
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: quality_check
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: synthetic/synthetic_branch_merge_00_data_quality_gate.py
+      retries: 1
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - ingest_csv
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: production_load
+    task_name: Production Load
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: production_load
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: synthetic/synthetic_branch_merge_00_data_quality_gate.py
+      retries: 1
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - quality_check
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: quarantine_and_alert
+    task_name: Quarantine and Alert
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: quarantine_and_alert
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: synthetic/synthetic_branch_merge_00_data_quality_gate.py
+      retries: 1
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - quality_check
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: send_alert_email
+    task_name: Send Alert Email
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: send_alert_email
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: synthetic/synthetic_branch_merge_00_data_quality_gate.py
+      retries: 1
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - quarantine_and_alert
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: cleanup
+    task_name: Cleanup
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: cleanup
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: synthetic/synthetic_branch_merge_00_data_quality_gate.py
+      retries: 1
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - production_load
+      - send_alert_email
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 300
+    validation_warnings: []

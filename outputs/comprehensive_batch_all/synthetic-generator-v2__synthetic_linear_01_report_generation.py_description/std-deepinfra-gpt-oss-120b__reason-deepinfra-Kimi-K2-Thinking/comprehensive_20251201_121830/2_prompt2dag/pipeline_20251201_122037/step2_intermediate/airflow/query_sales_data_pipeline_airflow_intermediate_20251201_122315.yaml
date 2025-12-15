@@ -1,0 +1,110 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-01 12:23:15.955281
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_linear_01_report_generation.py_description.txt
+  pipeline_name: query_sales_data_pipeline
+  pipeline_description: Sequential linear pipeline that generates daily sales reports by querying PostgreSQL sales data,
+    converting it to CSV, creating a PDF chart, and emailing the report to management.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: postgres_sales_db
+    conn_type: generic
+    description: PostgreSQL Sales Database
+    config:
+      base_path:
+      base_url:
+      host:
+      port:
+      protocol: postgresql
+      database: sales_db
+      schema: public
+      bucket:
+      queue_name:
+      login: POSTGRES_USER
+      password: POSTGRES_PASSWORD
+  - conn_id: local_tmp_fs
+    conn_type: fs
+    description: Local Temporary Filesystem
+    config:
+      base_path: /tmp
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: email_smtp
+    conn_type: http
+    description: Management Email SMTP
+    config:
+      base_path:
+      base_url: smtp://mail.company.com
+      host:
+      port:
+      protocol: smtp
+      database:
+      schema:
+      bucket:
+      queue_name:
+      login: SMTP_USER
+      password: SMTP_PASSWORD
+tasks:
+  - task_id: query_sales_data
+    task_name: Query Sales Data
+    operator_class: SQLExecuteQueryOperator
+    operator_module: airflow.providers.common.sql.operators.sql
+    component_ref: query_sales_data
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: none_failed
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: transform_to_csv
+    task_name: Transform Sales Data to CSV
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: transform_to_csv
+    config: {}
+    upstream_task_ids:
+      - query_sales_data
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: generate_pdf_chart
+    task_name: Generate PDF Chart
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: generate_pdf_chart
+    config: {}
+    upstream_task_ids:
+      - transform_to_csv
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: email_sales_report
+    task_name: Email Sales Report
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: email_sales_report
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - generate_pdf_chart
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

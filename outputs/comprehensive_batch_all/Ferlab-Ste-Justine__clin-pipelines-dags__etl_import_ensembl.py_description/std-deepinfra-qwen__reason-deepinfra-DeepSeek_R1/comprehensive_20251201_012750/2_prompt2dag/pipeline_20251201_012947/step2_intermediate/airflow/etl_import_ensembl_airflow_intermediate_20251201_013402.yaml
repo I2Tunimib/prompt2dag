@@ -1,0 +1,73 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-01 01:34:02.415712
+  source_analysis_file: 
+    Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_ensembl.py_description.txt
+  pipeline_name: etl_import_ensembl
+  pipeline_description: No description provided.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: '2022-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: ensembl_ftp
+    conn_type: fs
+    description: Ensembl FTP Server
+    config:
+      base_path: /pub/current_tsv/homo_sapiens
+      protocol: ftp
+      host: ftp.ensembl.org
+      port: 21
+  - conn_id: s3_datalake
+    conn_type: s3
+    description: S3 Data Lake
+    config:
+      base_path: raw/landing/ensembl/
+      protocol: s3
+      bucket: cqgc-{env}-app-datalake
+  - conn_id: slack_notifications
+    conn_type: http
+    description: Slack Notifications
+    config:
+      base_url: https://slack.com/api
+      protocol: https
+      extra:
+        token_env_var: SLACK_API_TOKEN
+  - conn_id: k8s_etl_context
+    conn_type: generic
+    description: Kubernetes ETL Context
+    config:
+      host:
+      port:
+      protocol:
+tasks:
+  - task_id: check_and_download_ensembl_files
+    task_name: Check and Download Ensembl Files
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: check_and_download_ensembl_files
+    config:
+      python_callable: path/to/check_and_download_ensembl_files.py
+      retry_delay: timedelta(seconds=60)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 3
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: process_ensembl_files_with_spark
+    task_name: Process Ensembl Files with Spark
+    operator_class: SparkSubmitOperator
+    operator_module: airflow.providers.apache.spark.operators.spark_submit
+    component_ref: process_ensembl_files_with_spark
+    config:
+      retry_delay: timedelta(seconds=60)
+    upstream_task_ids:
+      - check_and_download_ensembl_files
+    trigger_rule: all_success
+    retries: 3
+    retry_delay_seconds: 60
+    validation_warnings: []

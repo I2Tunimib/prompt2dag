@@ -1,0 +1,241 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-02 12:49:41.971783
+  source_analysis_file: Pipeline_Description_Dataset/Sequential_Pipeline_Prompt.txt
+  pipeline_name: load_and_modify_data_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    flow_name: load_and_modify_data_pipeline
+    deployment_name: load_and_modify_data_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_directory
+    conn_type: LocalFileSystem
+    description: Data Directory
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: data_directory
+      config:
+        base_path: /app/data
+        protocol: file
+  - conn_id: load_and_modify_service
+    conn_type: Secret
+    description: Load and Modify Service
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: load_and_modify_service
+      config:
+        base_url: http://load-and-modify-service:3003
+        protocol: http
+  - conn_id: reconciliation_service
+    conn_type: Secret
+    description: Reconciliation Service
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: reconciliation_service
+      config:
+        base_url: http://reconciliation-service:3003
+        protocol: http
+        token_secret_name: RECONCILIATION_API_TOKEN
+  - conn_id: openmeteo_api
+    conn_type: Secret
+    description: OpenMeteo API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: openmeteo_api
+      config:
+        base_url: http://openmeteo-api:3003
+        protocol: http
+  - conn_id: column_extension_service
+    conn_type: Secret
+    description: Column Extension Service
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: column_extension_service
+      config:
+        base_url: http://column-extension-service:3003
+        protocol: http
+  - conn_id: docker_network
+    conn_type: Secret
+    description: Docker Network
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: docker_network
+      config:
+        name: app_network
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: load_and_modify_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-load-and-modify:latest
+          command:
+            - python
+            - load_and_modify.py
+          env:
+            DATASET_ID: '2'
+            DATE_COLUMN: Fecha_id
+            TABLE_NAMING_CONVENTION: JOT_{}
+          networks:
+            - app_network
+          cpu_count: '1'
+          mem_limit: 2Gi
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 30
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: data_reconciliation
+    task_name: Data Reconciliation
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: data_reconciliation
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-reconciliation:latest
+          command:
+            - python
+            - reconcile_data.py
+          env:
+            PRIMARY_COLUMN: City
+            OPTIONAL_COLUMNS: County,Country
+            RECONCILIATOR_ID: geocodingHere
+            API_TOKEN: your_api_token
+          networks:
+            - app_network
+          cpu_count: '1'
+          mem_limit: 2Gi
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 30
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: openmeteo_data_extension
+    task_name: OpenMeteo Data Extension
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: openmeteo_data_extension
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-openmeteo-extension:latest
+          command:
+            - python
+            - extend_data.py
+          env:
+            WEATHER_ATTRIBUTES: apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_hours
+            DATE_FORMAT: your_date_format
+          networks:
+            - app_network
+          cpu_count: '1'
+          mem_limit: 2Gi
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 30
+    upstream_task_ids:
+      - data_reconciliation
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: column_extension
+    task_name: Column Extension
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: column_extension
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-column-extension:latest
+          command:
+            - python
+            - extend_columns.py
+          env:
+            EXTENDER_ID: reconciledColumnExt
+          networks:
+            - app_network
+          cpu_count: '1'
+          mem_limit: 2Gi
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 30
+    upstream_task_ids:
+      - openmeteo_data_extension
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings: []
+  - task_id: save_final_data
+    task_name: Save Final Data
+    operator_class: DockerContainer
+    operator_module: prefect.infrastructure.docker
+    component_ref: save_final_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: DockerContainer
+        module: prefect.infrastructure.docker
+        config:
+          image: i2t-backendwithintertwino6-save:latest
+          command:
+            - python
+            - save_data.py
+          env:
+            DATA_DIR: /app/data
+          networks:
+            - app_network
+          cpu_count: '1'
+          mem_limit: 2Gi
+          auto_remove: true
+          stream_output: true
+      retries: 1
+      retry_delay_seconds: 30
+    upstream_task_ids:
+      - column_extension
+    trigger_rule: wait_for='all'
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings: []

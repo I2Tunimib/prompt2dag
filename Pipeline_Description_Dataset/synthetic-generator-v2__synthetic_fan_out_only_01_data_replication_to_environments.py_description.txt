@@ -1,0 +1,80 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_fan_out_only_01_data_replication_to_environments.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** fan_out_fan_in  
+**Complexity Score:** 3/10  
+
+---
+
+[Database Replication Fanout] - Comprehensive Pipeline Description
+
+Opening Summary:
+- This pipeline performs daily database replication from production to multiple environments by first dumping the production database to a CSV snapshot, then copying that snapshot to three target environments (Development, Staging, QA) in parallel. The topology follows a fan-out only pattern where one initial task splits into multiple parallel tasks with no synchronization or merge point after the parallel execution. Key infrastructure features include BashOperator execution, daily scheduling, and simple retry policies.
+
+Pipeline Steps:
+
+1. dump_prod_csv
+  • Objective: Create a CSV snapshot of the production database for replication to downstream environments.
+  • Technical Details:
+    - Input: Production database (inferred from task purpose)
+    - Output: CSV file at /tmp/prod_snapshot_$(date +%Y%m%d).csv for downstream copy tasks
+    - Integrations: Local filesystem for CSV output
+    - Key Parameters: Uses date-based filename templating
+  • Operator or Mechanism: BashOperator
+  • Notes: Simulates database dump with 5-second sleep
+
+2. copy_dev
+  • Objective: Load the production CSV snapshot into the Development environment database.
+  • Technical Details:
+    - Input: CSV file from dump_prod_csv task
+    - Output: Data loaded into Dev_DB
+    - Integrations: Development database system
+    - Key Parameters: Uses same date-based filename pattern as source
+  • Operator or Mechanism: BashOperator
+  • Notes: Runs in parallel with copy_staging and copy_qa; 10-second execution time
+
+3. copy_staging
+  • Objective: Load the production CSV snapshot into the Staging environment database.
+  • Technical Details:
+    - Input: CSV file from dump_prod_csv task
+    - Output: Data loaded into Staging_DB
+    - Integrations: Staging database system
+    - Key Parameters: Uses same date-based filename pattern as source
+  • Operator or Mechanism: BashOperator
+  • Notes: Runs in parallel with copy_dev and copy_qa; 8-second execution time
+
+4. copy_qa
+  • Objective: Load the production CSV snapshot into the QA environment database.
+  • Technical Details:
+    - Input: CSV file from dump_prod_csv task
+    - Output: Data loaded into QA_DB
+    - Integrations: QA database system
+    - Key Parameters: Uses same date-based filename pattern as source
+  • Operator or Mechanism: BashOperator
+  • Notes: Runs in parallel with copy_dev and copy_staging; 7-second execution time
+
+Orchestration & Scheduling:
+- Schedule: @daily
+- Start Date: January 1, 2024
+- Catchup: False
+- Default Args: 2 retries with 5-minute delay, no email notifications on failure/retry
+
+Infrastructure & Dependencies:
+- Connections/IDs: No explicit connection IDs; uses local filesystem for CSV transfer
+- Data I/O hints: CSV files at /tmp/prod_snapshot_$(date +%Y%m%d).csv pattern
+- Target databases: Dev_DB, Staging_DB, QA_DB
+
+Failure Handling & Alerts:
+- Retry Policy: 2 retries with 5-minute delay between attempts
+- No email notifications configured for failures or retries
+- No explicit failure callbacks or alerting operators
+
+Pattern-Specific Notes:
+- Fan-out only pattern with parallel width of 3 (copy_dev, copy_staging, copy_qa)
+- No synchronization or join point after parallel execution - each environment copy completes independently
+- Simple linear dependency: dump_prod_csv → [all copy tasks]
+- Each parallel task operates on the same input file but targets different destination systems

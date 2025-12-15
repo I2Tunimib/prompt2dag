@@ -1,0 +1,760 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-01T23:42:48.944394",
+    "source_file": "Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_fan_out_fan_in_00_multi_region_e_commerce_analytics.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "gpt-oss-120b",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "parallel",
+        "hybrid"
+      ],
+      "task_executors_used": [
+        "python"
+      ],
+      "has_branching": false,
+      "has_parallelism": true,
+      "has_sensors": false,
+      "total_components": 5,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Parallelism via TaskFlow API expand()"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "map() for parallel execution"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "DynamicOutput for fan-out"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "multi_region_ecommerce_analytics",
+    "description": "Multi-region ecommerce analytics pipeline that ingests sales data from four regions, converts currencies to USD, and aggregates a global revenue report.",
+    "flow_patterns": [
+      "sequential",
+      "parallel",
+      "hybrid"
+    ],
+    "task_executors": [
+      "python"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "start_pipeline",
+      "name": "Start Pipeline",
+      "category": "Other",
+      "description": "Marks the entry point of the pipeline and triggers the parallel ingestion stage.",
+      "inputs": [],
+      "outputs": [
+        "trigger_ingest"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "trigger_ingest",
+          "direction": "output",
+          "kind": "object",
+          "format": "none",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "No upstream dependencies; this is the pipeline entry.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "ingest_sales_data",
+      "name": "Ingest Sales Data",
+      "category": "Extractor",
+      "description": "Extracts regional sales CSV files for US‑East, US‑West, EU and APAC into XCom objects for downstream processing.",
+      "inputs": [],
+      "outputs": [
+        "sales_data_{region}"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "REGION": "{region}"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "sales_data",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/data/region/{{ region }}/sales_*.csv",
+          "connection_id": "fs_sales_data"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after the start_pipeline marker completes successfully.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "error",
+          "timeout"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": true,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": 4
+      },
+      "connections": [
+        {
+          "id": "fs_sales_data",
+          "type": "filesystem",
+          "purpose": "Read regional CSV sales files"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "regional_sales_raw"
+        ]
+      }
+    },
+    {
+      "id": "convert_currency",
+      "name": "Convert Currency to USD",
+      "category": "Transformer",
+      "description": "Normalises regional sales amounts to USD; no‑op for US regions and applies static exchange rates for EU (EUR→USD) and APAC (JPY→USD).",
+      "inputs": [
+        "sales_data_{region}"
+      ],
+      "outputs": [
+        "converted_data_{region}"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {
+          "REGION": "{region}"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "sales_data",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/data/region/{{ region }}/sales_*.csv",
+          "connection_id": "fs_sales_data"
+        },
+        {
+          "name": "converted_data",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/tmp/converted/{{ region }}/sales_usd_*.csv",
+          "connection_id": "fs_converted"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Executes after the corresponding ingest_sales_data task finishes.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "error",
+          "timeout"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": true,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": 4
+      },
+      "connections": [
+        {
+          "id": "fs_sales_data",
+          "type": "filesystem",
+          "purpose": "Read raw regional sales CSVs"
+        },
+        {
+          "id": "fs_converted",
+          "type": "filesystem",
+          "purpose": "Write USD‑normalised sales CSVs"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "regional_sales_raw"
+        ],
+        "produces": [
+          "regional_sales_usd"
+        ]
+      }
+    },
+    {
+      "id": "aggregate_global_revenue",
+      "name": "Aggregate Global Revenue",
+      "category": "Aggregator",
+      "description": "Combines the USD‑converted regional sales data into a single global revenue report CSV.",
+      "inputs": [
+        "converted_data_US-East",
+        "converted_data_US-West",
+        "converted_data_EU",
+        "converted_data_APAC"
+      ],
+      "outputs": [
+        "global_revenue_report_{{ ds_nodash }}.csv"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "converted_data",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/tmp/converted/*/sales_usd_*.csv",
+          "connection_id": "fs_converted"
+        },
+        {
+          "name": "global_report",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/reports/global_revenue_report_{{ ds_nodash }}.csv",
+          "connection_id": "fs_reports"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after all four convert_currency tasks have completed successfully.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "error",
+          "timeout"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_converted",
+          "type": "filesystem",
+          "purpose": "Read USD‑converted regional sales CSVs"
+        },
+        {
+          "id": "fs_reports",
+          "type": "filesystem",
+          "purpose": "Write the aggregated global revenue CSV"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "regional_sales_usd"
+        ],
+        "produces": [
+          "global_revenue_report"
+        ]
+      }
+    },
+    {
+      "id": "end_pipeline",
+      "name": "End Pipeline",
+      "category": "Other",
+      "description": "Marks successful completion of the pipeline after the global aggregation step.",
+      "inputs": [
+        "global_revenue_report_{{ ds_nodash }}.csv"
+      ],
+      "outputs": [],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "global_report",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/reports/global_revenue_report_{{ ds_nodash }}.csv",
+          "connection_id": "fs_reports"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Executes after aggregate_global_revenue finishes without errors.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_reports",
+          "type": "filesystem",
+          "purpose": "Read the final global revenue CSV"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "global_revenue_report"
+        ],
+        "produces": []
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "hybrid",
+    "entry_points": [
+      "start_pipeline"
+    ],
+    "nodes": {
+      "start_pipeline": {
+        "kind": "Task",
+        "component_type_id": "start_pipeline",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "ingest_parallel"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "ingest_parallel": {
+        "kind": "Parallel",
+        "component_type_id": "ingest_sales_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "convert_parallel"
+        ],
+        "parallel_config": {
+          "type": "static_parallel",
+          "map_over": "region",
+          "map_source": [
+            "US-East",
+            "US-West",
+            "EU",
+            "APAC"
+          ],
+          "max_parallelism": null,
+          "join_node": "convert_parallel"
+        },
+        "branch_config": null,
+        "sensor_config": null
+      },
+      "convert_parallel": {
+        "kind": "Parallel",
+        "component_type_id": "convert_currency",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "aggregate_global_revenue"
+        ],
+        "parallel_config": {
+          "type": "static_parallel",
+          "map_over": "region",
+          "map_source": [
+            "US-East",
+            "US-West",
+            "EU",
+            "APAC"
+          ],
+          "max_parallelism": null,
+          "join_node": "aggregate_global_revenue"
+        },
+        "branch_config": null,
+        "sensor_config": null
+      },
+      "aggregate_global_revenue": {
+        "kind": "Task",
+        "component_type_id": "aggregate_global_revenue",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "end_pipeline"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "end_pipeline": {
+        "kind": "Task",
+        "component_type_id": "end_pipeline",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "start_pipeline",
+        "to": "ingest_parallel",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "ingest_parallel",
+        "to": "convert_parallel",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "convert_parallel",
+        "to": "aggregate_global_revenue",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "aggregate_global_revenue",
+        "to": "end_pipeline",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "multi_region_ecommerce_analytics",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": "Multi-region ecommerce analytics pipeline that ingests sales data from four regions, converts currencies to USD, and aggregates a global revenue report.",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [
+          "ecommerce",
+          "analytics",
+          "multi-region"
+        ],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2024-01-01T00:00:00Z",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 2,
+          "retry_delay_minutes": 5
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      }
+    },
+    "components": {
+      "start_pipeline": {},
+      "ingest_sales_data": {
+        "region": {
+          "description": "Geographic region to ingest sales data from",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "convert_currency": {
+        "region": {
+          "description": "Geographic region whose currency will be converted to USD",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "aggregate_global_revenue": {
+        "provide_context": {
+          "description": "Flag to enable XCom context access for aggregation",
+          "type": "boolean",
+          "default": true,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "end_pipeline": {}
+    },
+    "environment": {}
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "regional_sales_files",
+        "name": "Regional Sales CSV Files",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/data/sales",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "ingest_sales_data",
+          "aggregate_global_revenue"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "global_revenue_report_YYYYMMDD.csv"
+          ],
+          "consumes": [
+            "sales_data_US-East.csv",
+            "sales_data_US-West.csv",
+            "sales_data_EU.csv",
+            "sales_data_APAC.csv"
+          ]
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Regional sales CSV files for US‑East, US‑West, EU, and APAC stored in the filesystem at /data/sales"
+      ],
+      "sinks": [
+        "Global revenue report CSV written back to the filesystem at /data/sales (e.g., global_revenue_report_20240101.csv)"
+      ],
+      "intermediate_datasets": [
+        "XCom objects containing raw sales data per region (sales_data_US-East, sales_data_US-West, sales_data_EU, sales_data_APAC)",
+        "XCom objects containing USD‑converted data per region (converted_data_US-East, converted_data_US-West, converted_data_EU, converted_data_APAC)",
+        "In‑memory aggregated dataset before final CSV serialization"
+      ]
+    }
+  }
+}

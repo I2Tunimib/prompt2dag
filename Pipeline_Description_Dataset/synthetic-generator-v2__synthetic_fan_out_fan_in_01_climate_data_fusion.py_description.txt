@@ -1,0 +1,154 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_fan_out_fan_in_01_climate_data_fusion.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** fan_out_fan_in  
+**Complexity Score:** 6/10  
+
+---
+
+[climate_data_fusion_pipeline] - Comprehensive Pipeline Description
+
+Opening Summary:
+- This pipeline implements a climate data fusion workflow that downloads weather station data from five meteorological agencies (NOAA, ECMWF, JMA, MetOffice, BOM), normalizes each dataset to a standard format, then merges them into a unified climate dataset. The topology follows a clear fan-out/fan-in pattern with parallel processing of agency-specific data streams. Key infrastructure features include daily scheduling, XCom-based data passing between tasks, and comprehensive error handling with retries and email notifications.
+
+Pipeline Steps:
+
+Pre-Processing Stage (before parallel)
+
+1. download_noaa
+  • Objective: Download NOAA weather station CSV data from their FTP server
+  • Technical Details:
+    - Input: NOAA FTP server endpoint
+    - Output: NOAA CSV data file (via XCom)
+    - Integrations: FTP connection to noaa.gov/weather/stations.csv
+    - Key Parameters: None specified in code
+  • Operator or Mechanism: PythonOperator
+  • Notes: First of five parallel download tasks
+
+2. download_ecmwf
+  • Objective: Download ECMWF weather station CSV data from their HTTPS endpoint
+  • Technical Details:
+    - Input: ECMWF HTTPS data endpoint
+    - Output: ECMWF CSV data file (via XCom)
+    - Integrations: HTTPS connection to ecmwf.int/data/stations.csv
+    - Key Parameters: None specified in code
+  • Operator or Mechanism: PythonOperator
+
+3. download_jma
+  • Objective: Download JMA weather station CSV data from their HTTPS endpoint
+  • Technical Details:
+    - Input: JMA HTTPS data endpoint
+    - Output: JMA CSV data file (via XCom)
+    - Integrations: HTTPS connection to jma.go.jp/weather/stations.csv
+    - Key Parameters: None specified in code
+  • Operator or Mechanism: PythonOperator
+
+4. download_metoffice
+  • Objective: Download MetOffice weather station CSV data from their HTTPS endpoint
+  • Technical Details:
+    - Input: MetOffice HTTPS data endpoint
+    - Output: MetOffice CSV data file (via XCom)
+    - Integrations: HTTPS connection to metoffice.gov.uk/data/stations.csv
+    - Key Parameters: None specified in code
+  • Operator or Mechanism: PythonOperator
+
+5. download_bom
+  • Objective: Download BOM weather station CSV data from their HTTPS endpoint
+  • Technical Details:
+    - Input: BOM HTTPS data endpoint
+    - Output: BOM CSV data file (via XCom)
+    - Integrations: HTTPS connection to bom.gov.au/observations/stations.csv
+    - Key Parameters: None specified in code
+  • Operator or Mechanism: PythonOperator
+
+Parallel Segment (5 parallel normalization tasks)
+
+6. normalize_noaa
+  • Objective: Normalize NOAA data to standard format (ISO timestamp, Celsius temperature, meters elevation)
+  • Technical Details:
+    - Input: NOAA CSV data from download_noaa task (via XCom)
+    - Output: Normalized NOAA data file (via XCom)
+    - Integrations: None external
+    - Key Parameters: Uses XCom to pull data from download_noaa task
+  • Operator or Mechanism: PythonOperator
+
+7. normalize_ecmwf
+  • Objective: Normalize ECMWF data to standard format (ISO timestamp, Celsius temperature, meters elevation)
+  • Technical Details:
+    - Input: ECMWF CSV data from download_ecmwf task (via XCom)
+    - Output: Normalized ECMWF data file (via XCom)
+    - Integrations: None external
+    - Key Parameters: Uses XCom to pull data from download_ecmwf task
+  • Operator or Mechanism: PythonOperator
+
+8. normalize_jma
+  • Objective: Normalize JMA data to standard format (ISO timestamp, Celsius temperature, meters elevation)
+  • Technical Details:
+    - Input: JMA CSV data from download_jma task (via XCom)
+    - Output: Normalized JMA data file (via XCom)
+    - Integrations: None external
+    - Key Parameters: Uses XCom to pull data from download_jma task
+  • Operator or Mechanism: PythonOperator
+
+9. normalize_metoffice
+  • Objective: Normalize MetOffice data to standard format (ISO timestamp, Celsius temperature, meters elevation)
+  • Technical Details:
+    - Input: MetOffice CSV data from download_metoffice task (via XCom)
+    - Output: Normalized MetOffice data file (via XCom)
+    - Integrations: None external
+    - Key Parameters: Uses XCom to pull data from download_metoffice task
+  • Operator or Mechanism: PythonOperator
+
+10. normalize_bom
+  • Objective: Normalize BOM data to standard format (ISO timestamp, Celsius temperature, meters elevation)
+  • Technical Details:
+    - Input: BOM CSV data from download_bom task (via XCom)
+    - Output: Normalized BOM data file (via XCom)
+    - Integrations: None external
+    - Key Parameters: Uses XCom to pull data from download_bom task
+  • Operator or Mechanism: PythonOperator
+
+Synchronization/Join Stage (after parallel)
+
+11. merge_climate_data
+  • Objective: Merge all five normalized datasets into a unified climate dataset with standardized schema
+  • Technical Details:
+    - Input: All five normalized data files from normalization tasks (via XCom)
+    - Output: Unified climate dataset in Parquet format
+    - Integrations: None external
+    - Key Parameters: Uses XCom to pull data from all five normalization tasks
+  • Operator or Mechanism: PythonOperator
+  • Notes: Implicit trigger_rule=all_success as default
+
+Orchestration & Scheduling:
+- Schedule: @daily
+- Start Date: 2024-01-01
+- Catchup: False
+- Default Args: owner=climate_team, depends_on_past=False, retries=3, retry_delay=5 minutes, email_on_failure=True, email_on_retry=False
+
+Infrastructure & Dependencies:
+- No sensors present in this pipeline
+- No external triggers or TaskGroups
+- Connections: Implicit FTP/HTTPS connections to five meteorological agency endpoints
+- Data I/O: All data passed via XCom between tasks; final output as unified_climate_dataset.parquet
+- Agency endpoints:
+  - NOAA: ftp://noaa.gov/weather/stations.csv
+  - ECMWF: https://ecmwf.int/data/stations.csv
+  - JMA: https://jma.go.jp/weather/stations.csv
+  - MetOffice: https://metoffice.gov.uk/data/stations.csv
+  - BOM: https://bom.gov.au/observations/stations.csv
+
+Failure Handling & Alerts:
+- Email notifications on task failure (email_on_failure=True)
+- 3 retries with 5-minute delay between retries
+- No explicit failure triggers or special trigger rules
+
+Pattern-Specific Notes:
+- Fan-out/fan-in pattern with parallel width of 5 (one per meteorological agency)
+- Join achieved through merge_climate_data task that collects outputs from all 5 normalization tasks
+- Each agency data stream follows independent path: download → normalize → merge
+- Data flow: Five parallel download streams → Five parallel normalization streams → Single merge operation

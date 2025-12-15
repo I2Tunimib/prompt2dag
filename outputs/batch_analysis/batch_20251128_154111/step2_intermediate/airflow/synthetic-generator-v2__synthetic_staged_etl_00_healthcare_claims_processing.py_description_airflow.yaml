@@ -1,0 +1,151 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 15:51:17.384318
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_staged_etl_00_healthcare_claims_processing.py_description.txt
+  pipeline_name: healthcare_claims_etl
+  pipeline_description: Comprehensive healthcare claims processing ETL pipeline implementing a staged ETL pattern with 
+    parallel extraction, followed by sequential transformation and parallel loading stages
+  orchestrator_specific: {}
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: claims_csv_source
+    conn_type: fs
+    description: Claims CSV Data Source
+    config:
+      base_path: /path/to/claims.csv
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: providers_csv_source
+    conn_type: fs
+    description: Providers CSV Data Source
+    config:
+      base_path: /path/to/providers.csv
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: healthcare_analytics_db
+    conn_type: generic
+    description: Healthcare Analytics Database
+    config:
+      base_path:
+      base_url:
+      host: localhost
+      port: 5432
+      protocol: postgresql
+      database: healthcare_analytics
+      schema: public
+      bucket:
+      queue_name:
+      login: DB_USER
+      password: DB_PASSWORD
+  - conn_id: power_bi_service
+    conn_type: http
+    description: Power BI Service
+    config:
+      base_path:
+      base_url: https://api.powerbi.com/v1.0/myorg
+      host:
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: tableau_server
+    conn_type: http
+    description: Tableau Server
+    config:
+      base_path:
+      base_url: https://tableau.example.com/api/3.12
+      host:
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+      extra:
+        token_env_var: TABLEAU_TOKEN
+tasks:
+  - task_id: extract_claims
+    task_name: Extract Claims Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_claims
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: extract_providers
+    task_name: Extract Providers Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_providers
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: transform_join
+    task_name: Transform and Join Claims with Providers
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: transform_join
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - extract_claims
+      - extract_providers
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: load_warehouse
+    task_name: Load Data to Analytics Warehouse
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: load_warehouse
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - transform_join
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: refresh_bi
+    task_name: Refresh BI Dashboards
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: refresh_bi
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - transform_join
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

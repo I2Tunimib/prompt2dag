@@ -1,0 +1,48 @@
+[Airflow Database Cleanup] - Comprehensive Pipeline Description
+
+Opening Summary:
+- This is a maintenance workflow that periodically cleans old metadata entries from Airflow's MetaStore database tables to prevent excessive data accumulation. The pipeline follows a sequential linear pattern with two tasks executing in strict order. Key infrastructure features include configurable database cleanup parameters, Airflow Variable integration for retention settings, and email alerting on failures.
+
+Pipeline Steps:
+
+1. print_configuration
+  • Objective: Load and validate cleanup configuration parameters, including maximum entry age from DAG run configuration or Airflow Variables.
+  • Technical Details:
+    - Input: DAG run configuration parameters, Airflow Variable 'airflow_db_cleanup__max_db_entry_age_in_days'
+    - Output: Calculated max_date pushed to XCom for downstream consumption
+    - Integrations: Airflow Variables system, XCom cross-task communication
+    - Key Parameters: provide_context=True for Airflow context access
+  • Operator or Mechanism: PythonOperator
+  • Notes: Sets the execution threshold date that determines which database entries will be cleaned
+
+2. cleanup_airflow_metadb
+  • Objective: Execute the actual database cleanup by deleting old entries from multiple Airflow metadata tables based on the calculated max_date.
+  • Technical Details:
+    - Input: max_date from print_configuration task via XCom, DATABASE_OBJECTS configuration list
+    - Output: Deleted old entries from DagRun, TaskInstance, Log, XCom, SlaMiss, DagModel, and other Airflow metadata tables
+    - Integrations: Airflow MetaStore database via SQLAlchemy session, multiple Airflow ORM models
+    - Key Parameters: params containing DATABASE_OBJECTS configuration, op_kwargs for model-specific parameters
+  • Operator or Mechanism: PythonOperator
+  • Notes: Processes each database object in DATABASE_OBJECTS list with configurable retention rules
+
+Orchestration & Scheduling:
+- Schedule: @daily (once daily at midnight UTC)
+- Start_date: days_ago(1) relative to DAG creation
+- Catchup: False (disabled)
+- Default_args: 1 retry with 1-minute delay, email_on_failure enabled with configurable alert addresses
+
+Infrastructure & Dependencies:
+- Connections/IDs: Uses Airflow's default database session via settings.Session()
+- Data I/O: Operates on Airflow MetaStore tables including DagRun, TaskInstance, Log, XCom, SlaMiss, DagModel, TaskReschedule, TaskFail, RenderedTaskInstanceFields, ImportError, and Job/BaseJob
+- Configuration: Relies on Airflow Variable 'airflow_db_cleanup__max_db_entry_age_in_days' for retention period (default: 30 days)
+
+Failure Handling & Alerts:
+- Email alerts sent to ALERT_EMAIL_ADDRESSES on task failures
+- 1 automatic retry with 1-minute delay on task failures
+- Graceful error handling for missing optional Airflow models with try/except blocks
+
+Pattern-Specific Notes:
+- Linear sequential pattern: Two tasks execute in strict order with data passing via XCom
+- Configuration-driven cleanup: DATABASE_OBJECTS list defines which tables to clean and retention rules
+- Safe execution mode: ENABLE_DELETE flag allows dry-run operation without actual deletions
+- Version-aware: Handles Airflow version differences in model structures and column names

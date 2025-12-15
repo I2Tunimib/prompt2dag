@@ -1,0 +1,576 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 09:52:31.329526
+  source_analysis_file: Pipeline_Description_Dataset/M4TTRX__data-eng-project__global_dag.py_description.txt
+  pipeline_name: extract_death_records_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    job_name: extract_death_records_pipeline
+    description: No description provided.
+    executor_type: multiprocess_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - redis
+      - data_gouv_api
+      - postgres_default
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: days_ago(0)
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_gouv_fr_api
+    conn_type: resource
+    description: data.gouv.fr API
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: data_gouv_fr_api
+      config:
+        base_url: https://data.gouv.fr/api/1
+        protocol: https
+        token: EnvVar('DATA_GOUV_FR_API_TOKEN')
+  - conn_id: static_data_gouv_fr
+    conn_type: resource
+    description: static.data.gouv.fr
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: static_data_gouv_fr
+      config:
+        base_url: https://static.data.gouv.fr
+        protocol: https
+  - conn_id: redis
+    conn_type: resource
+    description: Redis
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: redis
+      config:
+        host: redis
+        port: 6379
+        protocol: redis
+  - conn_id: postgresql
+    conn_type: resource
+    description: PostgreSQL
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: postgresql
+      config:
+        host: localhost
+        port: 5432
+        database: etl_pipeline
+        schema: public
+        protocol: jdbc
+        username: EnvVar('POSTGRES_USER')
+        password: EnvVar('POSTGRES_PASSWORD')
+  - conn_id: ingestion_directory
+    conn_type: fs_io_manager
+    description: Ingestion Directory
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: ingestion_directory
+      config:
+        base_path: /opt/airflow/dags/data/ingestion/
+        protocol: file
+  - conn_id: staging_directory
+    conn_type: fs_io_manager
+    description: Staging Directory
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: staging_directory
+      config:
+        base_path: /opt/airflow/dags/data/staging/
+        protocol: file
+  - conn_id: sql_tmp_directory
+    conn_type: fs_io_manager
+    description: SQL Temporary Directory
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: sql_tmp_directory
+      config:
+        base_path: /opt/airflow/dags/sql/tmp/
+        protocol: file
+tasks:
+  - task_id: extract_death_records
+    task_name: Extract Death Records
+    operator_class: Op
+    operator_module: dagster
+    component_ref: extract_death_records
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: path/to/get_death_resources.py
+      config_schema: {}
+      required_resource_keys:
+        - data_gouv_api
+      retry_policy:
+        max_retries: 1
+        delay: 10
+        backoff: CONSTANT
+      ins: []
+      outs:
+        - name: death_resources
+          dagster_type: String
+          description: Output to None
+        - name: death_data_files
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - ingestion_pipeline_start
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: extract_nuclear_plants
+    task_name: Extract Nuclear Plants
+    operator_class: Op
+    operator_module: dagster
+    component_ref: extract_nuclear_plants
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: path/to/get_nuclear_data.py
+      config_schema: {}
+      required_resource_keys:
+        - data_gouv_api
+      retry_policy:
+        max_retries: 1
+        delay: 10
+        backoff: CONSTANT
+      ins: []
+      outs:
+        - name: nuclear_metadata
+          dagster_type: String
+          description: Output to None
+        - name: nuclear_data
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - ingestion_pipeline_start
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: extract_thermal_plants
+    task_name: Extract Thermal Plants
+    operator_class: Op
+    operator_module: dagster
+    component_ref: extract_thermal_plants
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: path/to/get_thermal_data.py
+      config_schema: {}
+      required_resource_keys:
+        - data_gouv_api
+      retry_policy:
+        max_retries: 1
+        delay: 10
+        backoff: CONSTANT
+      ins: []
+      outs:
+        - name: thermal_metadata
+          dagster_type: String
+          description: Output to None
+        - name: thermal_data
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - ingestion_pipeline_start
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: extract_city_geo_data
+    task_name: Extract City Geo Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: extract_city_geo_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          shell_command:
+            - curl
+            - -o
+            - /opt/airflow/dags/data/ingestion/city_geo_loc.csv
+            - CITY_GEO_DATASET_URL
+      config_schema: {}
+      required_resource_keys:
+        - data_gouv_api
+      retry_policy:
+        max_retries: 1
+        delay: 10
+        backoff: CONSTANT
+      ins: []
+      outs:
+        - name: city_geo_data
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - ingestion_pipeline_start
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: create_death_table
+    task_name: Create Death Table
+    operator_class: Op
+    operator_module: dagster
+    component_ref: create_death_table
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          sql: /opt/airflow/dags/sql/create_death_table.sql
+      config_schema: {}
+      required_resource_keys:
+        - postgres_default
+      retry_policy:
+        max_retries: 1
+        delay: 10
+        backoff: CONSTANT
+      ins:
+        - name: death_table_schema
+          dagster_type: String
+          description: /opt/airflow/dags/sql/create_death_table.sql
+      outs:
+        - name: deaths_table
+          dagster_type: String
+          description: Output to postgres_default
+    upstream_task_ids:
+      - staging_pipeline_start
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: create_power_plant_table
+    task_name: Create Power Plant Table
+    operator_class: Op
+    operator_module: dagster
+    component_ref: create_power_plant_table
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          sql: /opt/airflow/dags/sql/create_power_plant_table.sql
+      config_schema: {}
+      required_resource_keys:
+        - postgres_default
+      retry_policy:
+        max_retries: 1
+        delay: 10
+        backoff: CONSTANT
+      ins:
+        - name: power_plant_table_schema
+          dagster_type: String
+          description: /opt/airflow/dags/sql/create_power_plant_table.sql
+      outs:
+        - name: power_plants_table
+          dagster_type: String
+          description: Output to postgres_default
+    upstream_task_ids:
+      - staging_pipeline_start
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: load_death_records_to_redis
+    task_name: Load Death Records to Redis
+    operator_class: Op
+    operator_module: dagster
+    component_ref: load_death_records_to_redis
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: path/to/load_data_from_ingestion.py
+      config_schema: {}
+      required_resource_keys:
+        - redis
+      retry_policy:
+        max_retries: 1
+        delay: 10
+        backoff: CONSTANT
+      ins:
+        - name: death_data_files
+          dagster_type: String
+          description: /opt/airflow/dags/data/ingestion/death_*.txt
+      outs:
+        - name: death_raw
+          dagster_type: Any
+          description: Output to redis
+        - name: imported_death_files
+          dagster_type: Any
+          description: Output to redis
+    upstream_task_ids:
+      - staging_pipeline_start
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: cleanse_death_data
+    task_name: Cleanse Death Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: cleanse_death_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: path/to/cleanse_death_data.py
+      config_schema: {}
+      required_resource_keys:
+        - redis
+      retry_policy:
+        max_retries: 1
+        delay: 10
+        backoff: CONSTANT
+      ins:
+        - name: death_raw
+          dagster_type: Any
+          description: Redis list 'death_raw'
+        - name: city_geo_data
+          dagster_type: String
+          description: /opt/airflow/dags/data/ingestion/city_geo_loc.csv
+      outs:
+        - name: death_insertion_queries
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids:
+      - load_death_records_to_redis
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: cleanse_power_plant_data
+    task_name: Cleanse Power Plant Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: cleanse_power_plant_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: path/to/import_thermal_clean_data.py
+      config_schema: {}
+      required_resource_keys: []
+      retry_policy:
+        max_retries: 1
+        delay: 10
+        backoff: CONSTANT
+      ins:
+        - name: thermal_data
+          dagster_type: String
+          description: /opt/airflow/dags/data/ingestion/thermal_plants_.csv
+        - name: nuclear_data
+          dagster_type: String
+          description: /opt/airflow/dags/data/ingestion/nuclear.csv
+      outs:
+        - name: thermal_clean_data
+          dagster_type: String
+          description: Output to None
+        - name: nuclear_clean_data
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: generate_plant_insert_queries
+    task_name: Generate Plant Insert Queries
+    operator_class: Op
+    operator_module: dagster
+    component_ref: generate_plant_insert_queries
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: path/to/create_plant_persist_sql_query.py
+      config_schema: {}
+      required_resource_keys: []
+      retry_policy:
+        max_retries: 1
+        delay: 10
+        backoff: CONSTANT
+      ins:
+        - name: thermal_clean_data
+          dagster_type: String
+          description: /opt/airflow/dags/data/staging/thermal_clean.csv
+        - name: nuclear_clean_data
+          dagster_type: String
+          description: /opt/airflow/dags/data/staging/nuclear_clean.csv
+      outs:
+        - name: plant_insertion_queries
+          dagster_type: String
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: check_death_data_emptiness
+    task_name: Check Death Data Emptiness
+    operator_class: Op
+    operator_module: dagster
+    component_ref: check_death_data_emptiness
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: path/to/death_emptiness_check.py
+      config_schema: {}
+      required_resource_keys: []
+      retry_policy:
+        max_retries: 1
+        delay: 10
+        backoff: CONSTANT
+      ins:
+        - name: death_insertion_queries
+          dagster_type: String
+          description: /opt/airflow/dags/sql/tmp/death_insertion_queries.sql
+      outs:
+        - name: branch_decision
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - cleanse_death_data
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: store_deaths_in_postgres
+    task_name: Store Deaths in PostgreSQL
+    operator_class: Op
+    operator_module: dagster
+    component_ref: store_deaths_in_postgres
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          sql: /opt/airflow/dags/sql/tmp/death_insertion_queries.sql
+      config_schema: {}
+      required_resource_keys:
+        - postgres_default
+      retry_policy:
+        max_retries: 1
+        delay: 10
+        backoff: CONSTANT
+      ins:
+        - name: death_insertion_queries
+          dagster_type: String
+          description: /opt/airflow/dags/sql/tmp/death_insertion_queries.sql
+      outs:
+        - name: deaths_table
+          dagster_type: String
+          description: Output to postgres_default
+    upstream_task_ids:
+      - check_death_data_emptiness
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: store_plants_in_postgres
+    task_name: Store Plants in PostgreSQL
+    operator_class: Op
+    operator_module: dagster
+    component_ref: store_plants_in_postgres
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          sql: /opt/airflow/dags/sql/tmp/plant_insertion_queries.sql
+      config_schema: {}
+      required_resource_keys:
+        - postgres_default
+      retry_policy:
+        max_retries: 1
+        delay: 10
+        backoff: CONSTANT
+      ins:
+        - name: plant_insertion_queries
+          dagster_type: String
+          description: /opt/airflow/dags/sql/tmp/plant_insertion_queries.sql
+      outs:
+        - name: power_plants_table
+          dagster_type: String
+          description: Output to postgres_default
+    upstream_task_ids:
+      - staging_pipeline_end
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []
+  - task_id: clean_tmp_death_files
+    task_name: Clean Temporary Death Files
+    operator_class: Op
+    operator_module: dagster
+    component_ref: clean_tmp_death_files
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: path/to/clean_tmp_death_files.py
+      config_schema: {}
+      required_resource_keys:
+        - redis
+      retry_policy:
+        max_retries: 1
+        delay: 10
+        backoff: CONSTANT
+      ins:
+        - name: death_raw
+          dagster_type: Any
+          description: Redis list 'death_raw'
+        - name: death_insertion_queries
+          dagster_type: String
+          description: /opt/airflow/dags/sql/tmp/death_insertion_queries.sql
+      outs: []
+    upstream_task_ids:
+      - store_plants_in_postgres
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 10
+    validation_warnings: []

@@ -1,0 +1,94 @@
+# DAG Documentation
+
+**Source Repository:** synthetic-generator-v2  
+**File Path:** synthetic/synthetic_linear_01_report_generation.py  
+**Stars:** 0  
+**License:** MIT  
+**Detected Version:** 2.x  
+**Topology Pattern:** linear  
+**Complexity Score:** 3/10  
+
+---
+
+[Daily Sales Report] - Comprehensive Pipeline Description
+
+Opening Summary:
+- This is a sequential linear pipeline that generates daily sales reports by querying PostgreSQL sales data, transforming it into CSV format, creating a PDF chart visualization, and emailing the final report to management. The topology follows a strict sequential pattern with four stages executed in linear order. Key infrastructure features include PostgreSQL database connectivity, file-based data passing, and email delivery.
+
+Pipeline Steps:
+
+1. query_sales_data
+  • Objective: Extract daily sales data from PostgreSQL database for reporting purposes.
+  • Technical Details:
+    - Input: PostgreSQL sales table with date-based filtering using execution date ({{ ds }})
+    - Output: Query results containing aggregated sales data by date and product
+    - Integrations: PostgreSQL database via 'postgres_default' connection
+    - Key Parameters: 
+      - postgres_conn_id: 'postgres_default'
+      - SQL template with date parameterization using {{ ds }}
+  • Operator or Mechanism: PostgresOperator
+  • Notes: Aggregates sales data by date and product, ordered chronologically
+
+2. transform_to_csv
+  • Objective: Transform the extracted sales data into CSV format for reporting and attachment.
+  • Technical Details:
+    - Input: Query results from query_sales_data task
+    - Output: CSV file saved to /tmp/sales_report.csv
+    - Integrations: Local filesystem for CSV storage
+    - Key Parameters: provide_context=True for Airflow context access
+  • Operator or Mechanism: PythonOperator
+  • Notes: Uses pandas for DataFrame manipulation and CSV generation
+
+3. generate_pdf_chart
+  • Objective: Create a visual PDF chart from sales data for management reporting.
+  • Technical Details:
+    - Input: Sales data (likely from CSV or transformed results)
+    - Output: PDF chart file saved to /tmp/sales_chart.pdf
+    - Integrations: Local filesystem for PDF storage, matplotlib for visualization
+    - Key Parameters: provide_context=True for Airflow context access
+  • Operator or Mechanism: PythonOperator
+  • Notes: Generates bar chart visualization of sales data by product
+
+4. email_sales_report
+  • Objective: Deliver the complete sales report via email to management team.
+  • Technical Details:
+    - Input: CSV file (/tmp/sales_report.csv) and PDF chart (/tmp/sales_chart.pdf)
+    - Output: Email delivery to specified recipients
+    - Integrations: Email system, local filesystem for attachments
+    - Key Parameters:
+      - to: 'management@company.com'
+      - Subject template with date parameterization using {{ ds }}
+      - files: ['/tmp/sales_report.csv', '/tmp/sales_chart.pdf']
+  • Operator or Mechanism: EmailOperator
+  • Notes: Includes HTML-formatted email content with both CSV and PDF attachments
+
+Orchestration & Scheduling:
+- Schedule: Daily execution (@daily)
+- Start Date: January 1, 2024
+- Catchup: Disabled (catchup=False)
+- Default Args: 
+  - owner: 'data_team'
+  - depends_on_past: False
+  - email_on_failure: True
+  - email_on_retry: False
+  - retries: 2
+  - retry_delay: 5 minutes
+
+Infrastructure & Dependencies:
+- Connections: PostgreSQL database via 'postgres_default' connection ID
+- Data I/O: Local filesystem paths (/tmp/sales_report.csv, /tmp/sales_chart.pdf)
+- Email Integration: Management email address (management@company.com)
+- Template Variables: Execution date ({{ ds }}) used in SQL query and email subject
+
+Failure Handling & Alerts:
+- Email notifications on task failures (email_on_failure: True)
+- Automatic retry mechanism: 2 retries with 5-minute delays
+- No retry email notifications (email_on_retry: False)
+
+Pattern-Specific Notes:
+- Sequential linear pattern: Strict four-stage execution chain (query → transform_csv → transform_pdf → email)
+- Staged ETL pattern: 
+  - Extract: PostgreSQL query for sales data
+  - Transform: CSV conversion and PDF chart generation
+  - Load: Email delivery with attachments
+- File-based data passing between stages using temporary local storage

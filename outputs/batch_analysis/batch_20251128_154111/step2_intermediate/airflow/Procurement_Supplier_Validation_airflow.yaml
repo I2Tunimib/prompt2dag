@@ -1,0 +1,144 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 15:44:05.265565
+  source_analysis_file: Pipeline_Description_Dataset/Procurement_Supplier_Validation.txt
+  pipeline_name: procurement_supplier_validation
+  pipeline_description: Validates and standardizes supplier data by reconciling names against a known database 
+    (Wikidata) for improved data quality in procurement systems.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: data_dir_filesystem
+    conn_type: fs
+    description: Shared Data Directory Filesystem
+    config:
+      base_path: ${DATA_DIR}
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: intertwino_api
+    conn_type: http
+    description: Intertwino Backend API
+    config:
+      base_path:
+      base_url: http://intertwino-api:5005
+      host: intertwino-api
+      port: 5005
+      protocol: http
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: wikidata_api
+    conn_type: http
+    description: Wikidata Reconciliation API
+    config:
+      base_path:
+      base_url: https://www.wikidata.org/w/api.php
+      host: www.wikidata.org
+      port: 443
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: mongodb_database
+    conn_type: mongo
+    description: MongoDB Database
+    config:
+      base_path:
+      base_url:
+      host: mongodb
+      port: 27017
+      protocol: mongodb
+      database: intertwino
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: docker_network
+    conn_type: generic
+    description: Custom Docker Network
+    config:
+      base_path:
+      base_url:
+      host: app_network
+      port:
+      protocol:
+      database:
+      schema:
+      bucket:
+      queue_name:
+tasks:
+  - task_id: load_and_modify_data
+    task_name: Load and Modify Supplier Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: load_and_modify_data
+    config:
+      image: i2t-backendwithintertwino6-load-and-modify:latest
+      environment:
+        DATASET_ID: '2'
+        TABLE_NAME_PREFIX: JOT_
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: reconcile_wikidata_entities
+    task_name: Reconcile Supplier Names with Wikidata
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: reconcile_wikidata_entities
+    config:
+      image: i2t-backendwithintertwino6-reconciliation:latest
+      environment:
+        PRIMARY_COLUMN: supplier_name
+        RECONCILIATOR_ID: wikidataEntity
+        DATASET_ID: '2'
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - load_and_modify_data
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: save_final_supplier_data
+    task_name: Save Final Supplier Data
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: save_final_supplier_data
+    config:
+      image: i2t-backendwithintertwino6-save:latest
+      environment:
+        DATASET_ID: '2'
+      network_mode: app_network
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=30)
+    upstream_task_ids:
+      - reconcile_wikidata_entities
+    trigger_rule: all_success
+    retries: 1
+    retry_delay_seconds: 30
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD

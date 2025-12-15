@@ -1,0 +1,148 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 15:43:09.712703
+  source_analysis_file: 
+    Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_mondo.py_description.txt
+  pipeline_name: etl_import_mondo
+  pipeline_description: Comprehensive ETL pipeline for importing Mondo ontology data that downloads the Mondo OBO file 
+    from GitHub releases, normalizes terms using Spark processing, indexes the data to Elasticsearch, publishes results,
+    and sends a Slack notification upon completion.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date: '2022-01-01T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: github_mondo_releases
+    conn_type: http
+    description: GitHub Mondo Releases
+    config:
+      base_url: https://github.com/monarch-initiative/mondo/releases
+      host:
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: s3_datalake
+    conn_type: s3
+    description: S3 Data Lake
+    config:
+      base_path:
+      base_url:
+      host:
+      port:
+      protocol: s3
+      database:
+      schema:
+      bucket: cqgc-{env}-app-datalake
+      queue_name:
+  - conn_id: elasticsearch_cluster
+    conn_type: generic
+    description: Elasticsearch Cluster
+    config:
+      base_path:
+      base_url:
+      host:
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+      extra:
+        token_env_var: ES_TOKEN
+  - conn_id: slack_webhook
+    conn_type: http
+    description: Slack Webhook
+    config:
+      base_url: https://hooks.slack.com
+      host:
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+      extra:
+        token_env_var: SLACK_WEBHOOK_TOKEN
+tasks:
+  - task_id: validate_color_params
+    task_name: Validate Color Parameters
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: validate_color_params
+    config:
+      python_callable: validate_color
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: download_mondo_obo
+    task_name: Download Mondo OBO File
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: download_mondo_obo
+    config:
+      python_callable: download
+    upstream_task_ids:
+      - validate_color_params
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: normalize_mondo_terms
+    task_name: Normalize Mondo Terms
+    operator_class: SparkSubmitOperator
+    operator_module: airflow.providers.apache.spark.operators.spark_submit
+    component_ref: normalize_mondo_terms
+    config: {}
+    upstream_task_ids:
+      - download_mondo_obo
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: index_mondo_terms
+    task_name: Index Mondo Terms to Elasticsearch
+    operator_class: SparkSubmitOperator
+    operator_module: airflow.providers.apache.spark.operators.spark_submit
+    component_ref: index_mondo_terms
+    config: {}
+    upstream_task_ids:
+      - normalize_mondo_terms
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: publish_mondo_data
+    task_name: Publish Mondo Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: publish_mondo_data
+    config:
+      python_callable: publish_index.mondo
+    upstream_task_ids:
+      - index_mondo_terms
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: send_slack_notification
+    task_name: Send Slack Notification
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: send_slack_notification
+    config:
+      python_callable: Slack.notify_dag_completion
+    upstream_task_ids:
+      - publish_mondo_data
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

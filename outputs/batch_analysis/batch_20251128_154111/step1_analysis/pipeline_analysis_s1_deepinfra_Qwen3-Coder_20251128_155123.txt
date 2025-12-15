@@ -1,0 +1,207 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-11-28T15:51:23.034674
+# Provider: deepinfra
+# Model: Qwen3-Coder
+# Source: Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_staged_etl_01_supply_chain_etl.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+# Supply Chain Shipment ETL Pipeline Report
+
+## 1. Executive Summary
+
+This pipeline implements a comprehensive three-stage ETL process for supply chain shipment data processing, following a staged ETL pattern with fan-out/fan-in characteristics. The pipeline extracts raw shipment data from three different vendors in parallel, transforms and normalizes the combined data, and loads it to an inventory database with email notification upon completion.
+
+The pipeline demonstrates moderate complexity with a hybrid flow pattern combining sequential and parallel execution patterns. The architecture features a clear fan-out during the extraction phase (three parallel vendor extractions) followed by a fan-in during transformation, creating a characteristic ETL processing flow.
+
+## 2. Pipeline Architecture
+
+### Flow Patterns
+The pipeline implements a hybrid execution pattern combining:
+- Sequential flow: Components execute in a defined order with explicit dependencies
+- Parallel execution: Three vendor extraction components run concurrently at the start of the pipeline
+
+### Execution Characteristics
+All components utilize Python-based executors with consistent resource configurations. The pipeline does not implement branching logic or sensor-based triggering mechanisms.
+
+### Component Overview
+The pipeline consists of 6 core components organized into functional categories:
+- Extractors (3): Vendor-specific data extraction components
+- Transformer (1): Data normalization, validation, and enrichment component
+- Loader (1): Database loading component
+- Notifier (1): Email notification component
+
+### Flow Description
+The pipeline begins with three parallel entry points (vendor extractions) that converge into a single transformation task. After transformation, the data flows sequentially through loading and notification components. The execution follows a strict dependency chain where each downstream component requires successful completion of all upstream components.
+
+## 3. Detailed Component Analysis
+
+### Extract Vendor A (extract_vendor_a)
+**Purpose and Category:** Extractor component that processes raw shipment data from Vendor A CSV files.
+
+**Executor Configuration:** Python executor with 1 CPU and 1Gi memory allocation.
+
+**Inputs and Outputs:** 
+- Input: vendor_a_shipments_{{ ds_nodash }}.csv file from filesystem connection
+- Output: vendor_a_data object for downstream processing
+
+**Retry Policy:** Maximum 2 attempts with 300-second delay, retrying on timeout and network errors.
+
+**Connected Systems:** Filesystem connection for CSV file access.
+
+### Extract Vendor B (extract_vendor_b)
+**Purpose and Category:** Extractor component that processes raw shipment data from Vendor B CSV files.
+
+**Executor Configuration:** Python executor with 1 CPU and 1Gi memory allocation.
+
+**Inputs and Outputs:** 
+- Input: vendor_b_shipments_{{ ds_nodash }}.csv file from filesystem connection
+- Output: vendor_b_data object for downstream processing
+
+**Retry Policy:** Maximum 2 attempts with 300-second delay, retrying on timeout and network errors.
+
+**Connected Systems:** Filesystem connection for CSV file access.
+
+### Extract Vendor C (extract_vendor_c)
+**Purpose and Category:** Extractor component that processes raw shipment data from Vendor C CSV files.
+
+**Executor Configuration:** Python executor with 1 CPU and 1Gi memory allocation.
+
+**Inputs and Outputs:** 
+- Input: vendor_c_shipments_{{ ds_nodash }}.csv file from filesystem connection
+- Output: vendor_c_data object for downstream processing
+
+**Retry Policy:** Maximum 2 attempts with 300-second delay, retrying on timeout and network errors.
+
+**Connected Systems:** Filesystem connection for CSV file access.
+
+### Transform and Enrich Shipments (transform_and_enrich_shipments)
+**Purpose and Category:** Transformer component that normalizes SKU formats, validates dates, filters invalid records, and enriches data with location information.
+
+**Executor Configuration:** Python executor with 1 CPU and 2Gi memory allocation.
+
+**Inputs and Outputs:** 
+- Inputs: vendor_a_data, vendor_b_data, and vendor_c_data objects from extraction components
+- Output: cleansed_shipment_data object for database loading
+
+**Retry Policy:** Maximum 2 attempts with 300-second delay, retrying on timeout and network errors.
+
+**Connected Systems:** Database connection for location reference data access.
+
+### Load Shipments to Database (load_shipments_to_db)
+**Purpose and Category:** Loader component that writes cleansed shipment data to the inventory database.
+
+**Executor Configuration:** Python executor with 1 CPU and 1Gi memory allocation.
+
+**Inputs and Outputs:** 
+- Input: cleansed_shipment_data object from transformation component
+- Output: db_load_complete status indicator
+
+**Retry Policy:** Maximum 2 attempts with 300-second delay, retrying on timeout and network errors.
+
+**Connected Systems:** Database connection to inventory database system.
+
+### Send ETL Summary Email (send_etl_summary_email)
+**Purpose and Category:** Notifier component that sends completion notifications to the supply chain team.
+
+**Executor Configuration:** Python executor with 0.5 CPU and 512Mi memory allocation.
+
+**Inputs and Outputs:** 
+- Output: email_status object indicating notification delivery
+
+**Retry Policy:** Maximum 2 attempts with 300-second delay, retrying on timeout and network errors.
+
+**Connected Systems:** API connection to email notification system.
+
+## 4. Parameter Schema
+
+### Pipeline-Level Parameters
+- name: "Supply Chain Shipment ETL" (string)
+- description: "Comprehensive three-stage ETL pipeline for supply chain shipment data processing following a staged ETL pattern with fan-out/fan-in characteristics" (string)
+- tags: ["supply_chain", "etl", "shipments"] (array)
+
+### Schedule Configuration
+- enabled: true (boolean)
+- cron_expression: "@daily" (string)
+- start_date: "2024-01-01T00:00:00Z" (datetime)
+- catchup: false (boolean)
+- batch_window: "ds" (string)
+- partitioning: "daily" (string)
+
+### Execution Settings
+- max_active_runs: 1 (integer)
+- depends_on_past: false (boolean)
+- retry_policy: 2 retries with 5-minute delay
+
+### Component-Specific Parameters
+**Vendor Extraction Components:**
+- File path parameters for each vendor's CSV files with date-based naming patterns
+
+**Transformation Component:**
+- location_reference_table: "location_reference" (string)
+
+**Database Loading Component:**
+- database_connection: PostgreSQL connection string (string)
+- target_table: "inventory_shipments" (string)
+
+**Email Notification Component:**
+- recipient_email: "supply-chain-team@company.com" (string)
+- email_template: HTML template with placeholders (string)
+
+### Environment Variables
+Database connection parameters (host, port, user, password, database name), vendor file path configurations, and email system credentials.
+
+## 5. Integration Points
+
+### External Systems and Connections
+- Filesystem connections for three vendor CSV sources
+- PostgreSQL database connections for inventory loading and reference data access
+- SMTP API connection for email notifications
+
+### Data Sources and Sinks
+**Sources:**
+- Vendor A shipment CSV files
+- Vendor B shipment CSV files
+- Vendor C shipment CSV files
+- Location reference tables in PostgreSQL reference database
+
+**Sinks:**
+- Inventory database (inventory_shipments table)
+- Email notifications to supply chain team
+
+### Authentication Methods
+- Basic authentication for database connections using environment variables
+- Basic authentication for email system using environment variables
+- No authentication for filesystem connections
+
+### Data Lineage
+The pipeline maintains clear data lineage from vendor CSV files through intermediate processing stages to final database storage and email notifications. Intermediate datasets include vendor-specific extracted data and cleansed shipment data.
+
+## 6. Implementation Notes
+
+### Complexity Assessment
+The pipeline demonstrates moderate complexity with a clear three-stage architecture. The fan-out/fan-in pattern during extraction and transformation creates manageable parallelism without introducing excessive complexity.
+
+### Upstream Dependency Policies
+All components except the initial vendor extraction tasks require successful completion of all upstream components (all_success policy). Initial extraction tasks have no upstream dependencies.
+
+### Retry and Timeout Configurations
+Consistent retry policy across all components with maximum 2 attempts and 300-second delays. Retry conditions focus on timeout and network errors. No explicit timeout configurations are defined at the pipeline level.
+
+### Potential Risks or Considerations
+- Single point of failure in the transformation component that depends on all three extraction tasks
+- Memory allocation differences between transformation component (2Gi) and other components (1Gi or less)
+- Sequential dependency chain after transformation may create bottlenecks
+- Database connection dependencies for both loading and reference data access
+
+## 7. Orchestrator Compatibility
+
+### Assessment for Major Platforms
+The pipeline architecture is compatible with major workflow orchestration platforms including Airflow, Prefect, and Dagster. The hybrid flow pattern with parallel execution and explicit dependencies can be implemented effectively across these platforms.
+
+### Pattern-Specific Considerations
+The fan-out/fan-in pattern requires careful handling of parallel execution management and convergence points. The consistent retry policies and resource allocations facilitate straightforward migration between orchestration platforms. The lack of sensor-based triggering simplifies implementation requirements.
+
+## 8. Conclusion
+
+This pipeline provides a robust implementation of a supply chain ETL process with well-defined extraction, transformation, and loading stages. The architecture effectively leverages parallel processing for data extraction while maintaining clear data lineage and dependency management. The consistent configuration approach across components and standardized retry policies contribute to operational reliability. The modular design facilitates maintenance and potential future enhancements while maintaining compatibility with standard orchestration platforms.

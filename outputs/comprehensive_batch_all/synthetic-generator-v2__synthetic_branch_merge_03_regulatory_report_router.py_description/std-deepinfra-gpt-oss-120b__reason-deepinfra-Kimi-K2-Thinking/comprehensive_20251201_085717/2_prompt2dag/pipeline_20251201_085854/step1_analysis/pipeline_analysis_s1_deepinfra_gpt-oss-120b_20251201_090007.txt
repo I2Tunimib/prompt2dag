@@ -1,0 +1,201 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-01T09:00:07.394977
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_03_regulatory_report_router.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**Regulatory Report Router – Technical Report**  
+
+---
+
+### 1. Executive Summary  
+
+**Purpose**  
+The pipeline ingests daily financial‑transaction CSV files, classifies each transaction by account type, and routes the data to the appropriate regulatory reporting stream: FATCA for international accounts or IRS for domestic accounts. After the two reporting streams generate their respective output files (FATCA‑XML and IRS‑JSON), the results are merged, compressed, and stored in a secure archive for compliance retention.
+
+**High‑level Flow**  
+1. **Extraction** – Read CSV files from a local filesystem.  
+2. **Decision** – Analyse the extracted records and decide the routing path.  
+3. **Branching** – Split execution into two parallel branches:  
+   * FATCA report generation (XML)  
+   * IRS report generation (JSON)  
+4. **Merge** – After both branches finish, compress the two reports into a single archive and store it securely.
+
+**Key Patterns & Complexity**  
+- Detected flow patterns: **sequential → branching → parallel → merge** (hybrid).  
+- All components run with a **Python executor**.  
+- The pipeline contains **5 components** and exhibits moderate complexity (score ≈ 4/10).  
+
+---
+
+### 2. Pipeline Architecture  
+
+#### Flow Patterns  
+- **Sequential**: Extraction → Decision.  
+- **Branching**: Conditional split based on `account_type`.  
+- **Parallel**: FATCA and IRS report generation run independently after the branch decision.  
+- **Merge**: Archive component waits for both report‑generation components to finish (all‑done upstream policy).  
+
+#### Execution Characteristics  
+- **Executor type**: Python (no container image, command, or external runtime specified).  
+- **Concurrency**: Individual components do **not** support parallel instances; parallelism is achieved at the pipeline level by running the two report‑generation components concurrently.  
+
+#### Component Overview  
+
+| Category      | Components (IDs)                              | Role |
+|---------------|-----------------------------------------------|------|
+| Extractor     | `extract_transaction_csv`                     | Load raw CSV files and expose parsed records via an internal data‑exchange mechanism. |
+| Transformer   | `determine_account_routing`<br>`generate_fatca_report`<br>`generate_irs_report` | Analyse routing logic; produce FATCA XML; produce IRS JSON. |
+| Loader        | `archive_regulatory_reports`                  | Combine the two reports, compress, and store the archive. |
+
+#### Flow Description  
+
+- **Entry point**: `extract_transaction_csv`.  
+- **Main sequence**: `extract_transaction_csv` → `determine_account_routing`.  
+- **Branching**: `determine_account_routing` yields a routing decision (`international` vs `domestic`). A conditional branch (`routing_branch`) directs execution to either `generate_fatca_report` or `generate_irs_report`.  
+- **Parallelism**: Both report‑generation components are eligible to run concurrently once their respective conditions are satisfied.  
+- **Merge**: `archive_regulatory_reports` is triggered after **all** upstream report‑generation components have completed, regardless of individual success (`all_done` policy).  
+
+---
+
+### 3. Detailed Component Analysis  
+
+#### 3.1 Extract Transaction CSV  
+
+- **Category**: Extractor  
+- **Executor**: Python (default environment)  
+- **Inputs**: Files matching `./data/transactions/*.csv` on the local filesystem (`local_filesystem` connection).  
+- **Outputs**: Internal object `csv_data_processed` (JSON‑formatted transaction records) made available via the pipeline’s data‑exchange channel.  
+- **Retry**: Up to **2** attempts, 5‑minute delay between attempts. No exponential back‑off.  
+- **Concurrency**: No parallelism or dynamic mapping.  
+- **Connections**: `local_filesystem` (type: filesystem, purpose: read source CSV files).  
+- **Datasets**: Consumes `transaction_raw_csv`; produces `transaction_parsed`.  
+
+#### 3.2 Determine Account Routing  
+
+- **Category**: Transformer  
+- **Executor**: Python  
+- **Inputs**: `csv_data_processed` (JSON) from the extractor.  
+- **Outputs**: Routing decision string (`route_to_fatca` or `route_to_irs`) placed on the internal exchange (`routing_decision`).  
+- **Retry**: Same policy as extractor (2 attempts, 5‑minute delay).  
+- **Concurrency**: Single instance, no parallelism.  
+- **Connections**: None (pure in‑memory processing).  
+- **Datasets**: Consumes `transaction_parsed`; produces `routing_decision`.  
+
+#### 3.3 Generate FATCA Report  
+
+- **Category**: Transformer  
+- **Executor**: Python  
+- **Inputs**: Subset of `csv_data_processed` filtered for `account_type = international`.  
+- **Outputs**:  
+  - FATCA XML file written to `./reports/fatca/report_{{ ds }}.xml`.  
+  - Status flag `fatca_report_generated` on the internal exchange.  
+- **Retry**: 2 attempts, 5‑minute delay.  
+- **Concurrency**: Single instance; parallelism achieved by concurrent execution with the IRS branch.  
+- **Connections**: `secure_archive_storage` (object storage, S3‑compatible bucket `regulatory-archive`) for persisting the XML file.  
+- **Datasets**: Consumes `transaction_parsed_international`; produces `fatca_xml_report`.  
+
+#### 3.4 Generate IRS Report  
+
+- **Category**: Transformer  
+- **Executor**: Python  
+- **Inputs**: Subset of `csv_data_processed` filtered for `account_type = domestic`.  
+- **Outputs**:  
+  - IRS JSON file written to `./reports/irs/report_{{ ds }}.json`.  
+  - Status flag `irs_report_generated` on the internal exchange.  
+- **Retry**: 2 attempts, 5‑minute delay.  
+- **Concurrency**: Single instance; runs in parallel with the FATCA branch.  
+- **Connections**: `secure_archive_storage` (same bucket as FATCA) for persisting the JSON file.  
+- **Datasets**: Consumes `transaction_parsed_domestic`; produces `irs_json_report`.  
+
+#### 3.5 Archive Regulatory Reports  
+
+- **Category**: Loader  
+- **Executor**: Python  
+- **Inputs**:  
+  - FATCA XML file (`./reports/fatca/report_{{ ds }}.xml`).  
+  - IRS JSON file (`./reports/irs/report_{{ ds }}.json`).  
+- **Outputs**:  
+  - Compressed ZIP archive `./archive/regulatory_reports_{{ ds }}.zip`.  
+  - Status flag `reports_archived` on the internal exchange.  
+- **Upstream Policy**: `all_done` – runs after **both** report‑generation components finish, irrespective of their success.  
+- **Retry**: 2 attempts, 5‑minute delay.  
+- **Concurrency**: Single instance.  
+- **Connections**: `secure_archive_storage` (object storage) for storing the final ZIP archive.  
+- **Datasets**: Consumes `fatca_xml_report` and `irs_json_report`; produces `regulatory_reports_archive`.  
+
+---
+
+### 4. Parameter Schema  
+
+| Scope | Parameter | Description | Type | Default |
+|-------|-----------|-------------|------|---------|
+| **Pipeline** | `name` | Identifier of the pipeline | string | `regulatory_report_router` |
+| | `description` | Full textual description | string | *see pipeline description* |
+| | `tags` | Classification tags | array | `[]` |
+| **Schedule** | `enabled` | Whether the pipeline is scheduled | boolean | `true` |
+| | `cron_expression` | Cron schedule (e.g., `@daily`) | string | `@daily` |
+| | `start_date` | First scheduled run (ISO‑8601) | datetime | `2024‑01‑01T00:00:00Z` |
+| | `end_date` | Optional termination date | datetime | `null` |
+| | `catchup` | Run missed intervals | boolean | `false` |
+| **Execution** | `max_active_runs` | Max concurrent pipeline runs | integer | `null` |
+| | `timeout_seconds` | Overall pipeline timeout | integer | `null` |
+| | `retry_policy.retries` | Pipeline‑level retry attempts | integer | `2` |
+| | `retry_policy.retry_delay_minutes` | Delay between retries | integer | `5` |
+| | `depends_on_past` | Require previous run success | boolean | `null` |
+| **Components** | *none defined* – component‑level parameters are empty in the source data. |
+| **Environment** | *none defined* – no environment variables are declared. |
+
+---
+
+### 5. Integration Points  
+
+| Connection ID | System | Type | Purpose | Authentication |
+|---------------|--------|------|---------|----------------|
+| `local_filesystem_csv` | Local filesystem (`/data/transactions`) | Filesystem | Input source for CSV files | None |
+| `secure_archive_storage` | S3‑compatible bucket `regulatory-archive` | Object storage | Destination for FATCA XML, IRS JSON, and final ZIP archive | None |
+| `fatca_api` | FATCA regulatory API (`https://api.fatca.gov/report`) | API | Intended output endpoint for FATCA reports (not directly written by current components) | None |
+| `irs_api` | IRS regulatory API (`https://api.irs.gov/report`) | API | Intended output endpoint for IRS reports (not directly written by current components) | None |
+
+**Data Lineage**  
+- **Sources**: CSV transaction files on the local filesystem (`/data/transactions/*.csv`).  
+- **Intermediate Datasets**: Parsed transaction payload (`csv_data_processed`), routing decision, FATCA XML, IRS JSON.  
+- **Sinks**: Secure archive storage (S3 bucket) containing the compressed archive `regulatory_reports_{{ ds }}.zip`.  
+
+All connections use **no authentication** (open access) as per the provided configuration.
+
+---
+
+### 6. Implementation Notes  
+
+- **Complexity**: The pipeline is modestly complex due to the conditional branch and parallel execution of two reporting streams.  
+- **Upstream Policies**:  
+  * Extraction and routing steps require **all_success** upstream.  
+  * The archival step uses **all_done**, ensuring it runs even if one of the report‑generation branches fails (useful for partial compliance evidence).  
+- **Retry & Timeout**: Uniform retry policy (2 attempts, 5‑minute delay) across all components; no exponential back‑off. No explicit per‑component timeout is defined.  
+- **Potential Risks**:  
+  * Missing or malformed CSV files could cause the extractor to fail.  
+  * Incorrect `account_type` values may lead to no branch being taken, leaving downstream components without input.  
+  * Absence of authentication on storage connections may be a security concern in production.  
+  * The archival component proceeds even on failure of a report‑generation branch, which could result in incomplete archives; downstream consumers must handle missing files.  
+- **Scalability**: Parallelism is limited to the two reporting branches; the components themselves do not support dynamic scaling or multiple concurrent instances.  
+
+---
+
+### 7. Orchestrator Compatibility  
+
+| Orchestrator | Compatibility Assessment |
+|--------------|--------------------------|
+| **Airflow‑style engines** | Supports sequential, conditional branching, and parallel execution of independent components. Python executor aligns with default task runners. The `all_done` upstream policy maps to a “trigger rule” that can be reproduced. |
+| **Prefect‑style engines** | Native support for flow graphs, conditional branches, and parallel mapping. The pipeline’s simple retry configuration and lack of containerized executors fit Prefect’s default task execution model. |
+| **Dagster‑style engines** | Provides solid support for assets, conditional logic, and parallel solids. The pipeline’s clear input/output specifications (IO specs) can be expressed as Dagster inputs/outputs. |
+
+*All three orchestrator families can represent the detected hybrid pattern, the Python executor, and the retry/trigger policies without requiring tool‑specific constructs.*  
+
+---
+
+### 8. Conclusion  
+
+The **Regulatory Report Router** pipeline efficiently transforms daily transaction CSV data into regulatory‑compliant reports, routing records based on account type, generating parallel FATCA and IRS outputs, and consolidating them into a secure archive. Its architecture—sequential extraction, conditional branching, parallel reporting, and merge—fits well within modern data‑orchestration platforms that support Python‑based tasks, conditional flows, and simple retry policies. Proper attention to input validation, authentication for storage, and handling of partial failures in the archival step will enhance reliability and compliance readiness.

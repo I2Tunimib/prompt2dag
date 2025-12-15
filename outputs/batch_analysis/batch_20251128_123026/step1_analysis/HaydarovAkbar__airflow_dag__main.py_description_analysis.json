@@ -1,0 +1,1306 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-11-28T12:32:14.435697",
+    "source_file": "Pipeline_Description_Dataset/HaydarovAkbar__airflow_dag__main.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "Qwen3-Coder",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "parallel",
+        "sensor_driven"
+      ],
+      "task_executors_used": [
+        "python",
+        "docker",
+        "http",
+        "sql"
+      ],
+      "has_branching": false,
+      "has_parallelism": true,
+      "has_sensors": true,
+      "total_components": 10,
+      "complexity_score": "medium"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Parallelism via TaskFlow API expand()",
+          "Native sensor support"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "map() for parallel execution",
+          "wait_for() or custom sensors"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "DynamicOutput for fan-out",
+          "Sensors via run_status_sensor"
+        ]
+      }
+    },
+    "validation_warnings": [
+      "Unreachable nodes: ['email_on_failure']"
+    ]
+  },
+  "pipeline_summary": {
+    "name": "WF_MAIN_DATASETS_LOAD_L2_TO_L2",
+    "description": "Comprehensive pipeline orchestrating dataset loading from DWH L2 to L2 with segmentation processing and SAP integration",
+    "flow_patterns": [
+      "sequential",
+      "parallel",
+      "sensor_driven"
+    ],
+    "task_executors": [
+      "python",
+      "docker",
+      "http",
+      "sql"
+    ],
+    "complexity": "medium"
+  },
+  "components": [
+    {
+      "id": "wait_for_l2_full_load",
+      "name": "Wait for L2 Full Load",
+      "category": "Sensor",
+      "description": "Gates pipeline execution until previous day's L1 to L2 load completes successfully by checking 'l1_to_l2_load_successfull' flag in md.dwh_flag table.",
+      "inputs": [
+        "md.dwh_flag table"
+      ],
+      "outputs": [],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "airflow.sensors.sql_sensor.SqlSensor",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "dwh_flag_input",
+          "direction": "input",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "md.dwh_flag",
+          "connection_id": "dwh"
+        }
+      ],
+      "upstream_policy": {
+        "type": "none_failed",
+        "description": "Starts immediately as initial task",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "dwh",
+          "type": "database",
+          "purpose": "PostgreSQL DWH connection for flag monitoring"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "get_load_id",
+      "name": "Get Load ID",
+      "category": "Extractor",
+      "description": "Generates unique load identifier for workflow tracking and pushes it via XCom.",
+      "inputs": [],
+      "outputs": [
+        "load_id"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "generate_load_id_function",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "load_id_output",
+          "direction": "output",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": "xcom://load_id",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after wait_for_l2_full_load completes successfully",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "workflow_registration",
+      "name": "Workflow Registration",
+      "category": "Loader",
+      "description": "Registers workflow session in metadata system and initializes data load tracking using load ID from upstream.",
+      "inputs": [
+        "load_id"
+      ],
+      "outputs": [
+        "session_registration_records"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "register_workflow_session",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "load_id_input",
+          "direction": "input",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": "xcom://load_id",
+          "connection_id": null
+        },
+        {
+          "name": "metadata_output",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "md_dwh.workflow_sessions",
+          "connection_id": "dwh"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after get_load_id completes successfully",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "dwh",
+          "type": "database",
+          "purpose": "PostgreSQL DWH connection for metadata operations"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "workflow_sessions"
+        ]
+      }
+    },
+    {
+      "id": "wait_for_success_end",
+      "name": "Wait for Success End",
+      "category": "Sensor",
+      "description": "Ensures previous day's successful completion before proceeding by monitoring external DAG task status.",
+      "inputs": [
+        "External DAG 'WF_MAIN_DATASETS_LOAD_L2_TO_L2' end task"
+      ],
+      "outputs": [],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "airflow.sensors.external_task_sensor.ExternalTaskSensor",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "external_dag_status",
+          "direction": "input",
+          "kind": "api",
+          "format": "other",
+          "path_pattern": "external_dag://WF_MAIN_DATASETS_LOAD_L2_TO_L2/end",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after workflow_registration completes successfully",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "run_sys_kill_all_session_pg",
+      "name": "Run System Kill All Session PG",
+      "category": "Orchestrator",
+      "description": "Triggers session cleanup DAG to clean up PostgreSQL sessions before parallel execution.",
+      "inputs": [],
+      "outputs": [],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "trigger_dag_run_operator",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after wait_for_success_end completes successfully",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "run_wf_data_preparation_for_reports",
+      "name": "Run Workflow Data Preparation for Reports",
+      "category": "Orchestrator",
+      "description": "Triggers external reporting preparation DAG with pool constraints.",
+      "inputs": [],
+      "outputs": [],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "trigger_dag_run_operator",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after run_sys_kill_all_session_pg completes successfully",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "load_ds_client_segmentation",
+      "name": "Load DS Client Segmentation",
+      "category": "Orchestrator",
+      "description": "Triggers external DAG for client segmentation data load.",
+      "inputs": [],
+      "outputs": [],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "trigger_dag_run_operator",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after run_sys_kill_all_session_pg completes successfully",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "send_flg_to_sap",
+      "name": "Send Flag to SAP",
+      "category": "Notifier",
+      "description": "Sends completion flag to SAP via HTTP POST request.",
+      "inputs": [],
+      "outputs": [],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "send_sap_notification",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "sap_api_call",
+          "direction": "output",
+          "kind": "api",
+          "format": "other",
+          "path_pattern": "https://sap.system/notify",
+          "connection_id": "sap_conn"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after load_ds_client_segmentation completes successfully",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "sap_conn",
+          "type": "api",
+          "purpose": "HTTP connection to SAP system"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "end",
+      "name": "End Workflow",
+      "category": "Loader",
+      "description": "Finalizes workflow by updating metadata with successful completion status.",
+      "inputs": [
+        "Completion of both parallel branches"
+      ],
+      "outputs": [
+        "session_status_update"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "update_workflow_completion",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "metadata_update",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "md_dwh.workflow_sessions",
+          "connection_id": "dwh"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after both run_wf_data_preparation_for_reports and send_flg_to_sap complete successfully",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "dwh",
+          "type": "database",
+          "purpose": "PostgreSQL DWH connection for metadata updates"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "workflow_sessions"
+        ]
+      }
+    },
+    {
+      "id": "email_on_failure",
+      "name": "Email on Failure",
+      "category": "Notifier",
+      "description": "Sends failure notification email if any task in the pipeline fails.",
+      "inputs": [
+        "Pipeline task failure"
+      ],
+      "outputs": [
+        "email_notification"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "send_failure_email",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "email_output",
+          "direction": "output",
+          "kind": "api",
+          "format": "other",
+          "path_pattern": "smtp://test@gmail.com",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Triggers when any upstream task fails",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "hybrid",
+    "entry_points": [
+      "wait_for_l2_full_load"
+    ],
+    "nodes": {
+      "wait_for_l2_full_load": {
+        "kind": "Sensor",
+        "component_type_id": "wait_for_l2_full_load",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "get_load_id"
+        ],
+        "sensor_config": {
+          "sensor_type": "sql",
+          "target": "SELECT COUNT(*) FROM md.dwh_flag WHERE flag_name = 'l1_to_l2_load_successfull' AND business_date = '{{ yesterday_ds }}'",
+          "poke_interval_seconds": 60,
+          "timeout_seconds": 3600,
+          "mode": "poke"
+        },
+        "branch_config": null,
+        "parallel_config": null
+      },
+      "get_load_id": {
+        "kind": "Task",
+        "component_type_id": "get_load_id",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "workflow_registration"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "workflow_registration": {
+        "kind": "Task",
+        "component_type_id": "workflow_registration",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "wait_for_success_end"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "wait_for_success_end": {
+        "kind": "Sensor",
+        "component_type_id": "wait_for_success_end",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "run_sys_kill_all_session_pg"
+        ],
+        "sensor_config": {
+          "sensor_type": "external_task",
+          "target": {
+            "external_dag_id": "WF_MAIN_DATASETS_LOAD_L2_TO_L2",
+            "external_task_id": "end",
+            "execution_delta": "timedelta(days=1)"
+          },
+          "poke_interval_seconds": 100,
+          "timeout_seconds": 3600,
+          "mode": "poke"
+        },
+        "branch_config": null,
+        "parallel_config": null
+      },
+      "run_sys_kill_all_session_pg": {
+        "kind": "Task",
+        "component_type_id": "run_sys_kill_all_session_pg",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "parallel_fan_out"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "parallel_fan_out": {
+        "kind": "Parallel",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "run_wf_data_preparation_for_reports",
+          "segmentation_group_start"
+        ],
+        "parallel_config": {
+          "type": "static_parallel",
+          "map_over": null,
+          "map_source": null,
+          "max_parallelism": 2,
+          "join_node": "end"
+        },
+        "branch_config": null,
+        "sensor_config": null
+      },
+      "run_wf_data_preparation_for_reports": {
+        "kind": "Task",
+        "component_type_id": "run_wf_data_preparation_for_reports",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "end"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "segmentation_group_start": {
+        "kind": "Virtual",
+        "component_type_id": null,
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "load_ds_client_segmentation"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "load_ds_client_segmentation": {
+        "kind": "Task",
+        "component_type_id": "load_ds_client_segmentation",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "send_flg_to_sap"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "send_flg_to_sap": {
+        "kind": "Task",
+        "component_type_id": "send_flg_to_sap",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "end"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "end": {
+        "kind": "Task",
+        "component_type_id": "end",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "email_on_failure": {
+        "kind": "Task",
+        "component_type_id": "email_on_failure",
+        "upstream_policy": {
+          "type": "one_failed",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "wait_for_l2_full_load",
+        "to": "get_load_id",
+        "edge_type": "success"
+      },
+      {
+        "from": "get_load_id",
+        "to": "workflow_registration",
+        "edge_type": "success"
+      },
+      {
+        "from": "workflow_registration",
+        "to": "wait_for_success_end",
+        "edge_type": "success"
+      },
+      {
+        "from": "wait_for_success_end",
+        "to": "run_sys_kill_all_session_pg",
+        "edge_type": "success"
+      },
+      {
+        "from": "run_sys_kill_all_session_pg",
+        "to": "parallel_fan_out",
+        "edge_type": "success"
+      },
+      {
+        "from": "parallel_fan_out",
+        "to": "run_wf_data_preparation_for_reports",
+        "edge_type": "success"
+      },
+      {
+        "from": "parallel_fan_out",
+        "to": "segmentation_group_start",
+        "edge_type": "success"
+      },
+      {
+        "from": "run_wf_data_preparation_for_reports",
+        "to": "end",
+        "edge_type": "success"
+      },
+      {
+        "from": "segmentation_group_start",
+        "to": "load_ds_client_segmentation",
+        "edge_type": "success"
+      },
+      {
+        "from": "load_ds_client_segmentation",
+        "to": "send_flg_to_sap",
+        "edge_type": "success"
+      },
+      {
+        "from": "send_flg_to_sap",
+        "to": "end",
+        "edge_type": "success"
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "WF_MAIN_DATASETS_LOAD_L2_TO_L2",
+        "required": true,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": "Comprehensive pipeline orchestrating dataset loading from DWH L2 to L2 with segmentation processing and SAP integration",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2024-12-22T00:00:00",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": "daily",
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": 20,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 0
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      }
+    },
+    "components": {
+      "wait_for_l2_full_load": {
+        "conn_id": {
+          "description": "Database connection identifier for DWH",
+          "type": "string",
+          "default": "dwh",
+          "required": true,
+          "constraints": "Must be a valid PostgreSQL connection ID"
+        },
+        "poke_interval": {
+          "description": "Interval in seconds to check for condition",
+          "type": "integer",
+          "default": 60,
+          "required": false,
+          "constraints": "Must be positive integer"
+        },
+        "fail_on_empty": {
+          "description": "Whether to fail when no results are returned",
+          "type": "boolean",
+          "default": false,
+          "required": false
+        }
+      },
+      "wait_for_success_end": {
+        "external_dag_id": {
+          "description": "ID of the external DAG to monitor",
+          "type": "string",
+          "default": "WF_MAIN_DATASETS_LOAD_L2_TO_L2",
+          "required": true,
+          "constraints": "Must match existing DAG ID"
+        },
+        "execution_delta": {
+          "description": "Time delta to check for previous execution",
+          "type": "string",
+          "default": "timedelta(days=1)",
+          "required": false,
+          "constraints": "Must be valid timedelta expression"
+        },
+        "poke_interval": {
+          "description": "Interval in seconds to check for condition",
+          "type": "integer",
+          "default": 100,
+          "required": false,
+          "constraints": "Must be positive integer"
+        }
+      },
+      "run_sys_kill_all_session_pg": {
+        "trigger_dag_id": {
+          "description": "ID of DAG to trigger for session cleanup",
+          "type": "string",
+          "default": "sys_kill_all_session_pg",
+          "required": true,
+          "constraints": "Must match existing DAG ID"
+        },
+        "wait_for_completion": {
+          "description": "Whether to wait for triggered DAG to complete",
+          "type": "boolean",
+          "default": true,
+          "required": false
+        }
+      },
+      "run_wf_data_preparation_for_reports": {
+        "trigger_dag_id": {
+          "description": "ID of DAG to trigger for reporting preparation",
+          "type": "string",
+          "default": "wf_data_preparation_for_reports",
+          "required": true,
+          "constraints": "Must match existing DAG ID"
+        },
+        "pool": {
+          "description": "Pool to use for task execution",
+          "type": "string",
+          "default": "dwh_l2",
+          "required": false,
+          "constraints": "Must match existing pool name"
+        },
+        "pool_slots": {
+          "description": "Number of pool slots to use",
+          "type": "integer",
+          "default": 1,
+          "required": false,
+          "constraints": "Must be positive integer"
+        }
+      },
+      "load_ds_client_segmentation": {
+        "trigger_dag_id": {
+          "description": "ID of DAG to trigger for client segmentation",
+          "type": "string",
+          "default": "l1_to_l2_p_load_data_ds_client_segmentation_full",
+          "required": true,
+          "constraints": "Must match existing DAG ID"
+        }
+      },
+      "send_flg_to_sap": {
+        "conn_id": {
+          "description": "Connection ID for SAP system",
+          "type": "string",
+          "default": "sap_conn",
+          "required": true,
+          "constraints": "Must be valid HTTP connection ID"
+        }
+      },
+      "email_on_failure": {
+        "to": {
+          "description": "Email recipients for failure notifications",
+          "type": "array",
+          "default": [
+            "test@gmail.com"
+          ],
+          "required": false,
+          "constraints": "Must be valid email addresses"
+        },
+        "trigger_rule": {
+          "description": "Rule for triggering email notification",
+          "type": "string",
+          "default": "one_failed",
+          "required": false,
+          "constraints": "Must be valid trigger rule"
+        }
+      }
+    },
+    "environment": {
+      "DWH_CONN_ID": {
+        "description": "Database connection identifier for DWH",
+        "type": "string",
+        "default": "dwh",
+        "required": false,
+        "associated_component_id": "wait_for_l2_full_load"
+      },
+      "SAP_CONN_ID": {
+        "description": "Connection identifier for SAP system",
+        "type": "string",
+        "default": "sap_conn",
+        "required": false,
+        "associated_component_id": "send_flg_to_sap"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "dwh_postgres",
+        "name": "PostgreSQL Data Warehouse",
+        "type": "database",
+        "config": {
+          "host": null,
+          "port": null,
+          "database": null,
+          "schema": "md",
+          "base_path": null,
+          "base_url": null,
+          "protocol": "jdbc",
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "wait_for_l2_full_load",
+          "workflow_registration",
+          "end"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "md.dwh_flag",
+            "metadata_tables"
+          ],
+          "consumes": [
+            "md.dwh_flag"
+          ]
+        }
+      },
+      {
+        "id": "sap_http",
+        "name": "SAP HTTP Integration",
+        "type": "api",
+        "config": {
+          "host": null,
+          "port": null,
+          "database": null,
+          "schema": null,
+          "base_path": null,
+          "base_url": null,
+          "protocol": "https",
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "basic",
+          "token_env_var": null,
+          "username_env_var": "SAP_USERNAME",
+          "password_env_var": "SAP_PASSWORD",
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "send_flg_to_sap"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": 1,
+          "burst": 5
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      },
+      {
+        "id": "segmentation_data_table",
+        "name": "Segmentation Data Table",
+        "type": "database",
+        "config": {
+          "host": null,
+          "port": null,
+          "database": null,
+          "schema": "wk_export",
+          "base_path": null,
+          "base_url": null,
+          "protocol": "jdbc",
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "send_flg_to_sap"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "wk_export.ds_client_segmentation_last_v"
+          ]
+        }
+      },
+      {
+        "id": "smtp_server",
+        "name": "SMTP Email Server",
+        "type": "other",
+        "config": {
+          "host": null,
+          "port": null,
+          "database": null,
+          "schema": null,
+          "base_path": null,
+          "base_url": null,
+          "protocol": "smtp",
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "email_on_failure"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "PostgreSQL Data Warehouse (md.dwh_flag table for load completion flags)",
+        "Previous day's successful execution of WF_MAIN_DATASETS_LOAD_L2_TO_L2 DAG",
+        "wk_export.ds_client_segmentation_last_v table for segmentation data"
+      ],
+      "sinks": [
+        "PostgreSQL Data Warehouse (metadata tables for workflow registration and completion status)",
+        "SAP system (completion flag via HTTP POST)",
+        "Email recipients (failure notifications)"
+      ],
+      "intermediate_datasets": [
+        "Load ID (generated and passed via XCom)",
+        "Session cleanup status (from sys_kill_all_session_pg DAG)",
+        "Segmentation processing status (from l1_to_l2_p_load_data_ds_client_segmentation_full DAG)"
+      ]
+    }
+  }
+}

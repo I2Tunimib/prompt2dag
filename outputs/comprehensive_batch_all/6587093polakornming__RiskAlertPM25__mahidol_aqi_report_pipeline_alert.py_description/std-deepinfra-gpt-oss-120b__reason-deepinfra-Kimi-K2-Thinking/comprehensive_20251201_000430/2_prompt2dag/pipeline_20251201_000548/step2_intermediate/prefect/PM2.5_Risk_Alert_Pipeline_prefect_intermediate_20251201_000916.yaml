@@ -1,0 +1,163 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-01 00:09:16.842871
+  source_analysis_file: 
+    Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__mahidol_aqi_report_pipeline_alert.py_description.txt
+  pipeline_name: PM2.5_Risk_Alert_Pipeline
+  pipeline_description: Comprehensive Pipeline Description
+  orchestrator_specific:
+    flow_name: pm2.5_risk_alert_pipeline
+    deployment_name: pm2.5_risk_alert_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: mahidol_aqi_website
+    conn_type: Secret
+    description: Mahidol University AQI Website
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: mahidol_aqi_website
+      config:
+        base_path:
+        base_url: https://mahidol.ac.th/aqireport/
+        host:
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: local_data_filesystem
+    conn_type: LocalFileSystem
+    description: Local Data Filesystem
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: local_data_filesystem
+      config:
+        base_path: /opt/airflow/data
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: postgres_warehouse
+    conn_type: Secret
+    description: PostgreSQL Data Warehouse
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: postgres_warehouse
+      config:
+        base_path:
+        base_url:
+        host: POSTGRES_HOST
+        port: 5432
+        protocol: postgresql
+        database: air_quality_dw
+        schema: public
+        bucket:
+        queue_name:
+  - conn_id: smtp_gmail
+    conn_type: Secret
+    description: Gmail SMTP Server
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: smtp_gmail
+      config:
+        base_path:
+        base_url:
+        host: smtp.gmail.com
+        port: 587
+        protocol: smtp
+        database:
+        schema:
+        bucket:
+        queue_name:
+        username_secret_name: SMTP_USERNAME
+        password_secret_name: SMTP_PASSWORD
+tasks:
+  - task_id: extract_mahidol_aqi_html
+    task_name: Extract Mahidol AQI HTML
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: extract_mahidol_aqi_html
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: transform_mahidol_aqi_json
+    task_name: Transform Mahidol AQI to JSON
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: transform_mahidol_aqi_json
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+    upstream_task_ids:
+      - extract_mahidol_aqi_html
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: load_mahidol_aqi_postgres
+    task_name: Load Mahidol AQI into PostgreSQL
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: load_mahidol_aqi_postgres
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+    upstream_task_ids:
+      - duplicate_check_branch
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: notify_pm25_email
+    task_name: Notify PM2.5 Email Alert
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: notify_pm25_email
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+    upstream_task_ids:
+      - alert_decision_branch
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

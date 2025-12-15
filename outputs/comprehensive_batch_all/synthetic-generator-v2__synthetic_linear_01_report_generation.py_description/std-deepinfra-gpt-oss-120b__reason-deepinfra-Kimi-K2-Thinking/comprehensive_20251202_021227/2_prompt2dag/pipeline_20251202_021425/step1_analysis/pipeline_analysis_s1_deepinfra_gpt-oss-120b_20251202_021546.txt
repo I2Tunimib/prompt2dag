@@ -1,0 +1,98 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T02:15:46.059219
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_linear_01_report_generation.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**1. Executive Summary**  
+- **Purpose** – The pipeline produces a daily sales report for management. It extracts aggregated sales data for the execution date, converts the data to a CSV file, creates a PDF bar‑chart visualisation, and emails both artefacts to a designated recipient.  
+- **High‑level flow** – The work proceeds in a strict linear order:  
+  1. Query the PostgreSQL sales table.  
+  2. Transform the query result into a CSV file on the local filesystem.  
+  3. Generate a PDF chart from the CSV file.  
+  4. Email the CSV and PDF as attachments.  
+- **Key patterns & complexity** – The pipeline follows a *sequential* pattern with no branching, parallelism, or sensors. Four components are involved, each executing a single responsibility. The overall complexity is low (score ≈ 3/10) and the control flow is straightforward.
+
+---
+
+**2. Pipeline Architecture**  
+
+| Aspect | Description |
+|--------|-------------|
+| **Flow Patterns** | Purely sequential (linear) – each component runs only after the preceding one succeeds. |
+| **Execution Characteristics** | Three executor families are used: <br>• **SQL executor** for the extraction step. <br>• **Python executor** for the two transformation steps and the notification step. <br>• **Custom executor** placeholder (not actively used in the current component set). |
+| **Component Overview** | • **Extractor** – *Query Sales Data* (SQL). <br>• **Transformer** – *Transform Sales Data to CSV* (Python). <br>• **Transformer** – *Generate PDF Chart* (Python). <br>• **Notifier** – *Email Sales Report* (Python). |
+| **Flow Description** | **Entry point:** *Query Sales Data*.<br>**Main sequence:** <br>1. *Query Sales Data* → 2. *Transform Sales Data to CSV* → 3. *Generate PDF Chart* → 4. *Email Sales Report*.<br>There are no parallel branches, conditional edges, or sensor‑type waiting mechanisms. |
+
+---
+
+**3. Detailed Component Analysis**  
+
+| Component | Purpose & Category | Executor Type & Config | Inputs | Outputs | Retry Policy | Concurrency | Connected Systems & Datasets |
+|-----------|-------------------|------------------------|--------|---------|--------------|-------------|------------------------------|
+| **query_sales_data** | Extractor – pulls daily aggregated sales from the PostgreSQL sales table. | **SQL** executor (no container image, command, or script overrides). | • PostgreSQL connection *postgres_default*.<br>• Execution date (`{{ ds }}`). | • Result set: aggregated sales by date & product (exposed as *sales_aggregated_dataset*). | • Max attempts: 2.<br>• Delay: 300 s.<br>• Retries on timeout & network errors. | No parallelism or dynamic mapping. | **Connection:** *postgres_default* (database).<br>**Datasets:** consumes *sales_raw_table*; produces *sales_aggregated_dataset*. |
+| **transform_to_csv** | Transformer – converts the aggregated result set into a CSV file. | **Python** executor (default environment). | • *sales_aggregated_dataset* (output of previous step). | • File `/tmp/sales_report.csv` (exposed as *sales_report_csv*). | Same retry settings as above (2 attempts, 5 min delay, on timeout/network). | No parallelism or dynamic mapping. | **Connection:** *local_fs* (filesystem).<br>**Datasets:** consumes *sales_aggregated_dataset*; produces *sales_report_csv*. |
+| **generate_pdf_chart** | Transformer – reads the CSV and creates a bar‑chart PDF. | **Python** executor (default environment). | • CSV file `/tmp/sales_report.csv`. | • PDF file `/tmp/sales_chart.pdf` (exposed as *sales_chart_pdf*). | Same retry settings (2 attempts, 5 min delay, on timeout/network). | No parallelism or dynamic mapping. | **Connection:** *local_fs* (filesystem).<br>**Datasets:** consumes *sales_report_csv*; produces *sales_chart_pdf*. |
+| **email_sales_report** | Notifier – emails the CSV and PDF to management. | **Python** executor (default environment). | • CSV file `/tmp/sales_report.csv`.<br>• PDF file `/tmp/sales_chart.pdf`. | • Email delivery confirmation (output dataset *management_sales_report_email*). | Same retry settings (2 attempts, 5 min delay, on timeout/network). | No parallelism or dynamic mapping. | **Connection:** *email_smtp* (SMTP API).<br>**Datasets:** consumes *sales_report_csv* and *sales_chart_pdf*; produces *management_sales_report_email*. |
+
+All components share an *all_success* upstream policy, meaning each step starts only after the immediate predecessor finishes without error.
+
+---
+
+**4. Parameter Schema**  
+
+| Scope | Parameters | Details |
+|-------|------------|---------|
+| **Pipeline‑level** | `name` (string, default *Daily Sales Report*), `description` (string, default describing the linear flow), `tags` (array, default empty). | Provide identification and optional classification. |
+| **Schedule** | `enabled` (bool, default true), `cron_expression` (string, default @daily), `start_date` (datetime, default 2024‑01‑01T00:00:00), `end_date` (datetime, optional), `timezone` (string, optional), `catchup` (bool, default false), `batch_window` (string, optional), `partitioning` (string, optional). | Controls daily execution timing. |
+| **Execution** | `max_active_runs` (int, optional), `timeout_seconds` (int, optional), `retry_policy` (object: `retries` = 2, `retry_delay_minutes` = 5), `depends_on_past` (bool, default false). | Governs overall run concurrency, timeout, and retry behaviour. |
+| **Component‑specific** | • *query_sales_data*: `postgres_conn_id` (string, default postgres_default).<br>• *transform_to_csv*: `provide_context` (bool, default true).<br>• *generate_pdf_chart*: `provide_context` (bool, default true).<br>• *email_sales_report*: `to` (string, default management@company.com), `files` (array, default `["/tmp/sales_report.csv","/tmp/sales_chart.pdf"]`). | Tailor each component’s runtime configuration. |
+| **Environment** | None defined (empty object). | No additional environment variables are required beyond those used for authentication (see Integration Points). |
+
+---
+
+**5. Integration Points**  
+
+| External System | Connection ID | Type | Authentication | Role in Pipeline |
+|-----------------|---------------|------|----------------|------------------|
+| PostgreSQL Sales Database | `postgres_default` (also listed as `postgres_sales_db`) | Database (PostgreSQL) | Basic auth – username from `POSTGRES_USER`, password from `POSTGRES_PASSWORD` env vars. | Source of raw sales rows; consumed by *Query Sales Data*. |
+| Local Temporary Filesystem | `local_tmp_fs` (alias `local_fs`) | Filesystem (file protocol) | No authentication. | Stores intermediate CSV and PDF files; read/write by *Transform Sales Data to CSV*, *Generate PDF Chart*, and *Email Sales Report*. |
+| Email SMTP Service | `email_smtp_service` (alias `email_smtp`) | API (SMTP) | Basic auth – username from `SMTP_USER`, password from `SMTP_PASSWORD` env vars. | Destination for the final report email; used by *Email Sales Report*. |
+
+**Data Lineage**  
+- **Source**: PostgreSQL sales table filtered by execution date (`{{ ds }}`).  
+- **Intermediate Datasets**: `/tmp/sales_report.csv` (CSV) → `/tmp/sales_chart.pdf` (PDF).  
+- **Sink**: Email delivery to `management@company.com` containing both files.
+
+---
+
+**6. Implementation Notes**  
+
+- **Complexity Assessment** – The pipeline is low‑complexity: a single linear chain of four components, each with simple I/O and modest resource needs.  
+- **Upstream Dependency Policies** – All components enforce an *all_success* rule; a failure in any step aborts downstream execution.  
+- **Retry & Timeout** – Each component retries up to two times with a fixed 5‑minute delay, targeting timeout and network‑related errors. No explicit per‑component timeout is defined; pipeline‑level timeout is optional.  
+- **Potential Risks / Considerations**  
+  - **Network reliability** – Both the database query and SMTP delivery depend on external services; retries mitigate transient failures but prolonged outages will halt the pipeline.  
+  - **Filesystem permissions** – The temporary `/tmp` directory must be writable by the execution environment; insufficient permissions will cause the transformation steps to fail.  
+  - **Email deliverability** – SMTP authentication must be correctly configured; incorrect credentials will prevent the final notification.  
+  - **Date parameter handling** – The execution date (`{{ ds }}`) must be supplied by the scheduler; misconfiguration could lead to empty result sets.  
+
+---
+
+**7. Orchestrator Compatibility**  
+
+| Orchestrator | Compatibility Assessment |
+|--------------|--------------------------|
+| **Airflow** | Supports SQL and Python executors, schedule via cron, and retry policies. The `provide_context` flags are Airflow‑specific but can be ignored or mapped to generic context passing. |
+| **Prefect** | Handles sequential flows, SQL tasks, and Python functions out‑of‑the‑box. Retry and timeout settings map directly to Prefect’s built‑in policies. |
+| **Dagster** | Can model the linear graph using solids (or ops) with the same executor types. Dagster’s resource system can encapsulate the connections. |
+
+All three orchestrators can implement the described linear flow without requiring advanced features such as branching, parallel mapping, or sensor‑based triggers. The only nuance is the `provide_context` flag, which is a convenience for Airflow; other platforms would simply pass the necessary parameters explicitly.
+
+---
+
+**8. Conclusion**  
+
+The pipeline delivers a concise, automated daily sales reporting solution. Its sequential architecture, modest component count, and clear integration points make it straightforward to deploy and maintain across major orchestration platforms. By adhering to the defined retry policies and ensuring proper authentication for the database and SMTP services, the pipeline can reliably generate and distribute the required CSV and PDF artefacts to management on a daily basis.

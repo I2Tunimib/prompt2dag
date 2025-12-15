@@ -1,0 +1,875 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-11-28T14:42:27.443100",
+    "source_file": "Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_03_regulatory_report_router.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "Qwen3-Coder",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "branching",
+        "parallel"
+      ],
+      "task_executors_used": [
+        "python"
+      ],
+      "has_branching": true,
+      "has_parallelism": true,
+      "has_sensors": false,
+      "total_components": 5,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Branching via BranchPythonOperator",
+          "Parallelism via TaskFlow API expand()"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "Conditional logic via Python control flow",
+          "map() for parallel execution"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "Dynamic graphs or branching ops",
+          "DynamicOutput for fan-out"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "regulatory_report_router",
+    "description": "This regulatory reporting pipeline processes financial transaction data and routes it to appropriate regulatory systems based on account type, following a branch-merge pattern.",
+    "flow_patterns": [
+      "sequential",
+      "branching",
+      "parallel"
+    ],
+    "task_executors": [
+      "python"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "read_csv",
+      "name": "Read CSV",
+      "category": "Extractor",
+      "description": "Extract financial transaction data from CSV source files for regulatory processing. Uses image default entrypoint/command",
+      "inputs": [
+        "CSV files containing transaction data with headers (transaction_id, account_type, amount, currency)"
+      ],
+      "outputs": [
+        "Processed CSV data available via XCom for account type analysis"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "python:3.9-slim",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "1",
+          "memory": "2Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "csv_input",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/data/transactions_*.csv",
+          "connection_id": "local_filesystem"
+        },
+        {
+          "name": "csv_data_processed",
+          "direction": "output",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "none_failed",
+        "description": "Runs as the initial step in the pipeline",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "local_filesystem",
+          "type": "filesystem",
+          "purpose": "Access to local CSV files"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "transaction_data"
+        ]
+      }
+    },
+    {
+      "id": "account_check",
+      "name": "Account Check",
+      "category": "Splitter",
+      "description": "Analyze account types and determine routing path for regulatory compliance. Uses image default entrypoint/command",
+      "inputs": [
+        "XCom data from read_csv task containing transaction information"
+      ],
+      "outputs": [
+        "Branch decision ('route_to_fatca' or 'route_to_irs') based on account type analysis"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "python:3.9-slim",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "1",
+          "memory": "1Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "transaction_data",
+          "direction": "input",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "branch_decision",
+          "direction": "output",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Requires successful completion of read_csv",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "transaction_data"
+        ],
+        "produces": []
+      }
+    },
+    {
+      "id": "route_to_fatca",
+      "name": "Route to FATCA",
+      "category": "Transformer",
+      "description": "Process international accounts through FATCA regulatory reporting system. Uses image default entrypoint/command",
+      "inputs": [
+        "Transaction data routed from account_check for international accounts"
+      ],
+      "outputs": [
+        "FATCA XML report and status 'fatca_report_generated' via XCom"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "python:3.9-slim",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "1",
+          "memory": "2Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "international_transactions",
+          "direction": "input",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "fatca_report",
+          "direction": "output",
+          "kind": "file",
+          "format": "xml",
+          "path_pattern": "/reports/fatca_report_*.xml",
+          "connection_id": "fatca_system"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Requires successful completion of account_check with FATCA routing decision",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fatca_system",
+          "type": "api",
+          "purpose": "FATCA regulatory compliance system"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "fatca_report_data"
+        ]
+      }
+    },
+    {
+      "id": "route_to_irs",
+      "name": "Route to IRS",
+      "category": "Transformer",
+      "description": "Process domestic accounts through IRS regulatory reporting system. Uses image default entrypoint/command",
+      "inputs": [
+        "Transaction data routed from account_check for domestic accounts"
+      ],
+      "outputs": [
+        "IRS Form 1099 data and status 'irs_report_generated' via XCom"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "python:3.9-slim",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "1",
+          "memory": "2Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "domestic_transactions",
+          "direction": "input",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "irs_report",
+          "direction": "output",
+          "kind": "file",
+          "format": "other",
+          "path_pattern": "/reports/irs_report_*.txt",
+          "connection_id": "irs_system"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Requires successful completion of account_check with IRS routing decision",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "irs_system",
+          "type": "api",
+          "purpose": "IRS regulatory compliance system"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "irs_report_data"
+        ]
+      }
+    },
+    {
+      "id": "archive_reports",
+      "name": "Archive Reports",
+      "category": "Loader",
+      "description": "Merge and archive all regulatory reports for compliance retention. Uses image default entrypoint/command",
+      "inputs": [
+        "XCom results from both route_to_fatca and route_to_irs tasks"
+      ],
+      "outputs": [
+        "Archived reports in secure location with status 'reports_archived'"
+      ],
+      "executor_type": "docker",
+      "executor_config": {
+        "image": "python:3.9-slim",
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "1",
+          "memory": "2Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "regulatory_reports",
+          "direction": "input",
+          "kind": "file",
+          "format": "other",
+          "path_pattern": "/reports/*",
+          "connection_id": null
+        },
+        {
+          "name": "archived_reports",
+          "direction": "output",
+          "kind": "file",
+          "format": "other",
+          "path_pattern": "/archive/reports_*.zip",
+          "connection_id": "secure_archive"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_done",
+        "description": "Runs after both route_to_fatca and route_to_irs complete (success or failure)",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "secure_archive",
+          "type": "filesystem",
+          "purpose": "Secure archive storage system"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "fatca_report_data",
+          "irs_report_data"
+        ],
+        "produces": [
+          "archived_reports"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "branching",
+    "entry_points": [
+      "read_csv"
+    ],
+    "nodes": {
+      "read_csv": {
+        "kind": "Task",
+        "component_type_id": "read_csv",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "account_check"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "account_check": {
+        "kind": "Branch",
+        "component_type_id": "account_check",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "branch_config": {
+          "type": "conditional",
+          "branches": [
+            {
+              "label": "International Account",
+              "condition": "account_type == 'international'",
+              "next_node": "route_to_fatca"
+            },
+            {
+              "label": "Domestic Account",
+              "condition": "account_type == 'domestic'",
+              "next_node": "route_to_irs"
+            }
+          ]
+        },
+        "next_nodes": [
+          "route_to_fatca",
+          "route_to_irs"
+        ],
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "route_to_fatca": {
+        "kind": "Task",
+        "component_type_id": "route_to_fatca",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "archive_reports"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "route_to_irs": {
+        "kind": "Task",
+        "component_type_id": "route_to_irs",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "archive_reports"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "archive_reports": {
+        "kind": "Task",
+        "component_type_id": "archive_reports",
+        "upstream_policy": {
+          "type": "all_done",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "read_csv",
+        "to": "account_check",
+        "edge_type": "success"
+      },
+      {
+        "from": "account_check",
+        "to": "route_to_fatca",
+        "edge_type": "conditional",
+        "condition": "International Account"
+      },
+      {
+        "from": "account_check",
+        "to": "route_to_irs",
+        "edge_type": "conditional",
+        "condition": "Domestic Account"
+      },
+      {
+        "from": "route_to_fatca",
+        "to": "archive_reports",
+        "edge_type": "success"
+      },
+      {
+        "from": "route_to_irs",
+        "to": "archive_reports",
+        "edge_type": "success"
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "regulatory_report_router",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": "This regulatory reporting pipeline processes financial transaction data and routes it to appropriate regulatory systems based on account type, following a branch-merge pattern.",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [
+          "regulatory",
+          "branch-merge",
+          "financial"
+        ],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2024-01-01T00:00:00Z",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": "UTC",
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": "ds",
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": "daily",
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": 1,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": 3600,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 2,
+          "retry_delay_seconds": 300
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      }
+    },
+    "components": {
+      "read_csv": {
+        "input_file_path": {
+          "description": "Path to CSV file containing transaction data",
+          "type": "string",
+          "default": "/data/transactions.csv",
+          "required": true,
+          "constraints": "Must be a valid file path accessible to the container"
+        }
+      },
+      "account_check": {
+        "branch_condition_field": {
+          "description": "Field name used to determine account type for branching",
+          "type": "string",
+          "default": "account_type",
+          "required": false,
+          "constraints": "Must exist in input data"
+        }
+      },
+      "route_to_fatca": {
+        "fatca_validation_rules": {
+          "description": "Path to FATCA validation rules configuration",
+          "type": "string",
+          "default": "/config/fatca_rules.json",
+          "required": false,
+          "constraints": "Must be a valid file path"
+        }
+      },
+      "route_to_irs": {
+        "irs_validation_rules": {
+          "description": "Path to IRS validation rules configuration",
+          "type": "string",
+          "default": "/config/irs_rules.json",
+          "required": false,
+          "constraints": "Must be a valid file path"
+        }
+      },
+      "archive_reports": {
+        "archive_storage_path": {
+          "description": "Path to secure archive storage location",
+          "type": "string",
+          "default": "/archive/reports/",
+          "required": true,
+          "constraints": "Must be a writable directory path"
+        },
+        "compression_format": {
+          "description": "Compression format for archived reports",
+          "type": "string",
+          "default": "gzip",
+          "required": false,
+          "constraints": "Supported formats: gzip, zip, none"
+        }
+      }
+    },
+    "environment": {
+      "REGULATORY_ENV": {
+        "description": "Regulatory environment identifier",
+        "type": "string",
+        "default": "production",
+        "required": false,
+        "associated_component_id": null
+      },
+      "LOG_LEVEL": {
+        "description": "Logging level for pipeline execution",
+        "type": "string",
+        "default": "INFO",
+        "required": false,
+        "associated_component_id": null
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "local_csv_storage",
+        "name": "Local CSV Storage",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/data/transactions",
+          "protocol": "file"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "read_csv"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "transaction_data"
+          ]
+        }
+      },
+      {
+        "id": "fatca_reporting_api",
+        "name": "FATCA Reporting API",
+        "type": "api",
+        "config": {
+          "base_url": "https://api.fatca.gov/reports",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "FATCA_API_TOKEN"
+        },
+        "used_by_components": [
+          "route_to_fatca"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": 10,
+          "burst": 20
+        },
+        "datasets": {
+          "produces": [
+            "fatca_reports"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "irs_reporting_api",
+        "name": "IRS Reporting API",
+        "type": "api",
+        "config": {
+          "base_url": "https://api.irs.gov/forms/1099",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "IRS_API_TOKEN"
+        },
+        "used_by_components": [
+          "route_to_irs"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": 5,
+          "burst": 10
+        },
+        "datasets": {
+          "produces": [
+            "irs_reports"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "compliance_archive_storage",
+        "name": "Compliance Archive Storage",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/archive/regulatory_reports",
+          "protocol": "file"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "archive_reports"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "archived_reports"
+          ],
+          "consumes": [
+            "fatca_reports",
+            "irs_reports"
+          ]
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Local CSV files containing financial transaction data with headers (transaction_id, account_type, amount, currency)"
+      ],
+      "sinks": [
+        "Secure archive storage system for compliance retention of regulatory reports"
+      ],
+      "intermediate_datasets": [
+        "Processed CSV data with transaction information",
+        "FATCA XML reports for international accounts",
+        "IRS Form 1099 data for domestic accounts"
+      ]
+    }
+  }
+}

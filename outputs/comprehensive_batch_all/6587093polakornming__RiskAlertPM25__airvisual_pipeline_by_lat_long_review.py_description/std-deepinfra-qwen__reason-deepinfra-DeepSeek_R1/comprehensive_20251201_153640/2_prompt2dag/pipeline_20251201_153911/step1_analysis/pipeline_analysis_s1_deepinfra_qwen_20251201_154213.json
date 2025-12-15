@@ -1,0 +1,644 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-01T15:42:13.030956",
+    "source_file": "Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__airvisual_pipeline_by_lat_long_review.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "qwen",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential"
+      ],
+      "task_executors_used": [
+        "python"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": false,
+      "total_components": 3,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "get_airvisual_data_hourly_pipeline",
+    "description": "No description provided.",
+    "flow_patterns": [
+      "sequential"
+    ],
+    "task_executors": [
+      "python"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "get_airvisual_data_hourly",
+      "name": "Fetch AirVisual Data",
+      "category": "Extractor",
+      "description": "Fetches current air quality and weather data from the AirVisual API, performs duplicate detection, and saves the data as a JSON file.",
+      "inputs": [
+        "AirVisual API endpoint",
+        "API key from config file",
+        "current timestamp"
+      ],
+      "outputs": [
+        "JSON file at /opt/airflow/data/tmp_airvisual.json",
+        "temporary .tmp file during atomic write"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "script_path": "path/to/fetch_airvisual_data.py",
+        "environment": {
+          "LATITUDE": "13.79059242",
+          "LONGITUDE": "100.32622308",
+          "TIMEOUT": "10"
+        },
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "airvisual_api_response",
+          "direction": "output",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/opt/airflow/data/tmp_airvisual.json",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_done",
+        "description": "No upstream dependencies, starts manually.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "airvisual_api",
+          "type": "api",
+          "purpose": "Fetch air quality data"
+        },
+        {
+          "id": "postgres_conn",
+          "type": "database",
+          "purpose": "Check for existing records"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "airvisual_data"
+        ]
+      }
+    },
+    {
+      "id": "read_data_airvisual",
+      "name": "Read and Validate AirVisual Data",
+      "category": "QualityCheck",
+      "description": "Reads the JSON file created by the previous task and validates the data integrity before loading into the database.",
+      "inputs": [
+        "JSON file from get_airvisual_data_hourly"
+      ],
+      "outputs": [
+        "Validated JSON data structure"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "script_path": "path/to/read_and_validate_data.py",
+        "environment": {
+          "FILE_PATH": "/opt/airflow/data/tmp_airvisual.json"
+        },
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "airvisual_json_file",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/opt/airflow/data/tmp_airvisual.json",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Depends on successful completion of get_airvisual_data_hourly.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 180,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "local_filesystem",
+          "type": "filesystem",
+          "purpose": "Access JSON file"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "airvisual_data"
+        ],
+        "produces": []
+      }
+    },
+    {
+      "id": "load_data_airvisual_to_postgresql",
+      "name": "Load AirVisual Data to PostgreSQL",
+      "category": "Loader",
+      "description": "Transforms the validated JSON data into a dimensional model and loads it into PostgreSQL tables with proper referential integrity.",
+      "inputs": [
+        "JSON file from read_data_airvisual",
+        "pollution and weather mapping files"
+      ],
+      "outputs": [
+        "Records in dimDateTimeTable, dimLocationTable, dimMainPollutionTable, factairvisualtable"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "script_path": "path/to/load_data_to_postgresql.py",
+        "environment": {
+          "MAPPING_MAIN_POLLUTION": "/opt/airflow/config/mapping_main_pollution.json",
+          "MAPPING_WEATHER_CODE": "/opt/airflow/config/mapping_weather_code.json"
+        },
+        "image": null,
+        "command": null,
+        "entry_point": null,
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "validated_json_data",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/opt/airflow/data/tmp_airvisual.json",
+          "connection_id": null
+        },
+        {
+          "name": "pollution_mapping",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/opt/airflow/config/mapping_main_pollution.json",
+          "connection_id": null
+        },
+        {
+          "name": "weather_mapping",
+          "direction": "input",
+          "kind": "file",
+          "format": "json",
+          "path_pattern": "/opt/airflow/config/mapping_weather_code.json",
+          "connection_id": null
+        },
+        {
+          "name": "postgresql_tables",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "dimDateTimeTable, dimLocationTable, dimMainPollutionTable, factairvisualtable",
+          "connection_id": "postgres_conn"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Depends on successful completion of read_data_airvisual.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 180,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "postgres_conn",
+          "type": "database",
+          "purpose": "Load data into PostgreSQL tables"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "airvisual_data"
+        ],
+        "produces": [
+          "dimDateTimeTable",
+          "dimLocationTable",
+          "dimMainPollutionTable",
+          "factairvisualtable"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sequential",
+    "entry_points": [
+      "get_airvisual_data_hourly"
+    ],
+    "nodes": {
+      "get_airvisual_data_hourly": {
+        "kind": "Task",
+        "component_type_id": "get_airvisual_data_hourly",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "read_data_airvisual"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "read_data_airvisual": {
+        "kind": "Task",
+        "component_type_id": "read_data_airvisual",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "load_data_airvisual_to_postgresql"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "load_data_airvisual_to_postgresql": {
+        "kind": "Task",
+        "component_type_id": "load_data_airvisual_to_postgresql",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "get_airvisual_data_hourly",
+        "to": "read_data_airvisual",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "read_data_airvisual",
+        "to": "load_data_airvisual_to_postgresql",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": null,
+        "required": true,
+        "constraints": "Must be a unique identifier for the pipeline"
+      },
+      "description": {
+        "description": "Comprehensive Pipeline Description",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2025-03-20",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 2,
+          "retry_delay": 180
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "get_airvisual_data_hourly": {
+        "LATITUDE": {
+          "description": "Latitude coordinate for API request",
+          "type": "float",
+          "default": 13.79059242,
+          "required": true,
+          "constraints": "Must be a valid latitude coordinate"
+        },
+        "LONGITUDE": {
+          "description": "Longitude coordinate for API request",
+          "type": "float",
+          "default": 100.32622308,
+          "required": true,
+          "constraints": "Must be a valid longitude coordinate"
+        },
+        "timeout": {
+          "description": "Timeout for API request",
+          "type": "integer",
+          "default": 10,
+          "required": false,
+          "constraints": "Must be a positive integer"
+        }
+      },
+      "read_data_airvisual": {
+        "file_path": {
+          "description": "Path to the JSON file created by the previous task",
+          "type": "string",
+          "default": "/opt/airflow/data/tmp_airvisual.json",
+          "required": true,
+          "constraints": "Must be a valid file path"
+        }
+      },
+      "load_data_airvisual_to_postgresql": {
+        "mapping_main_pollution_file": {
+          "description": "Path to the main pollution mapping file",
+          "type": "string",
+          "default": "/opt/airflow/config/mapping_main_pollution.json",
+          "required": true,
+          "constraints": "Must be a valid file path"
+        },
+        "mapping_weather_code_file": {
+          "description": "Path to the weather code mapping file",
+          "type": "string",
+          "default": "/opt/airflow/config/mapping_weather_code.json",
+          "required": true,
+          "constraints": "Must be a valid file path"
+        }
+      }
+    },
+    "environment": {
+      "POSTGRES_CONN": {
+        "description": "PostgreSQL connection string",
+        "type": "string",
+        "default": null,
+        "required": true,
+        "associated_component_id": "load_data_airvisual_to_postgresql"
+      },
+      "AIRVISUAL_API_KEY": {
+        "description": "API key for AirVisual API",
+        "type": "string",
+        "default": null,
+        "required": true,
+        "associated_component_id": "get_airvisual_data_hourly"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "airvisual_api",
+        "name": "AirVisual API",
+        "type": "api",
+        "config": {
+          "base_url": "http://api.airvisual.com/v2/nearest_city",
+          "protocol": "http"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "AIRVISUAL_API_KEY"
+        },
+        "used_by_components": [
+          "get_airvisual_data_hourly"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "tmp_airvisual.json"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "local_filesystem",
+        "name": "Local Filesystem",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/opt/airflow/data",
+          "protocol": "file"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "get_airvisual_data_hourly",
+          "read_data_airvisual",
+          "load_data_airvisual_to_postgresql"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "tmp_airvisual.json"
+          ],
+          "consumes": [
+            "tmp_airvisual.json",
+            "mapping_main_pollution.json",
+            "mapping_weather_code.json"
+          ]
+        }
+      },
+      {
+        "id": "postgresql_db",
+        "name": "PostgreSQL Database",
+        "type": "database",
+        "config": {
+          "host": "hostname",
+          "port": 5432,
+          "database": "airvisual_db",
+          "schema": "public"
+        },
+        "authentication": {
+          "type": "key_pair",
+          "username_env_var": "POSTGRES_USER",
+          "password_env_var": "POSTGRES_PASSWORD"
+        },
+        "used_by_components": [
+          "get_airvisual_data_hourly",
+          "load_data_airvisual_to_postgresql"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "dimDateTimeTable",
+            "dimLocationTable",
+            "dimMainPollutionTable",
+            "factairvisualtable"
+          ],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "AirVisual API (http://api.airvisual.com/v2/nearest_city) - Fetches current air quality and weather data using latitude/longitude coordinates."
+      ],
+      "sinks": [
+        "PostgreSQL Database (airvisual_db) - Stores the transformed data in dimensional tables (dimDateTimeTable, dimLocationTable, dimMainPollutionTable, factairvisualtable)."
+      ],
+      "intermediate_datasets": [
+        "/opt/airflow/data/tmp_airvisual.json",
+        "/opt/airflow/config/mapping_main_pollution.json",
+        "/opt/airflow/config/mapping_weather_code.json"
+      ]
+    }
+  }
+}

@@ -1,0 +1,159 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-11-28 15:46:53.075042
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_fan_out_fan_in_00_multi_region_e_commerce_analytics.py_description.txt
+  pipeline_name: multi_region_ecommerce_analytics
+  pipeline_description: Comprehensive pipeline performing multi-region ecommerce analytics by ingesting sales data from 
+    four geographic regions in parallel, converting regional currencies to USD, and aggregating the results into a 
+    global revenue report.
+  orchestrator_specific:
+    flow_name: multi_region_ecommerce_analytics
+    deployment_name: multi_region_ecommerce_analytics_deployment
+    work_pool: default-agent-pool
+    task_runner: ConcurrentTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: regional_sales_data_source
+    conn_type: LocalFileSystem
+    description: Regional Sales Data Source
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: regional_sales_data_source
+      config:
+        base_path: /data/sales
+        protocol: file
+  - conn_id: global_revenue_output
+    conn_type: LocalFileSystem
+    description: Global Revenue Report Storage
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: global_revenue_output
+      config:
+        base_path: /data/reports
+        protocol: file
+  - conn_id: xcom_data_exchange
+    conn_type: Secret
+    description: XCom Data Exchange
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: xcom_data_exchange
+      config:
+        host: airflow_metadata_db
+        port: 5432
+        database: airflow
+        schema: public
+        username_secret_name: AIRFLOW_DB_USER
+        password_secret_name: AIRFLOW_DB_PASSWORD
+tasks:
+  - task_id: start_pipeline
+    task_name: Start Pipeline
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: start_pipeline
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: ingest_region_data
+    task_name: Ingest Regional Sales Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: ingest_region_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - start_pipeline
+      - start_pipeline
+      - start_pipeline
+      - start_pipeline
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: convert_currency
+    task_name: Convert Regional Currency to USD
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: convert_currency
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - ingest_region_data
+      - ingest_region_data
+      - ingest_region_data
+      - ingest_region_data
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: aggregate_global_revenue
+    task_name: Aggregate Global Revenue
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: aggregate_global_revenue
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - convert_currency
+      - convert_currency
+      - convert_currency
+      - convert_currency
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: end_pipeline
+    task_name: End Pipeline
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: end_pipeline
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+    upstream_task_ids:
+      - aggregate_global_revenue
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

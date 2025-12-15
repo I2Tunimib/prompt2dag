@@ -1,0 +1,744 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-11-28T14:43:07.440606",
+    "source_file": "Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_fan_out_fan_in_03_retail_inventory_reconciliation.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "Qwen3-Coder",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "parallel"
+      ],
+      "task_executors_used": [
+        "python"
+      ],
+      "has_branching": false,
+      "has_parallelism": true,
+      "has_sensors": false,
+      "total_components": 4,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Parallelism via TaskFlow API expand()"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "map() for parallel execution"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "DynamicOutput for fan-out"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "retail_inventory_reconciliation",
+    "description": "Comprehensive pipeline for retail inventory reconciliation across four warehouse systems with fan-out fan-in pattern",
+    "flow_patterns": [
+      "sequential",
+      "parallel"
+    ],
+    "task_executors": [
+      "python"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "fetch_warehouse_csv",
+      "name": "Fetch Warehouse CSV",
+      "category": "Extractor",
+      "description": "Retrieve inventory CSV data from warehouse management systems across different regions (north, south, east, west)",
+      "inputs": [
+        "warehouse_management_system"
+      ],
+      "outputs": [
+        "warehouse_inventory_csv"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "1",
+          "memory": "1Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "warehouse_input",
+          "direction": "input",
+          "kind": "api",
+          "format": "csv",
+          "path_pattern": "warehouse_{region}_inventory.csv",
+          "connection_id": "warehouse_api"
+        },
+        {
+          "name": "warehouse_csv_output",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "warehouse_{region}_inventory.csv",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "none_failed",
+        "description": "Can run independently for each region",
+        "timeout_seconds": 300
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": true,
+        "map_over_param": "warehouse_id",
+        "max_parallel_instances": 4
+      },
+      "connections": [
+        {
+          "id": "warehouse_api",
+          "type": "api",
+          "purpose": "Connect to warehouse management systems"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "warehouse_inventory_data"
+        ]
+      }
+    },
+    {
+      "id": "normalize_sku_formats",
+      "name": "Normalize SKU Formats",
+      "category": "Transformer",
+      "description": "Standardize SKU formats from warehouse CSV files to a common format for reconciliation",
+      "inputs": [
+        "warehouse_inventory_csv"
+      ],
+      "outputs": [
+        "normalized_inventory_csv"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "1",
+          "memory": "1Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "raw_inventory_input",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "warehouse_{region}_inventory.csv",
+          "connection_id": null
+        },
+        {
+          "name": "normalized_inventory_output",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "normalized_{region}_inventory.csv",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Requires successful completion of warehouse CSV fetch",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "data_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": true,
+        "map_over_param": "warehouse_id",
+        "max_parallel_instances": 4
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "warehouse_inventory_data"
+        ],
+        "produces": [
+          "normalized_inventory_data"
+        ]
+      }
+    },
+    {
+      "id": "reconcile_inventories",
+      "name": "Reconcile Inventories",
+      "category": "Reconciliator",
+      "description": "Consolidate and compare all normalized inventory files to identify discrepancies across warehouse regions",
+      "inputs": [
+        "normalized_inventory_csv"
+      ],
+      "outputs": [
+        "inventory_discrepancies_report"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "1",
+          "memory": "2Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "normalized_inventories_input",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "normalized_{region}_inventory.csv",
+          "connection_id": null
+        },
+        {
+          "name": "discrepancies_report_output",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "inventory_discrepancies_report.csv",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Waits for all 4 normalization tasks to complete successfully",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "data_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "normalized_inventory_data"
+        ],
+        "produces": [
+          "inventory_discrepancies_data"
+        ]
+      }
+    },
+    {
+      "id": "generate_reconciliation_report",
+      "name": "Generate Reconciliation Report",
+      "category": "Loader",
+      "description": "Create final reconciliation report in PDF format from discrepancy analysis",
+      "inputs": [
+        "inventory_discrepancies_report"
+      ],
+      "outputs": [
+        "final_reconciliation_pdf"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": "1",
+          "memory": "1Gi",
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "discrepancies_input",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "inventory_discrepancies_report.csv",
+          "connection_id": null
+        },
+        {
+          "name": "final_report_output",
+          "direction": "output",
+          "kind": "file",
+          "format": "pdf",
+          "path_pattern": "retail_inventory_reconciliation_final.pdf",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Requires successful completion of inventory reconciliation",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "generation_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "inventory_discrepancies_data"
+        ],
+        "produces": [
+          "final_reconciliation_report"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "hybrid",
+    "entry_points": [
+      "fetch_warehouse_csv"
+    ],
+    "nodes": {
+      "fetch_warehouse_csv": {
+        "kind": "Task",
+        "component_type_id": "fetch_warehouse_csv",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "normalize_sku_formats"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "normalize_sku_formats": {
+        "kind": "Task",
+        "component_type_id": "normalize_sku_formats",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "reconcile_inventories"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "reconcile_inventories": {
+        "kind": "Task",
+        "component_type_id": "reconcile_inventories",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "generate_reconciliation_report"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "generate_reconciliation_report": {
+        "kind": "Task",
+        "component_type_id": "generate_reconciliation_report",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "fetch_warehouse_csv",
+        "to": "normalize_sku_formats",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "normalize_sku_formats",
+        "to": "reconcile_inventories",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "reconcile_inventories",
+        "to": "generate_reconciliation_report",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "retail_inventory_reconciliation",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": "Comprehensive pipeline for retail inventory reconciliation across four warehouse systems with fan-out fan-in pattern",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [
+          "retail",
+          "inventory",
+          "reconciliation"
+        ],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2024-01-01T00:00:00",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": "ds",
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": "daily",
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": 1,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 2,
+          "retry_delay_minutes": 5
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      }
+    },
+    "components": {
+      "fetch_warehouse_csv": {
+        "warehouse_id": {
+          "description": "Identifier for the warehouse region to fetch data from",
+          "type": "string",
+          "default": null,
+          "required": true,
+          "constraints": "Must be one of: north, south, east, west"
+        }
+      },
+      "normalize_sku_formats": {
+        "warehouse_id": {
+          "description": "Identifier for the warehouse region to normalize",
+          "type": "string",
+          "default": null,
+          "required": true,
+          "constraints": "Must be one of: north, south, east, west"
+        },
+        "csv_file": {
+          "description": "Name of the CSV file to normalize",
+          "type": "string",
+          "default": null,
+          "required": true,
+          "constraints": "Should match the output from corresponding fetch task"
+        }
+      },
+      "reconcile_inventories": {
+        "provide_context": {
+          "description": "Whether to provide execution context for XCom access",
+          "type": "boolean",
+          "default": true,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "generate_reconciliation_report": {
+        "provide_context": {
+          "description": "Whether to provide execution context for XCom access",
+          "type": "boolean",
+          "default": true,
+          "required": false,
+          "constraints": null
+        }
+      }
+    },
+    "environment": {
+      "WAREHOUSE_NORTH_URL": {
+        "description": "URL for north warehouse management system",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "fetch_warehouse_csv"
+      },
+      "WAREHOUSE_SOUTH_URL": {
+        "description": "URL for south warehouse management system",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "fetch_warehouse_csv"
+      },
+      "WAREHOUSE_EAST_URL": {
+        "description": "URL for east warehouse management system",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "fetch_warehouse_csv"
+      },
+      "WAREHOUSE_WEST_URL": {
+        "description": "URL for west warehouse management system",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "fetch_warehouse_csv"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "warehouse_management_system",
+        "name": "Warehouse Management System API",
+        "type": "api",
+        "config": {
+          "base_url": "https://warehouse-api.example.com/v1",
+          "host": null,
+          "port": null,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null,
+          "base_path": null
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "WAREHOUSE_API_TOKEN",
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "fetch_warehouse_csv"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": 10,
+          "burst": 20
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "warehouse_{region}_inventory.csv"
+          ]
+        }
+      },
+      {
+        "id": "xcom_data_store",
+        "name": "XCom Data Store",
+        "type": "cache",
+        "config": {
+          "base_url": null,
+          "host": "localhost",
+          "port": 6379,
+          "protocol": "redis",
+          "database": "0",
+          "schema": null,
+          "bucket": null,
+          "queue_name": null,
+          "base_path": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "fetch_warehouse_csv",
+          "normalize_sku_formats",
+          "reconcile_inventories",
+          "generate_reconciliation_report"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "warehouse_north_inventory.csv",
+            "warehouse_south_inventory.csv",
+            "warehouse_east_inventory.csv",
+            "warehouse_west_inventory.csv",
+            "normalized_north_inventory.csv",
+            "normalized_south_inventory.csv",
+            "normalized_east_inventory.csv",
+            "normalized_west_inventory.csv",
+            "inventory_discrepancies_report.csv",
+            "retail_inventory_reconciliation_final.pdf"
+          ],
+          "consumes": [
+            "warehouse_north_inventory.csv",
+            "warehouse_south_inventory.csv",
+            "warehouse_east_inventory.csv",
+            "warehouse_west_inventory.csv",
+            "normalized_north_inventory.csv",
+            "normalized_south_inventory.csv",
+            "normalized_east_inventory.csv",
+            "normalized_west_inventory.csv",
+            "inventory_discrepancies_report.csv"
+          ]
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Warehouse Management System (North Region)",
+        "Warehouse Management System (South Region)",
+        "Warehouse Management System (East Region)",
+        "Warehouse Management System (West Region)"
+      ],
+      "sinks": [
+        "Final Reconciliation Report (PDF)"
+      ],
+      "intermediate_datasets": [
+        "warehouse_{region}_inventory.csv",
+        "normalized_{region}_inventory.csv",
+        "inventory_discrepancies_report.csv"
+      ]
+    }
+  }
+}

@@ -1,0 +1,1043 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-01T07:46:15.212992",
+    "source_file": "Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_00_data_quality_gate.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "gpt-oss-120b",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "branching",
+        "parallel"
+      ],
+      "task_executors_used": [
+        "python"
+      ],
+      "has_branching": true,
+      "has_parallelism": true,
+      "has_sensors": false,
+      "total_components": 6,
+      "complexity_score": "medium"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Branching via BranchPythonOperator",
+          "Parallelism via TaskFlow API expand()"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "Conditional logic via Python control flow",
+          "map() for parallel execution"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "Dynamic graphs or branching ops",
+          "DynamicOutput for fan-out"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "data_quality_gate",
+    "description": "Implements a data quality gate for customer CSV data that ingests raw data, performs quality assessment, and conditionally routes to production or quarantine based on quality scores.",
+    "flow_patterns": [
+      "sequential",
+      "branching",
+      "parallel"
+    ],
+    "task_executors": [
+      "python"
+    ],
+    "complexity": "medium"
+  },
+  "components": [
+    {
+      "id": "ingest_csv",
+      "name": "Ingest Customer CSV",
+      "category": "Extractor",
+      "description": "Loads raw customer CSV files from the source directory and emits file metadata for downstream quality assessment.",
+      "inputs": [
+        "raw_customer_csv_files"
+      ],
+      "outputs": [
+        "file_metadata"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "raw_customer_csv_files",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/data/raw/*.csv",
+          "connection_id": "fs_raw"
+        },
+        {
+          "name": "file_metadata",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Root task with no upstream dependencies",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_raw",
+          "type": "filesystem",
+          "purpose": "source raw CSV files"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "raw_customer_csv"
+        ],
+        "produces": [
+          "customer_csv_metadata"
+        ]
+      }
+    },
+    {
+      "id": "quality_check",
+      "name": "Assess Data Quality",
+      "category": "QualityCheck",
+      "description": "Computes completeness and validity metrics for the ingested CSV and determines routing based on a 95% quality threshold.",
+      "inputs": [
+        "file_metadata"
+      ],
+      "outputs": [
+        "quality_decision",
+        "quality_score"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "file_metadata",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "quality_decision",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "quality_score",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful ingestion of CSV metadata",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "customer_csv_metadata"
+        ],
+        "produces": [
+          "quality_decision",
+          "quality_score"
+        ]
+      }
+    },
+    {
+      "id": "production_load",
+      "name": "Load High-Quality Data to Production",
+      "category": "Loader",
+      "description": "Writes high-quality customer records (≥95% score) into the production database.",
+      "inputs": [
+        "file_metadata"
+      ],
+      "outputs": [
+        "production_db_update"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "file_metadata",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "production_db_update",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": null,
+          "connection_id": "prod_db"
+        }
+      ],
+      "upstream_policy": {
+        "type": "custom",
+        "description": "Triggered when quality_check returns the 'production_load' branch decision",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "prod_db",
+          "type": "database",
+          "purpose": "production database"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "customer_csv_metadata"
+        ],
+        "produces": [
+          "production_customer_table"
+        ]
+      }
+    },
+    {
+      "id": "quarantine_and_alert",
+      "name": "Quarantine Low-Quality Data",
+      "category": "Loader",
+      "description": "Moves CSV files failing the quality threshold to quarantine storage for further inspection.",
+      "inputs": [
+        "file_metadata"
+      ],
+      "outputs": [
+        "quarantined_file_path"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "file_metadata",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "quarantined_file_path",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/data/quarantine/*.csv",
+          "connection_id": "quarantine_storage"
+        }
+      ],
+      "upstream_policy": {
+        "type": "custom",
+        "description": "Triggered when quality_check returns the 'quarantine_and_alert' branch decision",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "quarantine_storage",
+          "type": "filesystem",
+          "purpose": "quarantine storage for low-quality CSVs"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "customer_csv_metadata"
+        ],
+        "produces": [
+          "quarantined_customer_csv"
+        ]
+      }
+    },
+    {
+      "id": "send_alert_email",
+      "name": "Send Quality Alert Email",
+      "category": "Notifier",
+      "description": "Sends an email to data stewards notifying them of low-quality data detection.",
+      "inputs": [
+        "quarantined_file_path"
+      ],
+      "outputs": [
+        "alert_email_sent"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "quarantined_file_path",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/data/quarantine/*.csv",
+          "connection_id": "quarantine_storage"
+        },
+        {
+          "name": "alert_email_sent",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after the quarantine_and_alert task completes successfully",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "email_smtp",
+          "type": "email",
+          "purpose": "SMTP service for alert notifications"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "quarantined_customer_csv"
+        ],
+        "produces": [
+          "quality_alert_notification"
+        ]
+      }
+    },
+    {
+      "id": "cleanup",
+      "name": "Cleanup Temporary Resources",
+      "category": "Other",
+      "description": "Deletes temporary files and releases resources after either production load or alert workflow completes.",
+      "inputs": [
+        "production_db_update",
+        "alert_email_sent"
+      ],
+      "outputs": [
+        "cleanup_status"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "production_db_update",
+          "direction": "input",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": null,
+          "connection_id": "prod_db"
+        },
+        {
+          "name": "alert_email_sent",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "cleanup_status",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Triggered after both the production_load and send_alert_email branches complete",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_temp",
+          "type": "filesystem",
+          "purpose": "temporary file cleanup"
+        },
+        {
+          "id": "prod_db",
+          "type": "database",
+          "purpose": "production database"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "production_customer_table",
+          "quality_alert_notification"
+        ],
+        "produces": [
+          "pipeline_cleanup_status"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "branching",
+    "entry_points": [
+      "ingest_csv"
+    ],
+    "nodes": {
+      "ingest_csv": {
+        "kind": "Task",
+        "component_type_id": "ingest_csv",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "quality_check"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "quality_check": {
+        "kind": "Branch",
+        "component_type_id": "quality_check",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "production_load",
+          "quarantine_and_alert"
+        ],
+        "branch_config": {
+          "type": "conditional",
+          "branches": [
+            {
+              "label": "high_quality",
+              "condition": "score >= 95",
+              "next_node": "production_load"
+            },
+            {
+              "label": "low_quality",
+              "condition": "score < 95",
+              "next_node": "quarantine_and_alert"
+            }
+          ]
+        },
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "production_load": {
+        "kind": "Task",
+        "component_type_id": "production_load",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "cleanup"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "quarantine_and_alert": {
+        "kind": "Task",
+        "component_type_id": "quarantine_and_alert",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "send_alert_email"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "send_alert_email": {
+        "kind": "Task",
+        "component_type_id": "send_alert_email",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "cleanup"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "cleanup": {
+        "kind": "Task",
+        "component_type_id": "cleanup",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "ingest_csv",
+        "to": "quality_check",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "quality_check",
+        "to": "production_load",
+        "edge_type": "conditional",
+        "condition": "high_quality",
+        "metadata": {}
+      },
+      {
+        "from": "quality_check",
+        "to": "quarantine_and_alert",
+        "edge_type": "conditional",
+        "condition": "low_quality",
+        "metadata": {}
+      },
+      {
+        "from": "production_load",
+        "to": "cleanup",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "quarantine_and_alert",
+        "to": "send_alert_email",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "send_alert_email",
+        "to": "cleanup",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "data_quality_gate",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": "Implements a data quality gate for customer CSV data that ingests raw data, performs quality assessment, and conditionally routes to production or quarantine based on quality scores.",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2024-01-01",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 1,
+          "retry_delay_minutes": 5
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      }
+    },
+    "components": {
+      "ingest_csv": {},
+      "quality_check": {},
+      "production_load": {},
+      "quarantine_and_alert": {},
+      "send_alert_email": {
+        "to": {
+          "description": "Email recipient address for quality alerts",
+          "type": "string",
+          "default": "data-stewards@company.com",
+          "required": false,
+          "constraints": "must be a valid email address"
+        },
+        "html_template": {
+          "description": "HTML template used for the alert email body",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "cleanup": {}
+    },
+    "environment": {}
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "raw_csv_filesystem",
+        "name": "Raw CSV Filesystem",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/data/raw/",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "ingest_csv"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "raw_csv_metadata"
+          ],
+          "consumes": [
+            "raw_csv_files"
+          ]
+        }
+      },
+      {
+        "id": "production_db",
+        "name": "Production Database",
+        "type": "database",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "jdbc",
+          "database": "production_db",
+          "schema": "public",
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "production_load"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "production_customer_records"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "quarantine_storage",
+        "name": "Quarantine Storage",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/data/quarantine/",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "quarantine_and_alert"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "quarantined_csv_files"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "smtp_email",
+        "name": "SMTP Email Service",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "smtp://smtp.company.com",
+          "host": "smtp.company.com",
+          "port": 587,
+          "protocol": "smtp",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "basic",
+          "token_env_var": null,
+          "username_env_var": "SMTP_USER",
+          "password_env_var": "SMTP_PASS",
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "send_alert_email"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "quality_alert_email"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "temp_files_cleanup",
+        "name": "Temporary Files Cleanup",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/data/tmp/",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "cleanup"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "cleanup_status"
+          ],
+          "consumes": [
+            "temporary_files"
+          ]
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Raw customer CSV files located at /data/raw/"
+      ],
+      "sinks": [
+        "Production database where high‑quality records are stored",
+        "Quarantine storage at /data/quarantine/ for low‑quality files",
+        "Email notifications sent via SMTP to data stewards"
+      ],
+      "intermediate_datasets": [
+        "File metadata (path, record count) passed via XCom",
+        "Quality score determining routing (≥95% vs <95%)",
+        "Quarantined CSV files",
+        "Alert email content",
+        "Cleanup status flag"
+      ]
+    }
+  }
+}

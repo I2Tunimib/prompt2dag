@@ -1,0 +1,963 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T16:45:29.775229",
+    "source_file": "Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_05_content_moderation_pipeline.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "gpt-oss-120b",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "branching"
+      ],
+      "task_executors_used": [
+        "python"
+      ],
+      "has_branching": true,
+      "has_parallelism": false,
+      "has_sensors": false,
+      "total_components": 5,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Branching via BranchPythonOperator"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "Conditional logic via Python control flow"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "Dynamic graphs or branching ops"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "extract_user_content_pipeline",
+    "description": "Content Moderation Pipeline",
+    "flow_patterns": [
+      "sequential",
+      "branching"
+    ],
+    "task_executors": [
+      "python"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "extract_user_content",
+      "name": "Extract User Content",
+      "category": "Extractor",
+      "description": "Reads the CSV file containing user‑generated content and emits metadata such as total item count and file path via XCom.",
+      "inputs": [
+        "/data/user_content.csv"
+      ],
+      "outputs": [
+        "content_metadata"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "user_content_csv",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/data/user_content.csv",
+          "connection_id": "fs_local"
+        },
+        {
+          "name": "content_metadata",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Root task, no upstream dependencies.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_local",
+          "type": "filesystem",
+          "purpose": "Read CSV file from local disk"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "user_content_raw"
+        ],
+        "produces": [
+          "content_metadata"
+        ]
+      }
+    },
+    {
+      "id": "evaluate_toxicity",
+      "name": "Evaluate Toxicity",
+      "category": "QualityCheck",
+      "description": "Computes a toxicity score for the extracted content and decides which downstream branch to follow based on a 0.7 threshold.",
+      "inputs": [
+        "content_metadata"
+      ],
+      "outputs": [
+        "branch_decision"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "content_metadata",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "branch_decision",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful extraction of user content.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "content_metadata"
+        ],
+        "produces": [
+          "toxicity_score"
+        ]
+      }
+    },
+    {
+      "id": "remove_and_flag_content",
+      "name": "Remove and Flag Toxic Content",
+      "category": "Enricher",
+      "description": "Deletes content identified as toxic and flags the associated user accounts for review.",
+      "inputs": [
+        "content_metadata"
+      ],
+      "outputs": [
+        "removal_confirmation"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "content_metadata",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "removal_confirmation",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "custom",
+        "description": "Executed only when toxicity_check routes to this branch (toxicity > 0.7).",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "content_mgmt_system",
+          "type": "api",
+          "purpose": "Interact with platform content management system to delete content and flag users"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "content_metadata"
+        ],
+        "produces": [
+          "removal_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "publish_content",
+      "name": "Publish Safe Content",
+      "category": "Loader",
+      "description": "Publishes content deemed non‑toxic to the platform for user visibility.",
+      "inputs": [
+        "content_metadata"
+      ],
+      "outputs": [
+        "publication_confirmation"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "content_metadata",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "publication_confirmation",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "custom",
+        "description": "Executed only when toxicity_check routes to this branch (toxicity ≤ 0.7).",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "publishing_system",
+          "type": "api",
+          "purpose": "Send safe content to the platform publishing service"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "content_metadata"
+        ],
+        "produces": [
+          "publication_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "audit_log",
+      "name": "Create Audit Log",
+      "category": "Loader",
+      "description": "Aggregates outcomes from both removal/flagging and publishing branches and writes a consolidated audit log entry.",
+      "inputs": [
+        "removal_confirmation",
+        "publication_confirmation"
+      ],
+      "outputs": [
+        "audit_log_entry"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "removal_confirmation",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "publication_confirmation",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "audit_log_entry",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": null,
+          "connection_id": "audit_logging_system"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after both branch paths have completed, regardless of which branch was taken.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "audit_logging_system",
+          "type": "api",
+          "purpose": "Persist audit log entries"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "removal_confirmation",
+          "publication_confirmation"
+        ],
+        "produces": [
+          "audit_log_entry"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "branching",
+    "entry_points": [
+      "extract_user_content"
+    ],
+    "nodes": {
+      "extract_user_content": {
+        "kind": "Task",
+        "component_type_id": "extract_user_content",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "evaluate_toxicity"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "evaluate_toxicity": {
+        "kind": "Task",
+        "component_type_id": "evaluate_toxicity",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "remove_and_flag_content",
+          "publish_content"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "remove_and_flag_content": {
+        "kind": "Task",
+        "component_type_id": "remove_and_flag_content",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "audit_log"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "publish_content": {
+        "kind": "Task",
+        "component_type_id": "publish_content",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "audit_log"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "audit_log": {
+        "kind": "Task",
+        "component_type_id": "audit_log",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "extract_user_content",
+        "to": "evaluate_toxicity",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "evaluate_toxicity",
+        "to": "remove_and_flag_content",
+        "edge_type": "conditional",
+        "condition": "high_toxicity",
+        "metadata": {}
+      },
+      {
+        "from": "evaluate_toxicity",
+        "to": "publish_content",
+        "edge_type": "conditional",
+        "condition": "low_toxicity",
+        "metadata": {}
+      },
+      {
+        "from": "remove_and_flag_content",
+        "to": "audit_log",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "publish_content",
+        "to": "audit_log",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Human‑readable description of the pipeline",
+        "type": "string",
+        "default": "Content Moderation Pipeline",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2024-01-01T00:00:00Z",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 2,
+          "delay_seconds": 300,
+          "email_on_failure": true,
+          "email_on_retry": false
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "extract_user_content": {
+        "csv_file_path": {
+          "description": "Path to the CSV file containing user‑generated content",
+          "type": "string",
+          "default": "/data/user_content.csv",
+          "required": false,
+          "constraints": "must be a readable file path"
+        },
+        "provide_context": {
+          "description": "Enable XCom context passing",
+          "type": "boolean",
+          "default": true,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "evaluate_toxicity": {
+        "toxicity_threshold": {
+          "description": "Score threshold that determines branching (high toxicity > threshold)",
+          "type": "float",
+          "default": 0.7,
+          "required": false,
+          "constraints": "value between 0 and 1"
+        },
+        "provide_context": {
+          "description": "Enable XCom context passing",
+          "type": "boolean",
+          "default": true,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "remove_and_flag_content": {
+        "provide_context": {
+          "description": "Enable XCom context passing",
+          "type": "boolean",
+          "default": true,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "publish_content": {
+        "provide_context": {
+          "description": "Enable XCom context passing",
+          "type": "boolean",
+          "default": true,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "audit_log": {
+        "provide_context": {
+          "description": "Enable XCom context passing from both upstream branches",
+          "type": "boolean",
+          "default": true,
+          "required": false,
+          "constraints": null
+        }
+      }
+    },
+    "environment": {}
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "local_csv_filesystem",
+        "name": "Local CSV File System",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/data",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "extract_user_content"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "user_content_csv"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "content_management_api",
+        "name": "Platform Content Management System",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "remove_and_flag_content"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "removal_confirmation"
+          ],
+          "consumes": [
+            "content_metadata"
+          ]
+        }
+      },
+      {
+        "id": "publishing_api",
+        "name": "Platform Publishing System",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "publish_content"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "publication_confirmation"
+          ],
+          "consumes": [
+            "content_metadata"
+          ]
+        }
+      },
+      {
+        "id": "audit_logging_api",
+        "name": "Audit Logging System",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "http",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "audit_log"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "audit_log_entry"
+          ],
+          "consumes": [
+            "removal_confirmation",
+            "publication_confirmation"
+          ]
+        }
+      },
+      {
+        "id": "email_smtp_service",
+        "name": "Email Notification Service",
+        "type": "other",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": "smtp.example.com",
+          "port": 587,
+          "protocol": "smtp",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "basic",
+          "token_env_var": null,
+          "username_env_var": "SMTP_USER",
+          "password_env_var": "SMTP_PASSWORD",
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "extract_user_content",
+          "evaluate_toxicity",
+          "remove_and_flag_content",
+          "publish_content",
+          "audit_log"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "failure_alert_email"
+          ],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "User‑generated content CSV file located at /data/user_content.csv"
+      ],
+      "sinks": [
+        "Removal confirmation sent to the Platform Content Management System",
+        "Publication confirmation sent to the Platform Publishing System",
+        "Consolidated audit log entry written to the Audit Logging System",
+        "Failure alert emails sent via the Email Notification Service"
+      ],
+      "intermediate_datasets": [
+        "content_metadata (total_items, file_path)",
+        "toxicity_score_decision (branch decision)",
+        "removal_confirmation",
+        "publication_confirmation",
+        "audit_log_entry"
+      ]
+    }
+  }
+}

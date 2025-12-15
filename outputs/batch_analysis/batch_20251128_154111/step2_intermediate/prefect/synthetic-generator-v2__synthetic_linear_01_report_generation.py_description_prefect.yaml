@@ -1,0 +1,151 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-11-28 15:49:50.569152
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_linear_01_report_generation.py_description.txt
+  pipeline_name: Daily Sales Report
+  pipeline_description: This is a sequential linear pipeline that generates daily sales reports by querying PostgreSQL 
+    sales data, transforming it into CSV format, creating a PDF chart visualization, and emailing the final report to 
+    management.
+  orchestrator_specific:
+    flow_name: daily_sales_report
+    deployment_name: daily_sales_report_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: postgres_sales_db
+    conn_type: Secret
+    description: PostgreSQL Sales Database
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: postgres_sales_db
+      config:
+        host:
+        port:
+        database:
+        schema:
+        base_path:
+        base_url:
+        protocol: jdbc
+        bucket:
+        queue_name:
+  - conn_id: local_filesystem_tmp
+    conn_type: LocalFileSystem
+    description: Local Filesystem /tmp
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: local_filesystem_tmp
+      config:
+        base_path: /tmp
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: email_system
+    conn_type: Secret
+    description: Email System
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: email_system
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol:
+        database:
+        schema:
+        bucket:
+        queue_name:
+tasks:
+  - task_id: extract_sales_data
+    task_name: Extract Sales Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: extract_sales_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: transform_sales_to_csv
+    task_name: Transform Sales to CSV
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: transform_sales_to_csv
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: transform_to_csv.py
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - extract_sales_data
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: generate_sales_chart_pdf
+    task_name: Generate Sales Chart PDF
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: generate_sales_chart_pdf
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: generate_pdf_chart.py
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - transform_sales_to_csv
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: email_sales_report
+    task_name: Email Sales Report
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: email_sales_report
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: email_sales_report.py
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - generate_sales_chart_pdf
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

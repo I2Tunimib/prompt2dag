@@ -1,0 +1,46 @@
+[RunELT_Alert] - Comprehensive Pipeline Description
+
+Opening Summary:
+This is a sequential ELT pipeline that builds analytics tables in Snowflake using CTAS (Create Table As Select) operations. The pipeline processes tables one by one in a strict linear order, validating data quality and implementing atomic table swaps. Key infrastructure features include Snowflake database integration, Slack failure notifications, and a daily scheduled execution model.
+
+Pipeline Steps:
+
+1. runCTAS (iterative for each table)
+  • Objective: Create analytics tables from raw data using CTAS pattern with data validation and atomic table replacement
+  • Technical Details:
+    - Input: Raw data tables (raw_data.session_timestamp, raw_data.user_session_channel), preceding table task
+    - Output: Analytics tables in Snowflake schema, temporary tables for atomic swaps
+    - Integrations: Snowflake (snowflake_conn), Slack (failure notifications)
+    - Key Parameters: table_params dictionary containing schema, table name, and SQL query
+  • Operator or Mechanism: PythonOperator (via @task decorator)
+  • Notes: Each table task depends on the previous table task completion; implements zero-row validation
+
+Orchestration & Scheduling:
+- Schedule: @daily
+- Start Date: January 10, 2025
+- Catchup: False
+- Tags: ELT
+- Default Args: on_failure_callback configured for Slack notifications
+
+Infrastructure & Dependencies:
+- Connections: snowflake_conn (Snowflake database connection)
+- Data I/O: 
+  - Source tables: raw_data.session_timestamp, raw_data.user_session_channel
+  - Target schema: analytics
+  - Tables processed: mau_summary
+  - Temporary tables: analytics.temp_mau_summary
+- External Systems: Snowflake data warehouse, Slack for alerting
+
+Failure Handling & Alerts:
+- Failure callback: slack.on_failure_callback for Slack notifications
+- Data validation: Checks for zero records in temporary tables and raises AirflowException
+- Exception handling: Wraps Snowflake operations in try-catch blocks
+
+Pattern-Specific Notes:
+- Sequential topology: Tables are processed in strict linear order (mau_summary only in current configuration)
+- Staged ELT pattern: 
+  - Extract: SQL SELECT from raw tables
+  - Transform: Aggregation and formatting in CTAS
+  - Load: Atomic table swap using ALTER TABLE SWAP
+- Data validation: Row count validation prevents empty tables from being deployed
+- Atomic deployment: Uses temporary tables and SWAP operation for zero-downtime table updates

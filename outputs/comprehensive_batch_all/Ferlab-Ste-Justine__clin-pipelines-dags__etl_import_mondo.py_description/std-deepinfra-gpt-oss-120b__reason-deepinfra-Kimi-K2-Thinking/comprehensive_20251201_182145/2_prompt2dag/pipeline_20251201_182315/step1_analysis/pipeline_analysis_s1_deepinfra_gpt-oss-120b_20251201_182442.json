@@ -1,0 +1,880 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-01T18:24:42.140870",
+    "source_file": "Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_mondo.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "gpt-oss-120b",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential"
+      ],
+      "task_executors_used": [
+        "python",
+        "spark"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": false,
+      "total_components": 6,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "etl_import_mondo",
+    "description": "Comprehensive Pipeline Description",
+    "flow_patterns": [
+      "sequential"
+    ],
+    "task_executors": [
+      "python",
+      "spark"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "validate_params",
+      "name": "Validate Parameters",
+      "category": "QualityCheck",
+      "description": "Validates the DAG color parameter to ensure correct environment targeting before the pipeline proceeds.",
+      "inputs": [
+        "dag_parameters (color)"
+      ],
+      "outputs": [
+        "validation_result (gate for downstream tasks)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "validate_color",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "color_parameter",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "dag_params.color",
+          "connection_id": null
+        },
+        {
+          "name": "validation_flag",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "xcom.validation_result",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "First task in the linear pipeline.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "validation_result"
+        ]
+      }
+    },
+    {
+      "id": "download_mondo_terms",
+      "name": "Download Mondo OBO File",
+      "category": "Extractor",
+      "description": "Downloads the latest Mondo OBO file from GitHub releases, checks version against S3, and uploads the file to the landing zone in S3 (skipping if up‑to‑date).",
+      "inputs": [
+        "GitHub Mondo releases page",
+        "S3 landing bucket (current file version)"
+      ],
+      "outputs": [
+        "Mondo OBO file stored in S3 (raw/landing/mondo/)",
+        "Version identifier pushed to XCom"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "download_mondo_obo",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "github_release_url",
+          "direction": "input",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "https://github.com/monarch-initiative/mondo/releases",
+          "connection_id": null
+        },
+        {
+          "name": "s3_landing_path",
+          "direction": "output",
+          "kind": "file",
+          "format": "obo",
+          "path_pattern": "s3://cqgc-{{ env }}-app-datalake/raw/landing/mondo/monde.obo",
+          "connection_id": "s3_conn_id"
+        },
+        {
+          "name": "downloaded_version",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "xcom.mondo_version",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful parameter validation.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "s3_conn_id",
+          "type": "object_storage",
+          "purpose": "store downloaded OBO file"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "github_mondo_release"
+        ],
+        "produces": [
+          "mondo_obo_raw"
+        ]
+      }
+    },
+    {
+      "id": "normalize_mondo_terms",
+      "name": "Normalize Mondo Terms",
+      "category": "Transformer",
+      "description": "Runs a Spark job that parses the OBO file, excludes specific terms, and writes normalized ontology terms to the public Mondo terms location in S3.",
+      "inputs": [
+        "Mondo OBO file from S3 (raw/landing/mondo/)"
+      ],
+      "outputs": [
+        "Normalized terms written to S3 (public/mondo_terms/)"
+      ],
+      "executor_type": "spark",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "bio.ferlab.HPOMain",
+        "environment": {
+          "K8S_CONTEXT": "K8sContext.ETL",
+          "SPARK_CONFIG": "config-etl-medium"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "obo_input_path",
+          "direction": "input",
+          "kind": "file",
+          "format": "obo",
+          "path_pattern": "s3://cqgc-{{ env }}-app-datalake/raw/landing/mondo/monde.obo",
+          "connection_id": "s3_conn_id"
+        },
+        {
+          "name": "normalized_output_path",
+          "direction": "output",
+          "kind": "file",
+          "format": "parquet",
+          "path_pattern": "s3://cqgc-{{ env }}-app-datalake/public/mondo_terms/",
+          "connection_id": "s3_conn_id"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Executes after the OBO file has been successfully downloaded to S3.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": true,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "s3_conn_id",
+          "type": "object_storage",
+          "purpose": "read OBO, write normalized data"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "mondo_obo_raw"
+        ],
+        "produces": [
+          "mondo_terms_normalized"
+        ]
+      }
+    },
+    {
+      "id": "index_mondo_terms",
+      "name": "Index Mondo Terms",
+      "category": "Loader",
+      "description": "Runs a Spark job that reads the normalized terms from S3 and indexes them into Elasticsearch using a predefined index template.",
+      "inputs": [
+        "Normalized Mondo terms from S3 (public/mondo_terms/)"
+      ],
+      "outputs": [
+        "Elasticsearch index containing Mondo ontology data"
+      ],
+      "executor_type": "spark",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "bio.ferlab.clin.etl.es.Indexer",
+        "environment": {
+          "K8S_CONTEXT": "indexer_context",
+          "SPARK_CONFIG": "config-etl-singleton"
+        },
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "normalized_terms_path",
+          "direction": "input",
+          "kind": "file",
+          "format": "parquet",
+          "path_pattern": "s3://cqgc-{{ env }}-app-datalake/public/mondo_terms/",
+          "connection_id": "s3_conn_id"
+        },
+        {
+          "name": "elasticsearch_index",
+          "direction": "output",
+          "kind": "table",
+          "format": "json",
+          "path_pattern": "es://{{ es_url }}/mondo_terms",
+          "connection_id": "es_conn_id"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after the normalization Spark job completes successfully.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": true,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "s3_conn_id",
+          "type": "object_storage",
+          "purpose": "read normalized data"
+        },
+        {
+          "id": "es_conn_id",
+          "type": "search_engine",
+          "purpose": "write Elasticsearch index"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "mondo_terms_normalized"
+        ],
+        "produces": [
+          "mondo_terms_index"
+        ]
+      }
+    },
+    {
+      "id": "publish_mondo",
+      "name": "Publish Mondo Dataset",
+      "category": "Other",
+      "description": "Publishes the indexed Mondo dataset to downstream systems, using the version from the download step and the color parameter for environment targeting.",
+      "inputs": [
+        "Elasticsearch Mondo index",
+        "Version identifier from download task",
+        "Color parameter for environment"
+      ],
+      "outputs": [
+        "Published Mondo dataset (available to downstream consumers)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "publish_index.mondo",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "elasticsearch_index",
+          "direction": "input",
+          "kind": "table",
+          "format": "json",
+          "path_pattern": "es://{{ es_url }}/mondo_terms",
+          "connection_id": "es_conn_id"
+        },
+        {
+          "name": "publish_version",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "xcom.mondo_version",
+          "connection_id": null
+        },
+        {
+          "name": "published_dataset",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "internal_publish_system.mondo",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Executes after successful indexing of Mondo terms.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "es_conn_id",
+          "type": "search_engine",
+          "purpose": "read indexed data"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "mondo_terms_index"
+        ],
+        "produces": [
+          "mondo_dataset_published"
+        ]
+      }
+    },
+    {
+      "id": "slack_notification",
+      "name": "Send Slack Notification",
+      "category": "Notifier",
+      "description": "Sends a Slack message via webhook when the pipeline completes successfully.",
+      "inputs": [
+        "Pipeline completion status (success)"
+      ],
+      "outputs": [
+        "Slack notification message"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "Slack.notify_dag_completion",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "completion_status",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "dag_run.status",
+          "connection_id": null
+        },
+        {
+          "name": "slack_message",
+          "direction": "output",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "https://hooks.slack.com/services/...",
+          "connection_id": "slack_webhook_conn"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after all previous tasks have succeeded.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "slack_webhook_conn",
+          "type": "api",
+          "purpose": "post Slack notification"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "slack_notification"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sequential",
+    "entry_points": [
+      "validate_params"
+    ],
+    "nodes": {
+      "validate_params": {
+        "kind": "Task",
+        "component_type_id": "validate_params",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "download_mondo_terms"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "download_mondo_terms": {
+        "kind": "Task",
+        "component_type_id": "download_mondo_terms",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "normalize_mondo_terms"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "normalize_mondo_terms": {
+        "kind": "Task",
+        "component_type_id": "normalize_mondo_terms",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "index_mondo_terms"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "index_mondo_terms": {
+        "kind": "Task",
+        "component_type_id": "index_mondo_terms",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "publish_mondo"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "publish_mondo": {
+        "kind": "Task",
+        "component_type_id": "publish_mondo",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "slack_notification"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "slack_notification": {
+        "kind": "Task",
+        "component_type_id": "slack_notification",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "validate_params",
+        "to": "download_mondo_terms",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "download_mondo_terms",
+        "to": "normalize_mondo_terms",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "normalize_mondo_terms",
+        "to": "index_mondo_terms",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "index_mondo_terms",
+        "to": "publish_mondo",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "publish_mondo",
+        "to": "slack_notification",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "etl_import_mondo",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": "Comprehensive Pipeline Description",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2022-01-01T00:00:00Z",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": 1,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": null,
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "validate_params": {
+        "color": {
+          "description": "Color parameter used for environment targeting and configuration validation",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "download_mondo_terms": {
+        "s3_conn_id": {
+          "description": "S3 connection identifier used to upload the downloaded OBO file",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "normalize_mondo_terms": {
+        "k8s_context": {
+          "description": "Kubernetes context for the Spark job (ETL context)",
+          "type": "string",
+          "default": "K8sContext.ETL",
+          "required": false,
+          "constraints": null
+        },
+        "spark_class": {
+          "description": "Main Spark class to execute for normalization",
+          "type": "string",
+          "default": "bio.ferlab.HPOMain",
+          "required": false,
+          "constraints": null
+        },
+        "spark_config": {
+          "description": "Spark configuration profile for the normalization job",
+          "type": "string",
+          "default": "config-etl-medium",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "index_mondo_terms": {
+        "k8s_context": {
+          "description": "Kubernetes context for the Spark indexing job",
+          "type": "string",
+          "default": "indexer_context",
+          "required": false,
+          "constraints": null
+        },
+        "spark_class": {
+          "description": "Main Spark class to execute for indexing",
+          "type": "string",
+          "default": "bio.ferlab.clin.etl.es.Indexer",
+          "required": false,
+          "constraints": null
+        },
+        "spark_config": {
+          "description": "Spark configuration profile for the indexing job",
+          "type": "string",
+          "default": "config-etl-singleton",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "publish_mondo": {
+        "version": {
+          "description": "Version of the Mondo OBO file obtained from the download step",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "color": {
+          "description": "Color parameter for environment‑specific publishing",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "spark_jar": {
+          "description": "Spark JAR used during the publishing step",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "slack_notification": {}
+    },
+    "environment": {
+      "ES_URL": {
+        "description": "Elasticsearch endpoint URL used by the indexing component",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "index_mondo_terms"
+      },
+      "S3_CONN_ID": {
+        "description": "S3 connection identifier for accessing the data lake",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "download_mondo_terms"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [],
+    "data_lineage": {
+      "sources": [],
+      "sinks": [],
+      "intermediate_datasets": []
+    }
+  }
+}

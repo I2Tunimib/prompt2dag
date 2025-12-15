@@ -1,0 +1,105 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-30 23:57:05.595548
+  source_analysis_file: 
+    Pipeline_Description_Dataset/6587093polakornming__RiskAlertPM25__mahidol_aqi_report_pipeline_alert.py_description.txt
+  pipeline_name: get_data_mahidol_aqi_report_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression:
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: mahidol_aqi_website
+    conn_type: http
+    description: Mahidol University AQI Website
+    config:
+      base_url: https://mahidol.ac.th/aqireport/
+      protocol: https
+  - conn_id: local_filesystem
+    conn_type: fs
+    description: Local Filesystem
+    config:
+      base_path: /opt/airflow/data
+      protocol: file
+  - conn_id: postgres_data_warehouse
+    conn_type: generic
+    description: PostgreSQL Data Warehouse
+    config:
+      host: localhost
+      port: 5432
+      database: airquality
+      schema: public
+      login: POSTGRES_USER
+      password: POSTGRES_PASSWORD
+  - conn_id: smtp_server
+    conn_type: http
+    description: SMTP Server
+    config:
+      host: smtp.gmail.com
+      port: 587
+      protocol: smtp
+      login: SMTP_USERNAME
+      password: SMTP_PASSWORD
+  - conn_id: config_filesystem
+    conn_type: fs
+    description: Configuration Filesystem
+    config:
+      base_path: /opt/airflow/config
+      protocol: file
+tasks:
+  - task_id: get_data_mahidol_aqi_report
+    task_name: Scrape Mahidol AQI Report
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: get_data_mahidol_aqi_report
+    config:
+      python_callable: path/to/scrape_mahidol_aqi.py
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: create_json_object
+    task_name: Parse and Validate AQI Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: create_json_object
+    config:
+      python_callable: path/to/parse_and_validate_aqi.py
+    upstream_task_ids:
+      - get_data_mahidol_aqi_report
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: load_mahidol_aqi_to_postgres
+    task_name: Load AQI Data to PostgreSQL
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: load_mahidol_aqi_to_postgres
+    config:
+      python_callable: path/to/load_aqi_to_postgres.py
+    upstream_task_ids:
+      - create_json_object
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: alert_email
+    task_name: Send AQI Alert Emails
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: alert_email
+    config:
+      python_callable: path/to/send_aqi_alerts.py
+    upstream_task_ids:
+      - load_mahidol_aqi_to_postgres
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

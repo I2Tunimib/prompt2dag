@@ -1,0 +1,277 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 16:47:09.022887
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_05_content_moderation_pipeline.py_description.txt
+  pipeline_name: extract_user_content_pipeline
+  pipeline_description: Content Moderation Pipeline
+  orchestrator_specific:
+    job_name: extract_user_content_pipeline
+    description: Content Moderation Pipeline
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - content_mgmt_system
+      - audit_logging_system
+      - publishing_system
+      - fs_local
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: local_csv_filesystem
+    conn_type: fs_io_manager
+    description: Local CSV File System
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: local_csv_filesystem
+      config:
+        base_path: /data
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: content_management_api
+    conn_type: resource
+    description: Platform Content Management System
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: content_management_api
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: http
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: publishing_api
+    conn_type: resource
+    description: Platform Publishing System
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: publishing_api
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: http
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: audit_logging_api
+    conn_type: resource
+    description: Audit Logging System
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: audit_logging_api
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: http
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: email_smtp_service
+    conn_type: resource
+    description: Email Notification Service
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: email_smtp_service
+      config:
+        base_path:
+        base_url:
+        host: smtp.example.com
+        port: 587
+        protocol: smtp
+        database:
+        schema:
+        bucket:
+        queue_name:
+        username: EnvVar('SMTP_USER')
+        password: EnvVar('SMTP_PASSWORD')
+tasks:
+  - task_id: extract_user_content
+    task_name: Extract User Content
+    operator_class: Op
+    operator_module: dagster
+    component_ref: extract_user_content
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - fs_local
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: user_content_csv
+          dagster_type: String
+          description: /data/user_content.csv
+      outs:
+        - name: content_metadata
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: evaluate_toxicity
+    task_name: Evaluate Toxicity
+    operator_class: Op
+    operator_module: dagster
+    component_ref: evaluate_toxicity
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys: []
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: content_metadata
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: branch_decision
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - extract_user_content
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: remove_and_flag_content
+    task_name: Remove and Flag Toxic Content
+    operator_class: Op
+    operator_module: dagster
+    component_ref: remove_and_flag_content
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - content_mgmt_system
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: content_metadata
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: removal_confirmation
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - evaluate_toxicity
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: publish_content
+    task_name: Publish Safe Content
+    operator_class: Op
+    operator_module: dagster
+    component_ref: publish_content
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - publishing_system
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: content_metadata
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: publication_confirmation
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - evaluate_toxicity
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: audit_log
+    task_name: Create Audit Log
+    operator_class: Op
+    operator_module: dagster
+    component_ref: audit_log
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - audit_logging_system
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: removal_confirmation
+          dagster_type: Any
+          description: ''
+        - name: publication_confirmation
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: audit_log_entry
+          dagster_type: Any
+          description: Output to audit_logging_system
+    upstream_task_ids:
+      - remove_and_flag_content
+      - publish_content
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

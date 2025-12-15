@@ -1,0 +1,163 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-01T02:38:16.170040
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/HaydarovAkbar__airflow_dag__main.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**Pipeline Analysis Report**
+
+---
+
+### 1. Executive Summary  
+
+**Purpose**  
+The pipeline orchestrates the end‑to‑end loading of L2 datasets, registers the workflow execution, performs cleanup of PostgreSQL sessions, triggers two downstream data‑preparation workloads in parallel, notifies an external SAP system, and finally records a successful run. A failure in any upstream component triggers an email alert.
+
+**High‑level Flow**  
+1. **Gate** – Wait for a flag in the data‑warehouse indicating that the previous day’s L1‑to‑L2 load succeeded.  
+2. **Identification** – Generate a unique load identifier and register the workflow in metadata tables.  
+3. **Gate** – Ensure the previous day’s full pipeline run has completed.  
+4. **Cleanup** – Trigger a PostgreSQL session‑cleanup routine and wait for its completion.  
+5. **Parallel Branches** –  
+   * Branch A: Trigger a reporting‑data‑preparation workload.  
+   * Branch B: Trigger a client‑segmentation load, then notify SAP via HTTP POST.  
+6. **Join** – After both branches finish, update the workflow status to “successful”.  
+7. **Failure Path** – Any component that fails routes a failure‑notification email.
+
+**Key Patterns & Complexity**  
+- **Sequential** steps dominate the early gating and registration phases.  
+- **Parallel (fan‑out / fan‑in)** execution occurs after the cleanup step, with two independent branches that converge before finalization.  
+- **Sensor‑driven** components poll a database table and an external pipeline status.  
+- **Event‑driven** components react to signals (XCom‑like messages) and external DAG completions.  
+- **Hybrid** topology (sequential → parallel → join) with a dedicated failure‑handling branch.  
+- **Estimated components:** 10, all configured with simple retry policies (no retries) and no intrinsic parallelism support, relying on the orchestrator’s concurrency handling.
+
+---
+
+### 2. Pipeline Architecture  
+
+#### Flow Patterns  
+- **Sequential:** `wait_for_l2_full_load → get_load_id → workflow_registration → wait_for_success_end → trigger_sys_kill_all_session_pg`.  
+- **Parallel (fan‑out):** After `trigger_sys_kill_all_session_pg`, two independent branches start:  
+  * `trigger_wf_data_preparation_for_reports` → join point.  
+  * `trigger_load_ds_client_segmentation` → `send_flag_to_sap` → join point.  
+- **Sensor‑driven:** Two sensors (`wait_for_l2_full_load`, `wait_for_success_end`) poll external state before allowing downstream execution.  
+- **Event‑driven:** Signals passed via XCom‑like objects (`load_id`, `session_cleanup_done`, `reporting_preparation_done`, `sap_flag_acknowledgment`) drive downstream components.  
+- **Hybrid:** Combination of the above patterns yields a mixed topology.
+
+#### Execution Characteristics  
+- **Executor Types:**  
+  * **SQL** – used by the first sensor to query the DWH flag.  
+  * **Python** – used for identifier generation, metadata registration, finalization, and failure‑email notification.  
+  * **Custom** – used for external‑pipeline triggers and the second sensor that monitors another pipeline’s end task.  
+  * **HTTP** – used for the SAP notification.  
+- **Concurrency Model:** The pipeline permits up to 20 concurrent runs (pipeline‑level setting). Individual components do not declare internal parallelism; parallelism is achieved by the orchestrator at the pipeline level.
+
+#### Component Overview (Categories)  
+| Category      | Role in Pipeline |
+|---------------|------------------|
+| **Sensor**    | Gate execution until external conditions are met (`wait_for_l2_full_load`, `wait_for_success_end`). |
+| **Transformer** | Generate or transform data objects (`get_load_id`, `finalize_workflow`). |
+| **Enricher**  | Persist workflow metadata (`workflow_registration`). |
+| **Orchestrator** | Trigger external pipelines and wait for their completion (`trigger_sys_kill_all_session_pg`, `trigger_wf_data_preparation_for_reports`, `trigger_load_ds_client_segmentation`). |
+| **Notifier**  | Communicate outcomes to external systems (`send_flag_to_sap`, `email_on_failure`). |
+
+#### Flow Description  
+
+- **Entry Point:** `wait_for_l2_full_load` (SQL sensor).  
+- **Main Sequence:** After the flag is detected, the pipeline creates a load ID, registers the session, and waits for the previous day’s full run to finish.  
+- **Parallelism:** Once the cleanup trigger succeeds, two branches start in parallel.  
+  * **Branch A:** Triggers the reporting‑data‑preparation pipeline and signals completion.  
+  * **Branch B:** Triggers the client‑segmentation load, then posts a completion flag to SAP.  
+- **Join:** A logical join waits for both `reporting_preparation_done` and `sap_flag_acknowledgment` before invoking `finalize_workflow`.  
+- **Failure Handling:** Any upstream failure routes to `email_on_failure`, which sends an alert via SMTP.  
+
+---
+
+### 3. Detailed Component Analysis  
+
+| Component ID | Category | Purpose & Role | Executor Type & Config | Inputs | Outputs | Retry Policy | Concurrency Settings | Connected Systems |
+|--------------|----------|----------------|------------------------|--------|---------|--------------|----------------------|-------------------|
+| **wait_for_l2_full_load** | Sensor | Polls `md.dwh_flag` until the flag `l1_to_l2_load_successfull` for the previous business day is set. | SQL – no special image/command; uses default environment. | `md.dwh_flag` table (PostgreSQL) | `sensor_success` signal | No retries (max_attempts = 0) | No parallelism support. | PostgreSQL DWH (`dwh`). |
+| **get_load_id** | Transformer | Generates a unique load identifier and publishes it for downstream components. | Python – default runtime. | `sensor_success` signal | `load_id` (XCom‑like JSON) | No retries. | No parallelism support. | None (internal). |
+| **workflow_registration** | Enricher | Inserts a record into `metadata.workflow_sessions` using the generated load ID. | Python – default runtime. | `load_id` | `metadata_registration` (SQL table) | No retries. | No parallelism support. | PostgreSQL DWH (`dwh`). |
+| **wait_for_success_end** | Sensor | Monitors the end task of the previous day’s run of the same pipeline via an external API. | Custom – configured to query external pipeline status (`airflow://dag_status/...`). | External DAG status (JSON) | `sensor_success` signal | No retries. | No parallelism support. | None (external API). |
+| **trigger_sys_kill_all_session_pg** | Orchestrator | Triggers the `sys_kill_all_session_pg` external pipeline to clean up PostgreSQL sessions and waits for its completion. | Custom – `dag_id` = `sys_kill_all_session_pg`, `wait_for_completion` = true. | `sensor_success` from previous sensor | `session_cleanup_done` (XCom‑like JSON) | No retries. | No parallelism support. | None (external DAG). |
+| **trigger_wf_data_preparation_for_reports** | Orchestrator | Triggers the reporting‑data‑preparation external pipeline, consuming a pool slot (`dwh_l2`). | Custom – `dag_id` = `wf_data_preparation_for_reports`, pool = `dwh_l2`, slots = 1. | `session_cleanup_done` | `reporting_preparation_done` (XCom‑like JSON) | No retries. | No parallelism support. | None (external DAG). |
+| **trigger_load_ds_client_segmentation** | Orchestrator | Triggers the client‑segmentation load external pipeline. | Custom – `dag_id` = `l1_to_l2_p_load_data_ds_client_segmentation_full`. | `session_cleanup_done` | `client_segmentation_loaded` (XCom‑like JSON) | No retries. | No parallelism support. | None (external DAG). |
+| **send_flag_to_sap** | Notifier | Sends an HTTP POST to the SAP endpoint with a completion flag after client segmentation load finishes. | HTTP – URL `<SAP_ENDPOINT_URL>`, method POST, JSON header. | `client_segmentation_loaded` | `sap_flag_acknowledgment` (XCom‑like JSON) | No retries. | No parallelism support. | SAP API (`sap_conn`). |
+| **finalize_workflow** | Transformer | Updates metadata tables to mark the workflow as successful after both parallel branches complete. | Python – default runtime. | `reporting_preparation_done`, `sap_flag_acknowledgment` | `workflow_success_record` (SQL table) | No retries. | No parallelism support. | PostgreSQL DWH (`dwh`). |
+| **email_on_failure** | Notifier | Sends a failure notification email when any upstream component fails. | Python – configured with recipients `test@gmail.com`, subject “Pipeline Failure Alert”. | Failure signals from all upstream components | `failure_email_sent` (XCom‑like JSON) | No retries. | No parallelism support. | SMTP service (`smtp_email`). |
+
+*All components share a uniform upstream policy: they execute only after all direct predecessors succeed, except the failure‑notification component which triggers on any upstream failure.*
+
+---
+
+### 4. Parameter Schema  
+
+| Scope | Parameter | Description | Type | Default | Required |
+|-------|-----------|-------------|------|---------|----------|
+| **Pipeline** | `name` | Identifier of the pipeline | string | `WF_MAIN_DATASETS_LOAD_L2_TO_L2` | Yes |
+| | `description` | Human‑readable description | string | `Comprehensive Pipeline Description` | No |
+| | `tags` | Classification tags | array | `[]` | No |
+| **Schedule** | `enabled` | Whether the pipeline runs on a schedule | boolean | `false` | No |
+| | `cron_expression` | Cron or preset expression (unused) | string | `null` | No |
+| | `start_date` | Date from which scheduling would start (if enabled) | datetime | `2024‑12‑22T00:00:00Z` | No |
+| | `catchup` | Run missed intervals if schedule is enabled | boolean | `false` | No |
+| **Execution** | `max_active_runs` | Maximum concurrent pipeline runs | integer | `20` | No |
+| | `timeout_seconds` | Global execution timeout (none defined) | integer | `null` | No |
+| | `depends_on_past` | Enforce dependency on previous run success | boolean | `null` | No |
+| **Component‑specific** | *see component list* | Each component may define its own parameters (e.g., sensor poke intervals, external DAG IDs, pool settings, connection IDs, email recipients). | – | – | – |
+| **Environment** | – | No global environment variables defined. | – | – | – |
+
+---
+
+### 5. Integration Points  
+
+| External System | Connection ID | Type | Authentication | Purpose in Pipeline |
+|-----------------|---------------|------|----------------|---------------------|
+| PostgreSQL Data Warehouse | `dwh_postgres` (alias `dwh`) | Database (JDBC) | Basic auth (username/password via env vars `DWH_USER`, `DWH_PASSWORD`) | Reads the flag table, writes workflow metadata, final status updates. |
+| SAP System API | `sap_http` (alias `sap_conn`) | HTTP API | Token‑based (env var `SAP_API_TOKEN`) | Receives a completion flag via POST after client segmentation load. |
+| SMTP Email Service | `smtp_email` | Other (SMTP) | None (open relay or internal service) | Sends failure notification emails. |
+| External DAG – PostgreSQL Session Cleanup | `trigger_sys_kill_all_session_pg` | Other | None | Triggered to clean up PostgreSQL sessions; pipeline waits for its completion. |
+| External DAG – Reporting Data Preparation | `trigger_wf_data_preparation_for_reports` | Other | None | Triggered to generate reporting datasets. |
+| External DAG – Client Segmentation Load | `trigger_load_ds_client_segmentation` | Other | None | Triggered to load client segmentation data. |
+
+**Data Lineage**  
+- **Sources:** `md.dwh_flag` table (load‑gate flag), external DAG status (previous day run), client‑segmentation source data (handled by external DAG).  
+- **Intermediate Datasets:** Load identifier (`load_id`), session‑cleanup signal, reporting preparation datasets, client‑segmentation load signal, SAP payload.  
+- **Sinks:** Metadata tables (`metadata.workflow_sessions`), SAP system (completion flag), SMTP service (failure email).  
+
+---
+
+### 6. Implementation Notes  
+
+- **Complexity Assessment:** The pipeline combines multiple gating mechanisms, external triggers, and a parallel fan‑out/fan‑in pattern. While each component is simple, the overall orchestration requires careful handling of dependencies and signal propagation.  
+- **Upstream Dependency Policies:** All primary components use an “all‑success” upstream rule, ensuring strict ordering. The failure‑notification component uses an “any‑failed” rule, providing a centralized alert path.  
+- **Retry & Timeout:** Every component is configured with **zero retries** and no explicit timeout. This design assumes that failures are either fatal or will be handled by external monitoring. Lack of retries may increase sensitivity to transient issues (e.g., temporary network glitches).  
+- **Potential Risks / Considerations**  
+  * **Sensor Blocking:** The two sensors poll indefinitely (no timeout). If the flag or external DAG never appears, the pipeline could stall. Adding sensible timeouts and failure handling would improve robustness.  
+  * **External DAG Dependencies:** Success depends on three external pipelines (`sys_kill_all_session_pg`, `wf_data_preparation_for_reports`, `l1_to_l2_p_load_data_ds_client_segmentation_full`). Their availability and correct completion are critical; any change in their interfaces may break the pipeline.  
+  * **No Parallelism at Component Level:** Parallel execution relies entirely on the orchestrator’s ability to run separate branches concurrently. Ensure the orchestrator’s worker pool can accommodate the parallel branches.  
+  * **Authentication Management:** Credentials are injected via environment variables; secure storage and rotation policies must be enforced.  
+  * **Idempotency:** The metadata registration and finalization steps write to the same table; ensure they are idempotent or guarded against duplicate runs.  
+
+---
+
+### 7. Orchestrator Compatibility  
+
+| Orchestrator | Compatibility Assessment | Pattern‑Specific Considerations |
+|--------------|--------------------------|--------------------------------|
+| **Airflow** | Fully compatible. Sensors map to built‑in SQL and ExternalTask sensors; XCom‑like objects are native; `TriggerDagRunOperator`‑style triggers align with the custom orchestrator components. | Ensure the custom “trigger” components are implemented as `TriggerDagRunOperator`‑like calls; pool configuration already matches Airflow’s pool mechanism. |
+| **Prefect** | Compatible. Prefect supports polling tasks (via `wait_for` loops), can pass data via task results, and can trigger external flows using `prefect.deployments.run_deployment`. | Parallel branches can be expressed with `prefect.task` dependencies; failure handling can use `on_failure` hooks. |
+| **Dagster** | Compatible. Sensors correspond to Dagster’s `SensorDefinition`; XCom‑like data can be passed via `Output` objects; external pipeline triggers can be modeled with `RunRequest` or `OpExecutionContext`. | Parallelism is expressed via `graph` composition; ensure the custom “trigger” ops are implemented as `op`s that invoke external jobs. |
+
+All three orchestrators can represent the hybrid sequential‑parallel topology, sensor polling, and failure‑notification logic. The main adaptation effort lies in mapping the **custom executor** definitions (e.g., external DAG triggers) to the respective orchestrator’s API.
+
+---
+
+### 8. Conclusion  
+
+The pipeline provides a well‑structured, hybrid workflow that safely gates execution, registers metadata, performs necessary cleanup, runs two downstream data‑preparation workloads in parallel, notifies an external SAP system, and records a final success status. Its design leverages sensors, XCom‑style data passing, and external triggers, making it portable across major orchestration platforms. However, the absence of retry logic and indefinite sensor timeouts represent potential operational fragilities. Introducing bounded retries, explicit timeouts, and more granular error handling would increase resilience without altering the overall architecture.

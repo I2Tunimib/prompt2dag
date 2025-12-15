@@ -1,0 +1,200 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T07:34:50.126084
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_ensembl.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+#### Overall Purpose and High-Level Flow
+The ETL pipeline is designed to import genomic mapping data from Ensembl's FTP server to an S3 data lake and process it using Spark. The pipeline follows a sequential linear topology with two main stages: file download/version checking and Spark table processing. It is manually triggered and includes failure handling with Slack alerts.
+
+#### Key Patterns and Complexity
+- **Sequential Flow**: The pipeline consists of two sequential tasks.
+- **Task Executors**: Python, Spark, and HTTP executors are used.
+- **No Branching or Parallelism**: The pipeline does not include branching or parallel execution paths.
+- **Sensors**: A sensor is used to check for new files on the Ensembl FTP server.
+- **Complexity**: The pipeline is relatively straightforward, with a clear sequence of tasks and well-defined inputs and outputs.
+
+### Pipeline Architecture
+
+#### Flow Patterns
+- **Sequential**: The pipeline follows a linear sequence of tasks, with each task depending on the successful completion of the previous one.
+
+#### Execution Characteristics
+- **Task Executor Types**: Python, Spark, and HTTP executors are utilized.
+- **No Branching or Parallelism**: The pipeline does not include branching or parallel execution paths.
+- **Sensors**: A sensor is used to monitor the Ensembl FTP server for new files.
+
+#### Component Overview
+- **Extractor**: `Check and Download Ensembl Files` - Downloads updated genomic mapping files from the Ensembl FTP server to the S3 raw landing zone.
+- **Transformer**: `Process Ensembl Files with Spark` - Processes the downloaded files using Spark to create structured tables in the data lake.
+
+#### Flow Description
+- **Entry Points**: The pipeline starts with the `Check and Download Ensembl Files` component.
+- **Main Sequence**: 
+  1. `Check and Download Ensembl Files` checks for new versions of Ensembl genomic mapping files and downloads them to the S3 raw landing zone.
+  2. `Process Ensembl Files with Spark` processes the downloaded files using Spark to create structured tables in the data lake.
+- **Branching/Parallelism/Sensors**: A sensor is used to check for new files on the Ensembl FTP server, but there is no branching or parallelism.
+
+### Detailed Component Analysis
+
+#### Check and Download Ensembl Files
+- **Purpose and Category**: Extractor - Downloads updated genomic mapping files from the Ensembl FTP server to the S3 raw landing zone.
+- **Executor Type and Configuration**: Python
+  - **Script Path**: `path/to/check_and_download_ensembl_files.py`
+  - **Environment**: `S3_CONN_ID` (S3 connection ID)
+- **Inputs**:
+  - Ensembl FTP server: `ftp.ensembl.org/pub/current_tsv/homo_sapiens`
+  - S3 raw landing zone (existing files)
+- **Outputs**:
+  - Updated genomic mapping files in the S3 raw landing zone
+- **Retry Policy and Concurrency Settings**:
+  - **Max Attempts**: 3
+  - **Delay Seconds**: 60
+  - **Exponential Backoff**: True
+  - **Retry On**: Network error, timeout
+  - **Concurrency**: No parallelism or dynamic mapping
+- **Connected Systems**:
+  - Ensembl FTP server
+  - S3 raw landing zone
+
+#### Process Ensembl Files with Spark
+- **Purpose and Category**: Transformer - Processes the downloaded Ensembl mapping files using Spark to create structured tables in the data lake.
+- **Executor Type and Configuration**: Spark
+  - **Image**: `spark:latest`
+  - **Command**: `spark-submit --class bio.ferlab.datalake.spark3.publictables.ImportPublicTable path/to/spark_job.jar`
+  - **Environment**: `S3_CONN_ID`, `SPARK_CONF`
+  - **Resources**: CPU: 4, Memory: 8Gi
+  - **Network**: `k8s-etl-network`
+- **Inputs**:
+  - S3 raw landing zone (downloaded files)
+- **Outputs**:
+  - Processed Ensembl mapping tables in the data lake
+- **Retry Policy and Concurrency Settings**:
+  - **Max Attempts**: 3
+  - **Delay Seconds**: 60
+  - **Exponential Backoff**: True
+  - **Retry On**: Network error, timeout
+  - **Concurrency**: Supports parallelism, no dynamic mapping
+- **Connected Systems**:
+  - S3 raw landing zone
+  - Data lake tables
+
+### Parameter Schema
+
+#### Pipeline-Level Parameters
+- **Name**: Pipeline identifier (required)
+- **Description**: Comprehensive Pipeline Description (optional)
+- **Tags**: Classification tags (optional)
+
+#### Schedule Configuration
+- **Enabled**: Whether the pipeline runs on schedule (optional)
+- **Cron Expression**: Cron or preset (optional)
+- **Start Date**: When to start scheduling (optional, default: 2022-01-01T00:00:00Z)
+- **End Date**: When to stop scheduling (optional)
+- **Timezone**: Schedule timezone (optional)
+- **Catchup**: Run missed intervals (optional)
+- **Batch Window**: Batch window parameter name (optional)
+- **Partitioning**: Data partitioning strategy (optional)
+
+#### Execution Settings
+- **Max Active Runs**: Max concurrent pipeline runs (optional)
+- **Timeout Seconds**: Pipeline execution timeout (optional)
+- **Retry Policy**: Pipeline-level retry behavior (optional)
+- **Depends On Past**: Whether execution depends on previous run success (optional)
+
+#### Component-Specific Parameters
+- **Check and Download Ensembl Files**:
+  - **FTP Server**: FTP server URL (optional, default: `ftp.ensembl.org/pub/current_tsv/homo_sapiens`)
+  - **S3 Bucket Format**: S3 bucket format (optional, default: `cqgc-{env}-app-datalake`)
+  - **S3 Key Path**: S3 key path (optional, default: `raw/landing/ensembl/`)
+  - **Mapping Types**: Genomic mapping types (optional, default: `["canonical", "ena", "entrez", "refseq", "uniprot"]`)
+  - **S3 Conn ID**: S3 connection ID (optional, default: `config.s3_conn_id`)
+- **Process Ensembl Files with Spark**:
+  - **Spark Class**: Spark class for processing (optional, default: `bio.ferlab.datalake.spark3.publictables.ImportPublicTable`)
+  - **Config File**: Spark configuration file (optional)
+  - **Table Name**: Name of the table to create (optional, default: `ensembl_mapping`)
+  - **Steps**: Processing steps (optional, default: `default`)
+  - **K8s Context**: Kubernetes context for Spark execution (optional, default: `K8sContext.ETL`)
+  - **Spark Config**: Spark configuration (optional, default: `config-etl-large`)
+
+#### Environment Variables
+- **SLACK_WEBHOOK_URL**: Slack webhook URL for notifications (optional)
+- **S3_CONN_ID**: S3 connection ID (optional, default: `config.s3_conn_id`)
+- **K8S_CONTEXT_ETL**: Kubernetes context for Spark execution (optional, default: `K8sContext.ETL`)
+- **SPARK_CONFIG_ETL**: Spark configuration for ETL (optional, default: `config-etl-large`)
+
+### Integration Points
+
+#### External Systems and Connections
+- **Ensembl FTP Server**: Filesystem connection to the Ensembl FTP server.
+  - **Base Path**: `/pub/current_tsv/homo_sapiens`
+  - **Protocol**: FTP
+  - **Host**: `ftp.ensembl.org`
+  - **Authentication**: None
+  - **Used By Components**: `Check and Download Ensembl Files`
+- **S3 Data Lake**: Object storage connection to the S3 data lake.
+  - **Base Path**: `raw/landing/ensembl/`
+  - **Protocol**: S3
+  - **Bucket**: `cqgc-{env}-app-datalake`
+  - **Authentication**: IAM
+  - **Used By Components**: `Check and Download Ensembl Files`, `Process Ensembl Files with Spark`
+- **Slack Notifications**: API connection for Slack notifications.
+  - **Base URL**: `https://slack.com/api`
+  - **Protocol**: HTTPS
+  - **Authentication**: Token (environment variable: `SLACK_BOT_TOKEN`)
+  - **Used By Components**: `Check and Download Ensembl Files`, `Process Ensembl Files with Spark`
+- **Kubernetes ETL Context**: Kubernetes context for Spark execution.
+  - **Used By Components**: `Process Ensembl Files with Spark`
+
+#### Data Sources and Sinks
+- **Sources**:
+  - Ensembl FTP server: `ftp.ensembl.org/pub/current_tsv/homo_sapiens`
+- **Sinks**:
+  - S3 Data Lake: `cqgc-{env}-app-datalake/raw/landing/ensembl/`
+
+#### Authentication Methods
+- **Ensembl FTP Server**: No authentication
+- **S3 Data Lake**: IAM authentication
+- **Slack Notifications**: Token-based authentication
+
+#### Data Lineage
+- **Sources**: Ensembl FTP server (`ftp.ensembl.org/pub/current_tsv/homo_sapiens`)
+- **Sinks**: S3 Data Lake (`cqgc-{env}-app-datalake/raw/landing/ensembl/`)
+- **Intermediate Datasets**: `canonical`, `ena`, `entrez`, `refseq`, `uniprot`
+
+### Implementation Notes
+
+#### Complexity Assessment
+The pipeline is relatively simple, with a clear sequential flow and well-defined tasks. The use of sensors and retries adds robustness to the pipeline.
+
+#### Upstream Dependency Policies
+- **Check and Download Ensembl Files**: Triggered manually, no upstream dependencies.
+- **Process Ensembl Files with Spark**: Depends on the successful completion of `Check and Download Ensembl Files`.
+
+#### Retry and Timeout Configurations
+- **Check and Download Ensembl Files**: 3 retry attempts with a 60-second delay and exponential backoff.
+- **Process Ensembl Files with Spark**: 3 retry attempts with a 60-second delay and exponential backoff.
+
+#### Potential Risks or Considerations
+- **Network Issues**: The pipeline relies on external systems (Ensembl FTP server, S3, Slack), which may experience network issues.
+- **Data Volume**: The volume of data being processed could impact the performance of the Spark job.
+- **Manual Triggering**: The pipeline is manually triggered, which may lead to delays if not scheduled properly.
+
+### Orchestrator Compatibility
+
+#### Assessment for Airflow, Prefect, Dagster
+- **Airflow**: The pipeline's sequential flow and use of sensors and retries are well-supported by Airflow. The Python and Spark operators can be used to implement the tasks.
+- **Prefect**: Prefect supports sequential flows and has built-in support for retries and sensors. The Python and Spark tasks can be implemented using Prefect's task runners.
+- **Dagster**: Dagster's solid-based approach is suitable for the pipeline's sequential flow. The use of sensors and retries can be implemented using Dagster's built-in mechanisms.
+
+#### Pattern-Specific Considerations
+- **Sequential Flow**: All orchestrators support sequential flows, making the pipeline easy to implement.
+- **Sensors**: Airflow has built-in support for sensors, while Prefect and Dagster may require custom implementations.
+- **Retries**: All orchestrators support retries, but the configuration may vary.
+
+### Conclusion
+The ETL pipeline for importing and processing Ensembl genomic mapping data is a well-structured and straightforward process. It follows a sequential flow with clear tasks and dependencies. The use of sensors and retries adds robustness to the pipeline. The pipeline is compatible with various orchestrators, including Airflow, Prefect, and Dagster, with minimal adjustments required for each.

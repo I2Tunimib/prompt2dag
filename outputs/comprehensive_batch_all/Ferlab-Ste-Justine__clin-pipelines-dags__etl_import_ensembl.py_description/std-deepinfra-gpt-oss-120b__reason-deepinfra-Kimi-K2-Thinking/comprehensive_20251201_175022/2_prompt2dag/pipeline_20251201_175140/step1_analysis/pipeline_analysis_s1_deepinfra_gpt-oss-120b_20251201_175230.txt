@@ -1,0 +1,120 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-01T17:52:30.739740
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/Ferlab-Ste-Justine__clin-pipelines-dags__etl_import_ensembl.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**1. Executive Summary**  
+- **Purpose**: The pipeline ingests genomic mapping files published by Ensembl, stores the raw files in an S3‑based data lake, and then transforms them into structured mapping tables using a Spark job running on Kubernetes.  
+- **High‑level flow**: A sequential two‑step process – first a Python‑based extractor pulls new TSV.GZ files from the Ensembl FTP server into a raw landing zone; second a Spark‑based transformer reads those raw files, processes them, and writes the results as parquet/Delta tables back to the lake.  
+- **Key patterns & complexity**: The design follows a simple linear (sequential) pattern with no branching, parallelism, or sensor logic. Only two components are present, making the overall complexity low. Execution environments differ (Python vs. Spark), but the data hand‑off is straightforward via S3.
+
+---
+
+**2. Pipeline Architecture**  
+
+| Aspect | Description |
+|--------|-------------|
+| **Flow Patterns** | Pure sequential flow: *Extract → Transform*. No conditional branches, parallel branches, or sensor‑driven triggers. |
+| **Execution Characteristics** | • Extractor runs with a **python** executor.<br>• Transformer runs with a **spark** executor (Spark on Kubernetes). |
+| **Component Overview** | 1. **Extractor** – “Extract Ensembl Mapping Files”.<br>2. **Transformer** – “Transform Ensembl Mapping with Spark”. |
+| **Flow Description** | - **Entry point**: the extractor component initiates the pipeline.<br>- **Main sequence**: upon successful completion of the extractor, the transformer is invoked.<br>- **Branching/Parallelism**: not present; the transformer internally supports Spark parallelism but the pipeline treats it as a single downstream step.<br>- **Sensors**: none defined. |
+
+---
+
+**3. Detailed Component Analysis**  
+
+### 3.1 Extract Ensembl Mapping Files  
+- **Category / Purpose**: *Extractor* – Detects new Ensembl genomic mapping TSV.GZ files on the FTP server and downloads them to the raw landing zone in S3.  
+- **Executor**: Python executor (no container image or command overrides specified).  
+- **Inputs**  
+  - FTP source: `ftp://ftp.ensembl.org/pub/current_tsv/homo_sapiens/*.tsv.gz` (connection `ftp_ensembl_conn`).  
+  - Existing S3 file versions for change detection (`s3://cqgc-{env}-app-datalake/raw/landing/ensembl/`).  
+- **Outputs**  
+  - New raw files stored at `s3://cqgc-{env}-app-datalake/raw/landing/ensembl/{filename}` (connection `config.s3_conn_id`).  
+- **Retry Policy**: No retries configured (`max_attempts = 0`).  
+- **Concurrency**: Parallel execution not supported; component runs as a single instance.  
+- **Connected Systems**  
+  - **FTP Ensembl** (type `api`, authentication `none`).  
+  - **S3 Data Lake** (type `object_storage`, authentication `iam`).  
+- **Datasets**  
+  - Consumes: `ensembl_mapping_raw_ftp`.  
+  - Produces: `ensembl_mapping_raw_s3`.  
+
+### 3.2 Transform Ensembl Mapping with Spark  
+- **Category / Purpose**: *Transformer* – Executes a Spark job on Kubernetes to read the raw TSV.GZ files from S3, apply transformation logic, and write structured mapping tables (parquet/Delta) back to the lake.  
+- **Executor**: Spark executor (resources: 4 CPU, 16 GiB memory). Environment variables set the Spark main class (`bio.ferlab.datalake.spark3.publictables.ImportPublicTable`) and target table name (`ensembl_mapping`).  
+- **Inputs**  
+  - Raw landing files: `s3://cqgc-{env}-app-datalake/raw/landing/ensembl/*.tsv.gz` (connection `config.s3_conn_id`).  
+- **Outputs**  
+  - Processed tables: `s3://cqgc-{env}-app-datalake/processed/ensembl_mapping/` (parquet format, connection `config.s3_conn_id`). |
+- **Retry Policy**: No retries configured (`max_attempts = 0`). |
+- **Concurrency**: Component is marked as supporting parallelism (Spark will parallelize work across executors), but the pipeline treats it as a single downstream step. |
+- **Connected Systems**  
+  - **S3 Data Lake** (read/write).  
+  - **Kubernetes ETL Cluster** (type `other`, authentication `certificate` via kubeconfig). |
+- **Datasets**  
+  - Consumes: `ensembl_mapping_raw_s3`.  
+  - Produces: `ensembl_mapping_processed`. |
+
+---
+
+**4. Parameter Schema**  
+
+| Scope | Parameters | Notes |
+|-------|------------|-------|
+| **Pipeline** | `name` (string, required, default `etl_import_ensembl`), `description` (string, required), `tags` (array, optional) | Identifies the pipeline and provides metadata. |
+| **Schedule** | `enabled` (bool), `cron_expression` (string), `start_date` / `end_date` (datetime), `timezone` (string), `catchup` (bool), `batch_window` (string), `partitioning` (string) | All optional; current configuration leaves scheduling disabled. |
+| **Execution** | `max_active_runs` (int), `timeout_seconds` (int), `retry_policy` (object), `depends_on_past` (bool) | No defaults supplied; pipeline relies on component‑level policies. |
+| **Component – Extractor** | `ftp_server_path` (string), `mapping_types` (array of mapping identifiers), `s3_bucket_format` (string), `s3_key_path` (string), `s3_conn_id` (string) | Values are supplied at runtime or via environment; none are hard‑coded in the definition. |
+| **Component – Transformer** | `spark_class` (string), `config_file` (string), `table_name` (string), `steps` (string), `k8s_context` (string) | Spark class defaults to `bio.ferlab.datalake.spark3.publictables.ImportPublicTable`; other values are optional overrides. |
+| **Environment Variables** | `SLACK_TOKEN` (used by Slack notification integration), any variables required for S3 IAM or Kubernetes certificate paths (e.g., `AWS_DEFAULT_REGION`, `KUBECONFIG`) | Not explicitly listed in the parameter block but required by the connections. |
+
+---
+
+**5. Integration Points**  
+
+| External System | Connection ID | Type | Direction | Authentication | Role in Pipeline |
+|-----------------|---------------|------|-----------|----------------|------------------|
+| Ensembl FTP Server | `ftp_ensembl_conn` | API (FTP) | Input | **none** (anonymous) | Source of raw TSV.GZ mapping files. |
+| AWS S3 Data Lake | `config.s3_conn_id` | Object storage | Both (read/write) | **IAM** role attached to execution environment | Stores raw landing files and processed tables. |
+| Slack Notification API | `slack_notifications` | API (HTTPS) | Output | **Token** (`SLACK_TOKEN` env var) | Sends start/completion alerts for both components. |
+| Kubernetes ETL Cluster | `kubernetes_etl_cluster` | Other (K8s) | Both | **Certificate** (`/path/to/kubeconfig`) | Provides the runtime environment for the Spark job. |
+
+- **Data Lineage**  
+  - *Source*: Ensembl FTP (canonical, ena, entrez, refseq, uniprot TSV.GZ files).  
+  - *Intermediate*: Raw files staged in `s3://.../raw/landing/ensembl/`.  
+  - *Sink*: Processed mapping tables in `s3://.../processed/ensembl_mapping/`.  
+
+---
+
+**6. Implementation Notes**  
+
+- **Complexity Assessment**: Low. The pipeline consists of two sequential components with straightforward I/O via S3. No branching, conditional logic, or dynamic mapping is required.  
+- **Upstream Dependency Policies**: Both components use an “all_success” upstream policy, meaning each step runs only after the preceding step completes without error.  
+- **Retry & Timeout**: Neither component defines retries (`max_attempts = 0`). Absence of explicit timeouts places the responsibility on the underlying executor (Python runtime or Spark driver) to enforce limits. Consider adding retry logic for network‑bound operations (FTP download, S3 access) to improve resilience.  
+- **Potential Risks / Considerations**  
+  - **Network reliability**: FTP and S3 interactions have no built‑in retries; transient failures could cause pipeline aborts.  
+  - **File version detection**: If the extractor incorrectly assumes no new files, downstream processing may be skipped unintentionally.  
+  - **Spark resource sizing**: Fixed allocation (4 CPU, 16 GiB) may be insufficient for large input volumes; monitoring and scaling policies should be reviewed.  
+  - **Authentication drift**: Changes to IAM roles, Slack token rotation, or Kubernetes certificates require coordinated updates to connection configurations.  
+
+---
+
+**7. Orchestrator Compatibility**  
+
+| Orchestrator | Compatibility Highlights (neutral) |
+|--------------|--------------------------------------|
+| **Airflow‑style** | Supports Python‑based tasks and Spark‑based tasks; sequential dependency (`all_success`) maps directly. No branching or sensor features needed. |
+| **Prefect‑style** | Works with flow‑level mapping of tasks; the two‑task linear graph fits Prefect’s task‑dependency model. Executor types (Python, Spark) can be expressed via Prefect’s run‑config. |
+| **Dagster‑style** | The pipeline can be expressed as a solid‑graph with two solids (extractor, transformer) linked sequentially. Resource specifications for Spark can be attached to the transformer solid. |
+
+All three orchestrators can represent the identified patterns (sequential flow, distinct executor types, connection handling) without requiring specialized constructs. The lack of branching, parallelism, or sensor logic simplifies portability.
+
+---
+
+**8. Conclusion**  
+
+The pipeline provides a concise, reliable pathway for ingesting Ensembl genomic mapping data into an S3 data lake and converting it into query‑ready tables via Spark. Its linear architecture, limited component count, and clear separation of extraction and transformation responsibilities make it straightforward to maintain and portable across major orchestration platforms. Enhancements worth considering include adding retry mechanisms for external I/O, defining explicit timeouts, and monitoring Spark resource utilization to ensure scalability as data volumes grow.

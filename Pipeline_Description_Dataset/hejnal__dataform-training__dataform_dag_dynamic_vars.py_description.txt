@@ -1,0 +1,87 @@
+[Data Transformation Pipeline] - Comprehensive Pipeline Description
+
+Opening Summary:
+This is a Google Cloud Dataform-based data transformation pipeline that orchestrates parameterized SQL workflow executions. The pipeline follows a sequential linear topology with sensor-gated execution, triggered by dataset updates. Key infrastructure features include Dataform operators for compilation and workflow invocation, a state sensor for monitoring execution completion, and dataset-based scheduling triggers.
+
+Pipeline Steps:
+
+1. start
+  • Objective: Pipeline initialization and entry point
+  • Technical Details:
+    - Input: Dataset trigger "dataform-training-data-ingestion"
+    - Output: Triggers parameter parsing task
+  • Operator or Mechanism: DummyOperator
+
+2. parse_input_params
+  • Objective: Parse and prepare configuration parameters for Dataform compilation
+  • Technical Details:
+    - Input: DAG run configuration parameters and logical date
+    - Output: XCom data containing compilation configuration with date and description parameters
+    - Key Parameters: 
+      - description_param from DAG run configuration (defaults to "Default Description")
+      - logical_date formatted as DD/MM/YYYY
+  • Operator or Mechanism: PythonOperator
+  • Notes: Pushes compilation_result to XCom for downstream consumption
+
+3. create_compilation_result
+  • Objective: Create Dataform compilation result using parsed parameters
+  • Technical Details:
+    - Input: XCom data from parse_input_params task
+    - Output: Compilation result name for workflow invocation
+    - Integrations: Google Cloud Dataform API (project: whejna-modelling-sandbox, repository: training-repo, region: europe-west3)
+    - Key Parameters: gcp_conn_id="modelling_cloud_default"
+  • Operator or Mechanism: PythonOperator (wrapping DataformCreateCompilationResultOperator)
+
+4. create_workflow_invocation
+  • Objective: Trigger Dataform workflow execution using compilation result
+  • Technical Details:
+    - Input: Compilation result name from previous task
+    - Output: Workflow invocation ID for state monitoring
+    - Integrations: Google Cloud Dataform API
+    - Key Parameters: 
+      - asynchronous=True
+      - gcp_conn_id="modelling_cloud_default"
+      - fully_refresh_incremental_tables_enabled=True
+  • Operator or Mechanism: DataformCreateWorkflowInvocationOperator
+
+5. is_workflow_invocation_done
+  • Objective: Monitor Dataform workflow execution until completion
+  • Technical Details:
+    - Input: Workflow invocation ID from create_workflow_invocation
+    - Output: Pipeline proceeds when workflow reaches terminal state
+    - Integrations: Google Cloud Dataform API
+    - Key Parameters: 
+      - expected_statuses={SUCCEEDED, FAILED}
+      - gcp_conn_id="modelling_cloud_default"
+  • Operator or Mechanism: DataformWorkflowInvocationStateSensor
+  • Notes: Waits for workflow to reach either SUCCEEDED or FAILED state
+
+6. end
+  • Objective: Pipeline completion marker
+  • Technical Details:
+    - Input: Successful sensor completion
+    - Output: Pipeline termination
+  • Operator or Mechanism: DummyOperator
+
+Orchestration & Scheduling:
+- Schedule: Triggered by Dataset "dataform-training-data-ingestion"
+- Start Date: Dynamic (YESTERDAY from execution time)
+- Catchup: False
+- Default Args: retries=0, email_on_failure=False, depends_on_past=False
+
+Infrastructure & Dependencies:
+- Sensors: DataformWorkflowInvocationStateSensor monitors workflow execution state
+- Connections: gcp_conn_id="modelling_cloud_default" for Google Cloud Dataform API access
+- External Systems: Google Cloud Dataform (project: whejna-modelling-sandbox, repository: training-repo, region: europe-west3)
+- Data I/O: Uses XCom for parameter passing between tasks
+
+Failure Handling & Alerts:
+- No email notifications configured (email_on_failure=False)
+- No retry policy (retries=0)
+- Sensor monitors for both SUCCEEDED and FAILED states to ensure pipeline completion
+
+Pattern-Specific Notes:
+- Sequential linear topology with sensor-gated execution
+- Sensor waits for external Dataform workflow to reach terminal state (SUCCEEDED or FAILED)
+- Parameter-driven compilation with dynamic date and description parameters
+- Dataset-triggered execution model for data dependency management

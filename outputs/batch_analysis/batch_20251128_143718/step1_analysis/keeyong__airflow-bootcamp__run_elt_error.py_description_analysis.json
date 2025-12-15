@@ -1,0 +1,727 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-11-28T14:40:56.651856",
+    "source_file": "Pipeline_Description_Dataset/keeyong__airflow-bootcamp__run_elt_error.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "Qwen3-Coder",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential"
+      ],
+      "task_executors_used": [
+        "python",
+        "sql"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": false,
+      "total_components": 4,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies"
+        ]
+      }
+    },
+    "validation_warnings": [
+      "Unreachable nodes: ['send_slack_alert']"
+    ]
+  },
+  "pipeline_summary": {
+    "name": "RunELT_Alert",
+    "description": "Comprehensive Pipeline Description",
+    "flow_patterns": [
+      "sequential"
+    ],
+    "task_executors": [
+      "python",
+      "sql"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "run_ctas",
+      "name": "Run CTAS",
+      "category": "SQLTransform",
+      "description": "Creates analytics tables from raw data using CTAS pattern with data validation and atomic table replacement. Processes tables sequentially with zero-row validation.",
+      "inputs": [
+        "raw_data.session_timestamp",
+        "raw_data.user_session_channel"
+      ],
+      "outputs": [
+        "analytics.mau_summary",
+        "analytics.temp_mau_summary"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "raw_session_data",
+          "direction": "input",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "raw_data.session_timestamp",
+          "connection_id": "snowflake_conn"
+        },
+        {
+          "name": "raw_user_session_data",
+          "direction": "input",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "raw_data.user_session_channel",
+          "connection_id": "snowflake_conn"
+        },
+        {
+          "name": "analytics_table",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "analytics.mau_summary",
+          "connection_id": "snowflake_conn"
+        },
+        {
+          "name": "temp_analytics_table",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "analytics.temp_mau_summary",
+          "connection_id": "snowflake_conn"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Waits for previous table task to complete successfully",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 60,
+        "exponential_backoff": true,
+        "retry_on": [
+          "timeout",
+          "network_error",
+          "snowflake_connection_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": true,
+        "map_over_param": "table_params",
+        "max_parallel_instances": 1
+      },
+      "connections": [
+        {
+          "id": "snowflake_conn",
+          "type": "database",
+          "purpose": "Connect to Snowflake for CTAS operations and table swaps"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "raw_session_data",
+          "raw_user_session_channel"
+        ],
+        "produces": [
+          "analytics_mau_summary"
+        ]
+      }
+    },
+    {
+      "id": "validate_table_data",
+      "name": "Validate Table Data",
+      "category": "QualityCheck",
+      "description": "Validates that temporary tables contain data before atomic swap. Raises exception if zero records found.",
+      "inputs": [
+        "analytics.temp_mau_summary"
+      ],
+      "outputs": [
+        "validation_result"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "temp_table",
+          "direction": "input",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "analytics.temp_mau_summary",
+          "connection_id": "snowflake_conn"
+        },
+        {
+          "name": "validation_status",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "validation_result",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Executes after CTAS operation completes",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 30,
+        "exponential_backoff": false,
+        "retry_on": [
+          "validation_failure"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "snowflake_conn",
+          "type": "database",
+          "purpose": "Connect to Snowflake to check row counts"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "temp_analytics_mau_summary"
+        ],
+        "produces": []
+      }
+    },
+    {
+      "id": "swap_table",
+      "name": "Swap Table",
+      "category": "Transformer",
+      "description": "Performs atomic table swap using ALTER TABLE SWAP operation for zero-downtime updates",
+      "inputs": [
+        "analytics.temp_mau_summary",
+        "validation_result"
+      ],
+      "outputs": [
+        "analytics.mau_summary"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "temp_table",
+          "direction": "input",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "analytics.temp_mau_summary",
+          "connection_id": "snowflake_conn"
+        },
+        {
+          "name": "validated_table",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "validation_result",
+          "connection_id": null
+        },
+        {
+          "name": "final_table",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "analytics.mau_summary",
+          "connection_id": "snowflake_conn"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Executes only after validation passes",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 1,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "snowflake_conn",
+          "type": "database",
+          "purpose": "Connect to Snowflake for table swap operation"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "temp_analytics_mau_summary",
+          "validation_result"
+        ],
+        "produces": [
+          "analytics_mau_summary"
+        ]
+      }
+    },
+    {
+      "id": "send_slack_alert",
+      "name": "Send Slack Alert",
+      "category": "Notifier",
+      "description": "Sends failure notifications to Slack when pipeline operations fail",
+      "inputs": [
+        "failure_context"
+      ],
+      "outputs": [],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "failure_info",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "failure_context",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "none_failed",
+        "description": "Triggers on any task failure in the pipeline",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "delay_seconds": 60,
+        "exponential_backoff": true,
+        "retry_on": [
+          "network_error",
+          "slack_api_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "slack_conn",
+          "type": "api",
+          "purpose": "Send alert messages to Slack channel"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sequential",
+    "entry_points": [
+      "run_ctas"
+    ],
+    "nodes": {
+      "run_ctas": {
+        "kind": "Task",
+        "component_type_id": "run_ctas",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "validate_table_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "validate_table_data": {
+        "kind": "Task",
+        "component_type_id": "validate_table_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "swap_table"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "swap_table": {
+        "kind": "Task",
+        "component_type_id": "swap_table",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "send_slack_alert": {
+        "kind": "Task",
+        "component_type_id": "send_slack_alert",
+        "upstream_policy": {
+          "type": "all_done",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "run_ctas",
+        "to": "validate_table_data",
+        "edge_type": "success"
+      },
+      {
+        "from": "validate_table_data",
+        "to": "swap_table",
+        "edge_type": "success"
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "RunELT_Alert",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": "Comprehensive Pipeline Description",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [
+          "ELT"
+        ],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2025-01-10T00:00:00",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": "daily",
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": null,
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      }
+    },
+    "components": {
+      "run_ctas": {
+        "table_params": {
+          "description": "Dictionary containing schema, table name, and SQL query for CTAS operation",
+          "type": "object",
+          "default": null,
+          "required": true,
+          "constraints": "Must include keys: schema, table_name, query"
+        },
+        "source_tables": {
+          "description": "List of source tables to read from",
+          "type": "array",
+          "default": [
+            "raw_data.session_timestamp",
+            "raw_data.user_session_channel"
+          ],
+          "required": false,
+          "constraints": null
+        }
+      },
+      "validate_table_data": {
+        "temp_table_name": {
+          "description": "Name of temporary table to validate",
+          "type": "string",
+          "default": null,
+          "required": true,
+          "constraints": "Must be a valid Snowflake table identifier"
+        }
+      },
+      "swap_table": {
+        "source_table": {
+          "description": "Source table for swap operation",
+          "type": "string",
+          "default": null,
+          "required": true,
+          "constraints": "Must be a valid Snowflake table identifier"
+        },
+        "target_table": {
+          "description": "Target table for swap operation",
+          "type": "string",
+          "default": null,
+          "required": true,
+          "constraints": "Must be a valid Snowflake table identifier"
+        }
+      },
+      "send_slack_alert": {
+        "message": {
+          "description": "Alert message to send to Slack",
+          "type": "string",
+          "default": null,
+          "required": true,
+          "constraints": null
+        },
+        "channel": {
+          "description": "Slack channel to send alert to",
+          "type": "string",
+          "default": "#alerts",
+          "required": false,
+          "constraints": null
+        }
+      }
+    },
+    "environment": {
+      "SNOWFLAKE_CONN": {
+        "description": "Snowflake database connection string",
+        "type": "string",
+        "default": null,
+        "required": true,
+        "associated_component_id": "run_ctas"
+      },
+      "SLACK_WEBHOOK_URL": {
+        "description": "Slack webhook URL for failure notifications",
+        "type": "string",
+        "default": null,
+        "required": true,
+        "associated_component_id": "send_slack_alert"
+      },
+      "TARGET_SCHEMA": {
+        "description": "Target schema for analytics tables",
+        "type": "string",
+        "default": "analytics",
+        "required": false,
+        "associated_component_id": "run_ctas"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "snowflake_analytics_db",
+        "name": "Snowflake Analytics Database",
+        "type": "data_warehouse",
+        "config": {
+          "host": "your-account.snowflakecomputing.com",
+          "port": 443,
+          "protocol": "https",
+          "database": "analytics_db",
+          "schema": "analytics"
+        },
+        "authentication": {
+          "type": "key_pair",
+          "credentials_path": "/path/to/snowflake/key.pem"
+        },
+        "used_by_components": [
+          "run_ctas",
+          "validate_table_data",
+          "swap_table"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "analytics.mau_summary",
+            "analytics.temp_mau_summary"
+          ],
+          "consumes": [
+            "raw_data.session_timestamp",
+            "raw_data.user_session_channel"
+          ]
+        }
+      },
+      {
+        "id": "slack_alert_webhook",
+        "name": "Slack Alert Webhook",
+        "type": "api",
+        "config": {
+          "base_url": "https://hooks.slack.com/services",
+          "protocol": "https"
+        },
+        "authentication": {
+          "type": "token",
+          "token_env_var": "SLACK_WEBHOOK_TOKEN"
+        },
+        "used_by_components": [
+          "send_slack_alert"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": 1,
+          "burst": 5
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Raw session timestamp data from raw_data.session_timestamp table",
+        "User session channel data from raw_data.user_session_channel table"
+      ],
+      "sinks": [
+        "Final analytics tables in Snowflake analytics schema (e.g., analytics.mau_summary)"
+      ],
+      "intermediate_datasets": [
+        "analytics.temp_mau_summary",
+        "Validation results from zero-row checks"
+      ]
+    }
+  }
+}

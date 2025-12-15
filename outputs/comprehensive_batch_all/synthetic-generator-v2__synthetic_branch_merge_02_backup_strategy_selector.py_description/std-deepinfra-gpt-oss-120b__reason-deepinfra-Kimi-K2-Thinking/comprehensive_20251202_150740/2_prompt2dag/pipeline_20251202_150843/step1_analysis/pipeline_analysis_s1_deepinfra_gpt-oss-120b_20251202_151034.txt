@@ -1,0 +1,175 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T15:10:34.276112
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_02_backup_strategy_selector.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**Backup Strategy Selector – Technical Report**  
+
+---
+
+### 1. Executive Summary  
+
+- **Purpose** – The pipeline orchestrates an automated backup workflow that selects either a full backup (executed on Saturdays) or an incremental backup (executed on weekdays) based on the execution date. After the chosen backup completes, a verification step validates the backup integrity before the workflow is marked as finished.  
+- **High‑level Flow** – A root component triggers the process, a conditional splitter evaluates the day of week, two mutually exclusive backup branches execute, their results converge into a single quality‑check component, and finally a closing component signals successful completion.  
+- **Key Patterns & Complexity** – The design exhibits *sequential* progression, a *branching* decision point, and a *merge* (hybrid) pattern. No parallel execution or sensor‑based waiting is present. With six components and straightforward branching, the overall complexity is modest (≈ 4/10 on a 10‑point scale).  
+
+---
+
+### 2. Pipeline Architecture  
+
+#### Flow Patterns  
+- **Sequential** – All components follow a linear order except at the branching point.  
+- **Branching (Conditional)** – The “Determine Backup Strategy” component routes execution to either the “Perform Full Backup” or the “Perform Incremental Backup” component based on the day‑of‑week condition (`day_of_week == 5`).  
+- **Hybrid (Branch‑Merge)** – After either backup branch finishes, both converge into the “Validate Backup Integrity” component, which then proceeds to the final orchestrator step.  
+
+#### Execution Characteristics  
+- **Executor Types** – Two executor families are used:  
+  - **Python** – For orchestrator‑type components and the conditional splitter.  
+  - **Bash** – For the simulated backup and verification steps.  
+
+#### Component Overview  
+
+| Component ID | Category | Role |
+|--------------|----------|------|
+| `start_backup_process` | Orchestrator | Root placeholder that initiates the workflow. |
+| `determine_backup_strategy` | Splitter | Evaluates execution date and decides which backup branch to follow. |
+| `perform_full_backup` | Extractor | Simulates a full backup (Saturday path). |
+| `perform_incremental_backup` | Extractor | Simulates an incremental backup (weekday path). |
+| `validate_backup_integrity` | QualityCheck | Verifies the integrity of whichever backup was produced. |
+| `finalize_backup_workflow` | Orchestrator | Marks the pipeline as successfully completed. |
+
+#### Flow Description  
+
+1. **Entry Point** – `start_backup_process` receives a trigger (`dag_trigger`) and emits `date_check_trigger`.  
+2. **Decision Node** – `determine_backup_strategy` consumes the execution date, evaluates the day‑of‑week, and emits either `full_backup_task_id` or `incremental_backup_task_id`.  
+3. **Branch Execution** –  
+   - **Full‑Backup Branch** – `perform_full_backup` runs when the condition `day_of_week == 5` holds, then forwards `full_backup_complete`.  
+   - **Incremental‑Backup Branch** – `perform_incremental_backup` runs for all other days, then forwards `incremental_backup_complete`.  
+4. **Merge & Validation** – `validate_backup_integrity` is triggered when **any** of the backup branches succeeds (trigger rule “none_failed_min_one_success”). It consumes the backup output (full or incremental) and produces `backup_verification_result`.  
+5. **Finalization** – `finalize_backup_workflow` runs after successful verification and emits a pipeline‑completion signal (`dag_completion`).  
+
+No parallelism, sensors, or external triggers are defined beyond the initial DAG trigger.  
+
+---
+
+### 3. Detailed Component Analysis  
+
+#### 3.1 `start_backup_process`  
+- **Category:** Orchestrator  
+- **Executor:** Python (no specific script; default runtime)  
+- **Inputs:** `dag_trigger` (API‑type, originates from the pipeline trigger)  
+- **Outputs:** `date_check_trigger` (API‑type, used by the splitter)  
+- **Retry Policy:** Up to 2 attempts, 5‑minute delay, retries on timeout or network error.  
+- **Concurrency:** No parallelism; single instance per run.  
+- **Connected Systems:** None (pure internal trigger).  
+
+#### 3.2 `determine_backup_strategy`  
+- **Category:** Splitter  
+- **Executor:** Python (entry point `check_day_of_week`)  
+- **Inputs:** `execution_date` (API‑type, pulled from execution context)  
+- **Outputs:** `full_backup_task_id`, `incremental_backup_task_id` (API‑type identifiers for downstream routing)  
+- **Retry Policy:** Same as above (2 attempts, 5‑minute delay).  
+- **Concurrency:** Single‑instance, no dynamic mapping.  
+- **Connected Systems:** None.  
+
+#### 3.3 `perform_full_backup`  
+- **Category:** Extractor  
+- **Executor:** Bash (`sleep 5` to simulate work)  
+- **Inputs:** `date_check_trigger` (API‑type, only present on Saturday branch)  
+- **Outputs:** `full_backup_complete` (object, path `backup/full/simulated`)  
+- **Retry Policy:** Same as above.  
+- **Concurrency:** Single‑instance; does not support parallel runs.  
+- **Datasets Produced:** `full_backup_dataset`.  
+
+#### 3.4 `perform_incremental_backup`  
+- **Category:** Extractor  
+- **Executor:** Bash (`sleep 3` to simulate work)  
+- **Inputs:** `date_check_trigger` (API‑type, only present on weekday branch)  
+- **Outputs:** `incremental_backup_complete` (object, path `backup/incremental/simulated`)  
+- **Retry Policy:** Same as above.  
+- **Concurrency:** Single‑instance.  
+- **Datasets Produced:** `incremental_backup_dataset`.  
+
+#### 3.5 `validate_backup_integrity`  
+- **Category:** QualityCheck  
+- **Executor:** Bash (`sleep 2` to simulate verification)  
+- **Inputs:**  
+  - `full_backup_complete` (object, optional)  
+  - `incremental_backup_complete` (object, optional)  
+- **Outputs:** `backup_verification_result` (object, path `backup/verification/result`)  
+- **Upstream Policy:** Executes when **any** backup branch succeeds (`any_success`).  
+- **Retry Policy:** Same as above.  
+- **Datasets Consumed:** `full_backup_dataset`, `incremental_backup_dataset`.  
+- **Datasets Produced:** `backup_verification_dataset`.  
+
+#### 3.6 `finalize_backup_workflow`  
+- **Category:** Orchestrator  
+- **Executor:** Python (no script; default runtime)  
+- **Inputs:** `backup_verification_result` (object)  
+- **Outputs:** `dag_completion` (API‑type, signals overall success)  
+- **Upstream Policy:** Requires all upstream components to succeed (`all_success`).  
+- **Retry Policy:** Same as above.  
+- **Datasets Consumed:** `backup_verification_dataset`.  
+
+---
+
+### 4. Parameter Schema  
+
+| Scope | Parameters | Notes |
+|-------|------------|-------|
+| **Pipeline** | `name` (string), `description` (string), `tags` (array) | Optional metadata; no defaults defined. |
+| **Schedule** | `enabled` (bool), `cron_expression` (default `@daily`), `start_date` (`2024‑01‑01T00:00:00`), `end_date` (optional), `timezone` (optional), `catchup` (default `false`), `batch_window` (optional), `partitioning` (optional) | Enables daily execution; no catch‑up runs. |
+| **Execution** | `max_active_runs` (optional), `timeout_seconds` (optional), `retry_policy` (default: 2 retries, 300 s delay), `depends_on_past` (optional) | Pipeline‑level retry mirrors component‑level policy. |
+| **Components** | Individual component entries are present but contain no extra parameters beyond defaults. |
+| **Environment** | No environment variables defined. |
+
+---
+
+### 5. Integration Points  
+
+- **External Systems** – None are referenced; all inputs/outputs are internal or derived from the execution context.  
+- **Data Sources** – The only external data source is the **execution context** (`execution_date`) used for day‑of‑week evaluation.  
+- **Data Sinks** – No external sinks are defined; backup artifacts are simulated objects stored under internal path patterns (`backup/full/simulated`, `backup/incremental/simulated`, `backup/verification/result`).  
+- **Authentication** – Not applicable (no external connections).  
+- **Data Lineage** –  
+  - *Source*: Execution date → decision logic.  
+  - *Intermediate*: Simulated backup datasets (`full_backup_dataset`, `incremental_backup_dataset`).  
+  - *Sink*: Verification result → final completion signal.  
+
+---
+
+### 6. Implementation Notes  
+
+- **Complexity Assessment** – The pipeline is low‑to‑moderate in complexity: a single conditional branch and a merge, with no parallelism or nested branching.  
+- **Upstream Dependency Policies** –  
+  - Root component has a custom “no upstream” policy.  
+  - Splitter and backup tasks require all upstream successes.  
+  - Validation step uses an “any_success” rule, allowing it to run when either backup branch succeeds.  
+  - Finalizer requires all upstream successes.  
+- **Retry & Timeout** – Uniform retry configuration (max 2 attempts, 5‑minute delay) across all components; no explicit timeout values are set, implying reliance on default executor timeouts.  
+- **Potential Risks / Considerations** –  
+  - **Day‑of‑Week Logic** – Incorrect mapping of `day_of_week` could route to the wrong backup branch.  
+  - **Simulated Operations** – The Bash commands only sleep; in a production setting, real backup commands must handle failures, resource consumption, and output verification.  
+  - **No Parallelism** – While acceptable for a lightweight simulation, scaling to large datasets may require redesign to enable parallel execution.  
+  - **Lack of External Connections** – If actual storage systems (e.g., object stores, databases) are added later, connection handling and authentication will need to be introduced.  
+
+---
+
+### 7. Orchestrator Compatibility  
+
+| Orchestrator | Compatibility Assessment | Pattern‑Specific Considerations |
+|--------------|--------------------------|---------------------------------|
+| **Airflow** | Fully compatible – supports Python and Bash executors, conditional branching, and trigger‑rule‑based merges. | Ensure the “any_success” rule is expressed via the appropriate trigger rule (`none_failed_min_one_success`). |
+| **Prefect** | Compatible – Prefect flows can model sequential steps, conditional branches (`if/else`), and converge using `wait_for` or `any_success` semantics. | Prefect’s `retry` and `timeout` settings map directly to the defined policies. |
+| **Dagster** | Compatible – Dagster assets and ops can be wired sequentially with a conditional `if_else` solid and a downstream `join` solid. | Use `RetryPolicy` on each solid; the “any_success” merge can be expressed via `DynamicOutput` or `FanIn` with a custom condition. |
+
+All three orchestrators can implement the described flow without requiring sensors or parallel execution constructs.  
+
+---
+
+### 8. Conclusion  
+
+The Backup Strategy Selector pipeline is a concise, well‑structured workflow that demonstrates a classic branch‑merge pattern. It leverages simple Python and Bash executors, uniform retry logic, and clear upstream policies to ensure reliable execution. While currently limited to simulated operations and internal data handling, the architecture is readily extensible to incorporate real backup commands, external storage connections, and richer monitoring. Its design aligns with the capabilities of major orchestration platforms, making migration or deployment across Airflow, Prefect, or Dagster straightforward.

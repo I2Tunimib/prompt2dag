@@ -1,0 +1,126 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-01 19:41:47.839494
+  source_analysis_file: Pipeline_Description_Dataset/keeyong__airflow-bootcamp__run_elt_error.py_description.txt
+  pipeline_name: RunELT_Alert
+  pipeline_description: Sequential ELT pipeline that builds analytics tables in Snowflake using CTAS operations, with 
+    data validation, atomic swaps, and Slack failure notifications.
+  orchestrator_specific:
+    job_name: runelt_alert
+    description: Sequential ELT pipeline that builds analytics tables in Snowflake using CTAS operations, with data 
+      validation, atomic swaps, and Slack failure notifications.
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - slack_conn
+      - snowflake_conn
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2025-01-10T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: snowflake_conn
+    conn_type: resource
+    description: Snowflake Data Warehouse
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: snowflake_conn
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: snowflake
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: slack_conn
+    conn_type: resource
+    description: Slack Messaging API
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: slack_conn
+      config:
+        base_path:
+        base_url: https://slack.com/api
+        host:
+        port:
+        protocol: https
+        database:
+        schema:
+        bucket:
+        queue_name:
+        token: EnvVar('SLACK_TOKEN')
+tasks:
+  - task_id: run_ctas
+    task_name: Run CTAS to Build Analytics Tables
+    operator_class: Op
+    operator_module: dagster
+    component_ref: run_ctas
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - snowflake_conn
+      ins:
+        - name: raw_data.session_timestamp
+          dagster_type: String
+          description: snowflake://raw_data.session_timestamp
+        - name: raw_data.user_session_channel
+          dagster_type: String
+          description: snowflake://raw_data.user_session_channel
+      outs:
+        - name: analytics.<target_table>
+          dagster_type: String
+          description: Output to snowflake_conn
+        - name: analytics.temp_<target_table>
+          dagster_type: String
+          description: Output to snowflake_conn
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: notify_failure_slack
+    task_name: Slack Failure Notification
+    operator_class: Op
+    operator_module: dagster
+    component_ref: notify_failure_slack
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - slack_conn
+      retry_policy:
+        max_retries: 3
+        delay: 60
+        backoff: EXPONENTIAL
+      ins:
+        - name: error_details
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: slack_alert
+          dagster_type: String
+          description: Output to slack_conn
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 3
+    retry_delay_seconds: 60
+    validation_warnings: []

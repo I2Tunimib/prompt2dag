@@ -1,0 +1,771 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-11-28T15:49:49.896637",
+    "source_file": "Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_linear_01_report_generation.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "Qwen3-Coder",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential"
+      ],
+      "task_executors_used": [
+        "python",
+        "sql",
+        "bash"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": false,
+      "total_components": 4,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "Daily Sales Report",
+    "description": "This is a sequential linear pipeline that generates daily sales reports by querying PostgreSQL sales data, transforming it into CSV format, creating a PDF chart visualization, and emailing the final report to management.",
+    "flow_patterns": [
+      "sequential"
+    ],
+    "task_executors": [
+      "python",
+      "sql",
+      "bash"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "extract_sales_data",
+      "name": "Extract Sales Data",
+      "category": "Extractor",
+      "description": "Extract daily sales data from PostgreSQL database for reporting purposes. Aggregates sales data by date and product, ordered chronologically.",
+      "inputs": [
+        "PostgreSQL sales table"
+      ],
+      "outputs": [
+        "Query results containing aggregated sales data by date and product"
+      ],
+      "executor_type": "sql",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "postgres_sales_table",
+          "direction": "input",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": null,
+          "connection_id": "postgres_default"
+        },
+        {
+          "name": "sales_query_results",
+          "direction": "output",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Requires successful completion of all upstream components",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "database_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "postgres_default",
+          "type": "database",
+          "purpose": "Connect to PostgreSQL database for sales data extraction"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "sales_raw"
+        ],
+        "produces": [
+          "sales_aggregated"
+        ]
+      }
+    },
+    {
+      "id": "transform_sales_to_csv",
+      "name": "Transform Sales to CSV",
+      "category": "Transformer",
+      "description": "Transform the extracted sales data into CSV format for reporting and attachment. Uses pandas for DataFrame manipulation and CSV generation.",
+      "inputs": [
+        "Query results from extract_sales_data"
+      ],
+      "outputs": [
+        "CSV file saved to /tmp/sales_report.csv"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": "transform_to_csv.py",
+        "entry_point": "transform_to_csv.main",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "sales_query_results",
+          "direction": "input",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "sales_report_csv",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/tmp/sales_report.csv",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Requires successful completion of all upstream components",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "processing_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "sales_aggregated"
+        ],
+        "produces": [
+          "sales_report_csv"
+        ]
+      }
+    },
+    {
+      "id": "generate_sales_chart_pdf",
+      "name": "Generate Sales Chart PDF",
+      "category": "Transformer",
+      "description": "Create a visual PDF chart from sales data for management reporting. Generates bar chart visualization of sales data by product.",
+      "inputs": [
+        "Sales data (likely from CSV or transformed results)"
+      ],
+      "outputs": [
+        "PDF chart file saved to /tmp/sales_chart.pdf"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": "generate_pdf_chart.py",
+        "entry_point": "generate_pdf_chart.main",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "sales_data_input",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/tmp/sales_report.csv",
+          "connection_id": null
+        },
+        {
+          "name": "sales_chart_pdf",
+          "direction": "output",
+          "kind": "file",
+          "format": "binary",
+          "path_pattern": "/tmp/sales_chart.pdf",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Requires successful completion of all upstream components",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "processing_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "sales_report_csv"
+        ],
+        "produces": [
+          "sales_chart_pdf"
+        ]
+      }
+    },
+    {
+      "id": "email_sales_report",
+      "name": "Email Sales Report",
+      "category": "Notifier",
+      "description": "Deliver the complete sales report via email to management team. Includes HTML-formatted email content with both CSV and PDF attachments.",
+      "inputs": [
+        "CSV file (/tmp/sales_report.csv) and PDF chart (/tmp/sales_chart.pdf)"
+      ],
+      "outputs": [
+        "Email delivery to specified recipients"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": "email_sales_report.py",
+        "entry_point": "email_sales_report.main",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "sales_report_attachments",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/tmp/sales_report.csv",
+          "connection_id": null
+        },
+        {
+          "name": "sales_chart_attachment",
+          "direction": "input",
+          "kind": "file",
+          "format": "binary",
+          "path_pattern": "/tmp/sales_chart.pdf",
+          "connection_id": null
+        },
+        {
+          "name": "email_delivery",
+          "direction": "output",
+          "kind": "api",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": "email_system"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Requires successful completion of all upstream components",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "email_system",
+          "type": "api",
+          "purpose": "Send email notifications to management team"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "sales_report_csv",
+          "sales_chart_pdf"
+        ],
+        "produces": []
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sequential",
+    "entry_points": [
+      "extract_sales_data"
+    ],
+    "nodes": {
+      "extract_sales_data": {
+        "kind": "Task",
+        "component_type_id": "extract_sales_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "transform_sales_to_csv"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "transform_sales_to_csv": {
+        "kind": "Task",
+        "component_type_id": "transform_sales_to_csv",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "generate_sales_chart_pdf"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "generate_sales_chart_pdf": {
+        "kind": "Task",
+        "component_type_id": "generate_sales_chart_pdf",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "email_sales_report"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "email_sales_report": {
+        "kind": "Task",
+        "component_type_id": "email_sales_report",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "extract_sales_data",
+        "to": "transform_sales_to_csv",
+        "edge_type": "success"
+      },
+      {
+        "from": "transform_sales_to_csv",
+        "to": "generate_sales_chart_pdf",
+        "edge_type": "success"
+      },
+      {
+        "from": "generate_sales_chart_pdf",
+        "to": "email_sales_report",
+        "edge_type": "success"
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": "Daily Sales Report",
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline description",
+        "type": "string",
+        "default": "This is a sequential linear pipeline that generates daily sales reports by querying PostgreSQL sales data, transforming it into CSV format, creating a PDF chart visualization, and emailing the final report to management.",
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [
+          "sales",
+          "reporting",
+          "etl",
+          "linear"
+        ],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2024-01-01T00:00:00Z",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": "UTC",
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": "ds",
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": "daily",
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": 1,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": 3600,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 2,
+          "retry_delay": 300
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      }
+    },
+    "components": {
+      "extract_sales_data": {
+        "postgres_conn_id": {
+          "description": "PostgreSQL connection identifier",
+          "type": "string",
+          "default": "postgres_default",
+          "required": true,
+          "constraints": "Must be a valid PostgreSQL connection ID"
+        },
+        "sql": {
+          "description": "SQL query template with date parameterization",
+          "type": "string",
+          "default": "SELECT * FROM sales WHERE date = '{{ ds }}'",
+          "required": true,
+          "constraints": "Must include date filtering using {{ ds }} template"
+        }
+      },
+      "transform_sales_to_csv": {
+        "provide_context": {
+          "description": "Whether to provide Airflow context to the function",
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "output_path": {
+          "description": "File path for CSV output",
+          "type": "string",
+          "default": "/tmp/sales_report.csv",
+          "required": false
+        }
+      },
+      "generate_sales_chart_pdf": {
+        "provide_context": {
+          "description": "Whether to provide Airflow context to the function",
+          "type": "boolean",
+          "default": true,
+          "required": false
+        },
+        "output_path": {
+          "description": "File path for PDF output",
+          "type": "string",
+          "default": "/tmp/sales_chart.pdf",
+          "required": false
+        }
+      },
+      "email_sales_report": {
+        "to": {
+          "description": "Recipient email address",
+          "type": "string",
+          "default": "management@company.com",
+          "required": true
+        },
+        "subject": {
+          "description": "Email subject template with date parameterization",
+          "type": "string",
+          "default": "Daily Sales Report for {{ ds }}",
+          "required": false
+        },
+        "files": {
+          "description": "Paths to files to attach",
+          "type": "array",
+          "default": [
+            "/tmp/sales_report.csv",
+            "/tmp/sales_chart.pdf"
+          ],
+          "required": false
+        }
+      }
+    },
+    "environment": {
+      "POSTGRES_DEFAULT_CONN_ID": {
+        "description": "Default PostgreSQL connection ID",
+        "type": "string",
+        "default": "postgres_default",
+        "required": false,
+        "associated_component_id": "extract_sales_data"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "postgres_sales_db",
+        "name": "PostgreSQL Sales Database",
+        "type": "database",
+        "config": {
+          "host": null,
+          "port": null,
+          "database": null,
+          "schema": null,
+          "base_path": null,
+          "base_url": null,
+          "protocol": "jdbc",
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "extract_sales_data"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "sales_table"
+          ]
+        }
+      },
+      {
+        "id": "local_filesystem_tmp",
+        "name": "Local Filesystem /tmp",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/tmp",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "transform_sales_to_csv",
+          "generate_sales_chart_pdf",
+          "email_sales_report"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "sales_report.csv",
+            "sales_chart.pdf"
+          ],
+          "consumes": [
+            "sales_report.csv",
+            "sales_chart.pdf"
+          ]
+        }
+      },
+      {
+        "id": "email_system",
+        "name": "Email System",
+        "type": "other",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": null,
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "email_sales_report"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "PostgreSQL sales table with date-based filtering using execution date"
+      ],
+      "sinks": [
+        "Email delivery to management@company.com with CSV and PDF attachments"
+      ],
+      "intermediate_datasets": [
+        "/tmp/sales_report.csv",
+        "/tmp/sales_chart.pdf"
+      ]
+    }
+  }
+}

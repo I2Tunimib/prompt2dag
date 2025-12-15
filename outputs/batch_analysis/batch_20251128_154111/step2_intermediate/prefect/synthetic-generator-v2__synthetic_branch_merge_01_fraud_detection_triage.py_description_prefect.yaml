@@ -1,0 +1,211 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-11-28 15:46:06.057534
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_branch_merge_01_fraud_detection_triage.py_description.txt
+  pipeline_name: fraud_detection_triage
+  pipeline_description: Comprehensive fraud detection triage pipeline processing daily transaction batches with 
+    conditional routing based on risk scores
+  orchestrator_specific:
+    flow_name: fraud_detection_triage
+    deployment_name: fraud_detection_triage_deployment
+    work_pool: default-agent-pool
+    task_runner: ConcurrentTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: transaction_csv_input
+    conn_type: LocalFileSystem
+    description: Transaction CSV Input Files
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: transaction_csv_input
+      config:
+        base_path: /data/transactions
+        protocol: file
+        host:
+        port:
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_url:
+  - conn_id: manual_review_queue
+    conn_type: Secret
+    description: Manual Review Queue
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: manual_review_queue
+      config:
+        base_path:
+        protocol: https
+        host: manual-review.internal
+        port: 443
+        database:
+        schema:
+        bucket:
+        queue_name: manual_review_queue
+        base_url: https://manual-review.internal/api
+        token_secret_name: MANUAL_REVIEW_API_TOKEN
+  - conn_id: payment_processing_api
+    conn_type: Secret
+    description: Payment Processing API
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: payment_processing_api
+      config:
+        base_path:
+        protocol: https
+        host: payment-processing.internal
+        port: 443
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_url: https://payment-processing.internal/api/v1/transactions
+  - conn_id: notification_system
+    conn_type: Secret
+    description: Notification System
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: notification_system
+      config:
+        base_path:
+        protocol: https
+        host: notifications.internal
+        port: 443
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_url: https://notifications.internal/api/v1/send
+  - conn_id: xcom_system
+    conn_type: Secret
+    description: XCom System
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: xcom_system
+      config:
+        base_path:
+        protocol:
+        host: xcom-redis.internal
+        port: 6379
+        database:
+        schema:
+        bucket:
+        queue_name:
+        base_url:
+        username_secret_name: XCOM_REDIS_USER
+        password_secret_name: XCOM_REDIS_PASSWORD
+tasks:
+  - task_id: analyze_transactions
+    task_name: Analyze Transactions
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: analyze_transactions
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: synthetic/synthetic_branch_merge_01_fraud_detection_triage.py
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: route_transaction
+    task_name: Route Transaction
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: route_transaction
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: synthetic/synthetic_branch_merge_01_fraud_detection_triage.py
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - analyze_transactions
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: route_to_manual_review
+    task_name: Route to Manual Review
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: route_to_manual_review
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: synthetic/synthetic_branch_merge_01_fraud_detection_triage.py
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - route_transaction
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: route_to_auto_approve
+    task_name: Route to Auto Approve
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: route_to_auto_approve
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: synthetic/synthetic_branch_merge_01_fraud_detection_triage.py
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - route_transaction
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: send_notification
+    task_name: Send Notification
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: send_notification
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config:
+          fn: synthetic/synthetic_branch_merge_01_fraud_detection_triage.py
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - route_to_manual_review
+      - route_to_auto_approve
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

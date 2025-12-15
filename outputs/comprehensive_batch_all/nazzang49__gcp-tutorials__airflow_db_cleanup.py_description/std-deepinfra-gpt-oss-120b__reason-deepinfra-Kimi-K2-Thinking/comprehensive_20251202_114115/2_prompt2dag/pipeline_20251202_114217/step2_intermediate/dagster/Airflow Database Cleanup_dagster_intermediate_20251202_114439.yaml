@@ -1,0 +1,135 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 11:44:39.277102
+  source_analysis_file: Pipeline_Description_Dataset/nazzang49__gcp-tutorials__airflow_db_cleanup.py_description.txt
+  pipeline_name: Airflow Database Cleanup
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    job_name: airflow_database_cleanup
+    description: No description provided.
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - airflow_variables
+      - airflow_metastore
+      - xcom
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: airflow_metastore_db
+    conn_type: resource
+    description: Airflow MetaStore Database
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: airflow_metastore_db
+      config:
+        host: AIRFLOW_DB_HOST
+        port: 5432
+        protocol: postgresql+psycopg2
+        database: airflow
+        schema: public
+        base_path:
+        base_url:
+        bucket:
+        queue_name:
+        username: EnvVar('AIRFLOW_DB_USER')
+        password: EnvVar('AIRFLOW_DB_PASSWORD')
+  - conn_id: smtp_email_alert
+    conn_type: resource
+    description: SMTP Email Alert Service
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: smtp_email_alert
+      config:
+        host: SMTP_HOST
+        port: 587
+        protocol: smtp
+        base_path:
+        base_url:
+        database:
+        schema:
+        bucket:
+        queue_name:
+        username: EnvVar('SMTP_USER')
+        password: EnvVar('SMTP_PASSWORD')
+tasks:
+  - task_id: load_cleanup_configuration
+    task_name: Load Cleanup Configuration
+    operator_class: Op
+    operator_module: dagster
+    component_ref: load_cleanup_configuration
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - airflow_variables
+        - xcom
+      retry_policy:
+        max_retries: 1
+        delay: 60
+        backoff: CONSTANT
+      ins:
+        - name: dag_run_config
+          dagster_type: Any
+          description: ''
+        - name: airflow_variable
+          dagster_type: Any
+          description: airflow_variable:airflow_db_cleanup__max_db_entry_age_in_days
+      outs:
+        - name: max_date
+          dagster_type: Any
+          description: Output to xcom
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: cleanup_airflow_metadb
+    task_name: Cleanup Airflow MetaDB
+    operator_class: Op
+    operator_module: dagster
+    component_ref: cleanup_airflow_metadb
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - airflow_metastore
+        - xcom
+      retry_policy:
+        max_retries: 1
+        delay: 60
+        backoff: CONSTANT
+      ins:
+        - name: max_date
+          dagster_type: Any
+          description: xcom:max_date
+        - name: DATABASE_OBJECTS
+          dagster_type: Any
+          description: config:DATABASE_OBJECTS
+      outs:
+        - name: deletion_summary
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - load_cleanup_configuration
+    trigger_rule: default
+    retries: 1
+    retry_delay_seconds: 60
+    validation_warnings: []

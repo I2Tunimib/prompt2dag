@@ -1,0 +1,132 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-11-28 15:49:48.797637
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_fan_out_only_01_data_replication_to_environments.py_description.txt
+  pipeline_name: synthetic_fan_out_only_01_data_replication_to_environments
+  pipeline_description: '[Database Replication Fanout] - Comprehensive Pipeline Description'
+  orchestrator_specific: {}
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: local_filesystem
+    conn_type: fs
+    description: Local Filesystem for CSV Storage
+    config:
+      base_path: /tmp
+      protocol: file
+  - conn_id: dev_database
+    conn_type: generic
+    description: Development Environment Database
+    config:
+      host: dev-db-host
+      port: 5432
+      database: Dev_DB
+      schema: public
+      login: DEV_DB_USER
+      password: DEV_DB_PASSWORD
+  - conn_id: staging_database
+    conn_type: generic
+    description: Staging Environment Database
+    config:
+      host: staging-db-host
+      port: 5432
+      database: Staging_DB
+      schema: public
+      login: STAGING_DB_USER
+      password: STAGING_DB_PASSWORD
+  - conn_id: qa_database
+    conn_type: generic
+    description: QA Environment Database
+    config:
+      host: qa-db-host
+      port: 5432
+      database: QA_DB
+      schema: public
+      login: QA_DB_USER
+      password: QA_DB_PASSWORD
+tasks:
+  - task_id: dump_prod_csv
+    task_name: Dump Production Database to CSV
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: dump_prod_csv
+    config:
+      image: postgres:13
+      environment: {}
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: copy_dev
+    task_name: Copy CSV to Development Environment
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: copy_dev
+    config:
+      image: postgres:13
+      environment: {}
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - dump_prod_csv
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: copy_staging
+    task_name: Copy CSV to Staging Environment
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: copy_staging
+    config:
+      image: postgres:13
+      environment: {}
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - dump_prod_csv
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
+  - task_id: copy_qa
+    task_name: Copy CSV to QA Environment
+    operator_class: DockerOperator
+    operator_module: airflow.providers.docker.operators.docker
+    component_ref: copy_qa
+    config:
+      image: postgres:13
+      environment: {}
+      cpus: '1'
+      mem_limit: 2Gi
+      auto_remove: true
+      docker_url: unix://var/run/docker.sock
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - dump_prod_csv
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings:
+      - Uses image default command - ensure Dockerfile has ENTRYPOINT/CMD
