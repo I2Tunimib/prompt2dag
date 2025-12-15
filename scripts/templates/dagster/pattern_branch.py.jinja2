@@ -1,0 +1,266 @@
+# ==============================================================================
+# Generated Dagster Job - Conditional Branching Pattern
+# Pipeline: {{ pipeline_name }}
+# Pattern: {{ detected_pattern }}
+# Strategy: {{ generator_strategy }}
+# Generated: {{ generation_timestamp }}
+# ==============================================================================
+
+from __future__ import annotations
+
+import os
+import subprocess
+from typing import Dict, Any, Optional
+
+from dagster import (
+    op,
+    job,
+    In,
+    Out,
+    DynamicOut,
+    DynamicOutput,
+    OpExecutionContext,
+    Failure,
+    RetryPolicy,
+)
+{% if executor_type == 'docker_executor' %}
+from dagster_docker import docker_executor
+{% else %}
+from dagster import in_process_executor
+{% endif %}
+
+# --- Configuration ---
+HOST_DATA_DIR = os.getenv('HOST_DATA_DIR', '/tmp/dagster/data')
+CONTAINER_DATA_DIR = '/app/data'
+
+# --- Branch Decision Functions ---
+{% for branch_id in pattern_analysis.branch_points %}
+
+def decide_{{ branch_id }}_branch(result: Dict[str, Any]) -> str:
+    """
+    Branch decision logic for {{ branch_id }}.
+    
+    Returns the mapping key of the next op to execute.
+    
+    TODO: Implement actual branching logic here.
+    """
+    # Example: Check result data, environment, or external state
+    
+    # Available branches:
+    branches = [
+{%   for dep_src, dep_dst in dependencies %}
+{%     if dep_src == branch_id %}
+        '{{ dep_dst }}',
+{%     endif %}
+{%   endfor %}
+    ]
+    
+    # Default: return first branch
+    if branches:
+        print(f"Branch decision: Taking path '{branches[0]}'")
+        return branches[0]
+    
+    return 'default'
+
+{% endfor %}
+
+# --- Op Definitions ---
+{% for task in processed_tasks %}
+{% if task.task_id not in pattern_analysis.branch_points %}
+
+@op(
+    name="{{ task.task_id }}",
+    description="{{ task.task_name }}",
+{% if task.ins %}
+    ins={
+{%   for input_spec in task.ins %}
+        "{{ input_spec.name }}": In({{ input_spec.dagster_type }}),
+{%   endfor %}
+    },
+{% endif %}
+{% if task.outs %}
+    out={
+{%   for output_spec in task.outs %}
+        "{{ output_spec.name }}": Out({{ output_spec.dagster_type }}),
+{%   endfor %}
+    },
+{% else %}
+    out=Out(Dict[str, Any]),
+{% endif %}
+{% if task.retries > 0 %}
+    retry_policy=RetryPolicy(max_retries={{ task.retries }}, delay={{ task.retry_delay_seconds }}),
+{% endif %}
+    tags={"pattern": "{{ detected_pattern }}", "executor": "docker"},
+)
+def {{ task.task_id }}(
+    context: OpExecutionContext,
+{% if task.ins %}
+{%   for input_spec in task.ins %}
+    {{ input_spec.name }}: {{ input_spec.dagster_type }},
+{%   endfor %}
+{% endif %}
+) -> Dict[str, Any]:
+    """
+    Op: {{ task.task_name }}
+    
+    Executes Docker container: {{ task.image }}
+    """
+    context.log.info(f"Starting op: {{ task.task_id }}")
+    
+    # Build docker run command
+    cmd = [
+        'docker', 'run',
+        '--rm',
+        '-v', f'{HOST_DATA_DIR}:{CONTAINER_DATA_DIR}',
+{% if task.network_mode %}
+        '--network', '{{ task.network_mode }}',
+{% endif %}
+    ]
+    
+{% if task.environment %}
+{% for key, value in task.environment.items() %}
+    cmd.extend(['-e', '{{ key }}={{ value }}'])
+{% endfor %}
+{% endif %}
+    
+    cmd.append('{{ task.image }}')
+    
+{% if task.command %}
+{% if task.command is string %}
+    cmd.extend({{ task.command.split() | tojson }})
+{% elif task.command is iterable %}
+    cmd.extend({{ task.command | tojson }})
+{% endif %}
+{% endif %}
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        
+        context.log.info(f"Op {{ task.task_id }} completed")
+        
+        return {
+            'op_id': '{{ task.task_id }}',
+            'status': 'success',
+            'stdout': result.stdout,
+            'stderr': result.stderr,
+        }
+        
+    except subprocess.CalledProcessError as e:
+        context.log.error(f"Op {{ task.task_id }} failed: {e.stderr}")
+        raise Failure(description=f"Docker container failed: {e.stderr}")
+
+{% endif %}
+{% endfor %}
+
+# --- Branch Ops (Dynamic Routing) ---
+{% for branch_id in pattern_analysis.branch_points %}
+
+@op(
+    name="{{ branch_id }}",
+    description="Branch point: {{ branch_id }}",
+    out=DynamicOut(Dict[str, Any]),
+    tags={"pattern": "branch", "router": "true"},
+)
+def {{ branch_id }}(context: OpExecutionContext, upstream_result: Dict[str, Any]) -> List[DynamicOutput]:
+    """
+    Branch router: {{ branch_id }}
+    
+    Determines which downstream op(s) to execute based on conditions.
+    """
+    context.log.info(f"Evaluating branch: {{ branch_id }}")
+    
+    # Make branch decision
+    selected_branch = decide_{{ branch_id }}_branch(upstream_result)
+    
+    context.log.info(f"Selected branch: {selected_branch}")
+    
+    # Emit dynamic output for selected branch
+    return [
+        DynamicOutput(
+            value=upstream_result,
+            mapping_key=selected_branch,
+        )
+    ]
+
+{% endfor %}
+
+# --- Job Definition with Branching ---
+@job(
+    name="{{ job_name }}",
+    description="{{ pipeline_description }}",
+{% if executor_type == 'docker_executor' %}
+    executor_def=docker_executor,
+{% else %}
+    executor_def=in_process_executor,
+{% endif %}
+    tags={"pattern": "{{ detected_pattern }}", "branching": "true"},
+)
+def {{ job_name }}():
+    """
+    Job: {{ pipeline_name }}
+    
+    Pattern: {{ detected_pattern }}
+    Branch points: {{ pattern_analysis.branch_points | length }}
+    """
+{% set processed = namespace(ops=[]) %}
+{% for task_id in task_order %}
+{%   set task = processed_tasks | selectattr('task_id', 'equalto', task_id) | first %}
+{%   set upstream_ids = task.upstream_task_ids %}
+    
+{%   if task_id in pattern_analysis.branch_points %}
+    # Branch point: {{ task_id }}
+{%     if upstream_ids | length == 0 %}
+    {{ task_id }}_outputs = {{ task_id }}(upstream_result={})
+{%     else %}
+    {{ task_id }}_outputs = {{ task_id }}(upstream_result={{ upstream_ids[0] }}_result)
+{%     endif %}
+    
+    # Map downstream ops over branch outputs
+{%     for dep_src, dep_dst in dependencies %}
+{%       if dep_src == task_id %}
+    {{ dep_dst }}_result = {{ task_id }}_outputs.map({{ dep_dst }})
+{%       endif %}
+{%     endfor %}
+    
+{%   elif upstream_ids | length == 0 %}
+    # Entry point: {{ task_id }}
+    {{ task_id }}_result = {{ task_id }}()
+    
+{%   elif upstream_ids | length == 1 %}
+{%     set upstream_id = upstream_ids[0] %}
+{%     if upstream_id in pattern_analysis.branch_points %}
+    # Already mapped above in branch section
+    pass
+{%     else %}
+    # Regular upstream: {{ task_id }}
+    {{ task_id }}_result = {{ task_id }}({{ upstream_id }}_result={{ upstream_id }}_result)
+{%     endif %}
+    
+{%   else %}
+    # Multiple upstreams (fan-in after branch)
+    {{ task_id }}_result = {{ task_id }}(
+{%     for upstream_id in upstream_ids %}
+        {{ upstream_id }}_result={{ upstream_id }}_result,
+{%     endfor %}
+    )
+{%   endif %}
+{%   do processed.ops.append(task_id) %}
+{% endfor %}
+
+
+# --- Repository ---
+from dagster import repository
+
+@repository
+def {{ job_name }}_repository():
+    return [{{ job_name }}]
+
+
+if __name__ == "__main__":
+    result = {{ job_name }}.execute_in_process()
+    print(f"Job execution result: {result.success}")

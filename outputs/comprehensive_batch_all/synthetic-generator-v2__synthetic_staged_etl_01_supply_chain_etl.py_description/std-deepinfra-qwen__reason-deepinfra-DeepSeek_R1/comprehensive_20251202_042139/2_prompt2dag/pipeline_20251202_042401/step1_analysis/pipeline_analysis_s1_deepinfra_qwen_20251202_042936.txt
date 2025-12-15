@@ -1,0 +1,217 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T04:29:36.508074
+# Provider: deepinfra
+# Model: qwen
+# Source: Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_staged_etl_01_supply_chain_etl.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+### Executive Summary
+
+**Overall Purpose and High-Level Flow:**
+The pipeline is designed to process supply chain shipment data from three vendors (Vendor A, Vendor B, and Vendor C). It follows a staged ETL pattern with a parallel extraction phase, a data cleansing and normalization phase, and a final loading phase into an inventory database. The pipeline also includes a notification step to send a summary email to the supply chain team upon completion.
+
+**Key Patterns and Complexity:**
+- **Patterns:** The pipeline exhibits sequential and parallel flow patterns. The extraction phase runs in parallel, followed by a sequential cleansing and normalization phase, and finally a loading phase.
+- **Complexity:** The pipeline has a moderate complexity score of 4/10, primarily due to the parallel extraction and the need for data normalization and enrichment.
+
+### Pipeline Architecture
+
+**Flow Patterns:**
+- **Sequential:** The cleansing and normalization phase, as well as the loading and notification phases, follow a sequential pattern.
+- **Parallel:** The extraction phase runs in parallel for data from three different vendors.
+
+**Execution Characteristics:**
+- **Task Executor Types:** The pipeline uses Python and email executors.
+- **Branching:** No branching is present in the pipeline.
+- **Parallelism:** The extraction phase is parallel, with three tasks running concurrently.
+- **Sensors:** No sensors are used in the pipeline.
+
+**Component Overview:**
+- **Extractors:** `Ingest Vendor A Data`, `Ingest Vendor B Data`, `Ingest Vendor C Data`
+- **Transformer:** `Cleanse and Normalize Data`
+- **Loader:** `Load to Database`
+- **Notifier:** `Send Summary Email`
+
+**Flow Description:**
+- **Entry Points:** The pipeline starts with three parallel extraction tasks: `Ingest Vendor A Data`, `Ingest Vendor B Data`, and `Ingest Vendor C Data`.
+- **Main Sequence:** After the extraction tasks complete, the `Cleanse and Normalize Data` task runs, followed by the `Load to Database` task.
+- **Branching/Parallelism/Sensors:** The extraction tasks run in parallel, and the pipeline does not use branching or sensors.
+
+### Detailed Component Analysis
+
+**1. Ingest Vendor A Data**
+- **Purpose and Category:** Extracts raw shipment data from Vendor A.
+- **Executor Type and Configuration:** Python executor, using a script located at `synthetic/synthetic_staged_etl_01_supply_chain_etl.py` with the entry point `ingest_vendor_a`.
+- **Inputs and Outputs:** Input: `vendor_a_shipments_20240115.csv` (CSV file). Output: `vendor_a_data` (JSON object).
+- **Retry Policy and Concurrency Settings:** Retries up to 2 times with a 300-second delay. No parallelism or dynamic mapping.
+- **Connected Systems:** Vendor A filesystem for reading CSV files.
+
+**2. Ingest Vendor B Data**
+- **Purpose and Category:** Extracts raw shipment data from Vendor B.
+- **Executor Type and Configuration:** Python executor, using a script located at `synthetic/synthetic_staged_etl_01_supply_chain_etl.py` with the entry point `ingest_vendor_b`.
+- **Inputs and Outputs:** Input: `vendor_b_shipments_20240115.csv` (CSV file). Output: `vendor_b_data` (JSON object).
+- **Retry Policy and Concurrency Settings:** Retries up to 2 times with a 300-second delay. No parallelism or dynamic mapping.
+- **Connected Systems:** Vendor B filesystem for reading CSV files.
+
+**3. Ingest Vendor C Data**
+- **Purpose and Category:** Extracts raw shipment data from Vendor C.
+- **Executor Type and Configuration:** Python executor, using a script located at `synthetic/synthetic_staged_etl_01_supply_chain_etl.py` with the entry point `ingest_vendor_c`.
+- **Inputs and Outputs:** Input: `vendor_c_shipments_20240115.csv` (CSV file). Output: `vendor_c_data` (JSON object).
+- **Retry Policy and Concurrency Settings:** Retries up to 2 times with a 300-second delay. No parallelism or dynamic mapping.
+- **Connected Systems:** Vendor C filesystem for reading CSV files.
+
+**4. Cleanse and Normalize Data**
+- **Purpose and Category:** Normalizes SKU formats, validates dates, filters invalid records, and enriches with location data.
+- **Executor Type and Configuration:** Python executor, using a script located at `synthetic/synthetic_staged_etl_01_supply_chain_etl.py` with the entry point `cleanse_data`.
+- **Inputs and Outputs:** Inputs: `vendor_a_data`, `vendor_b_data`, `vendor_c_data` (JSON objects). Output: `cleansed_shipment_data` (JSON object).
+- **Retry Policy and Concurrency Settings:** Retries up to 2 times with a 300-second delay. No parallelism or dynamic mapping.
+- **Connected Systems:** Location reference tables in a database for enriching data.
+
+**5. Load to Database**
+- **Purpose and Category:** Loads cleansed shipment data to the inventory database.
+- **Executor Type and Configuration:** Python executor, using a script located at `synthetic/synthetic_staged_etl_01_supply_chain_etl.py` with the entry point `load_to_db`.
+- **Inputs and Outputs:** Input: `cleansed_shipment_data` (JSON object). Output: `db_load_complete` (JSON object).
+- **Retry Policy and Concurrency Settings:** Retries up to 2 times with a 300-second delay. No parallelism or dynamic mapping.
+- **Connected Systems:** Inventory database for loading data.
+
+**6. Send Summary Email**
+- **Purpose and Category:** Sends a daily ETL summary notification to the supply chain team.
+- **Executor Type and Configuration:** Python executor, using a script located at `synthetic/synthetic_staged_etl_01_supply_chain_etl.py` with the entry point `send_summary_email`.
+- **Inputs and Outputs:** Input: `db_load_complete` (JSON object). No outputs.
+- **Retry Policy and Concurrency Settings:** Retries up to 2 times with a 300-second delay. No parallelism or dynamic mapping.
+- **Connected Systems:** Email system API for sending notifications.
+
+### Parameter Schema
+
+**Pipeline-Level Parameters:**
+- **Name:** Unique identifier for the pipeline.
+- **Description:** Detailed description of the pipeline.
+- **Tags:** Classification tags (default: `["supply_chain", "etl", "shipments"]`).
+
+**Schedule Configuration:**
+- **Enabled:** Whether the pipeline runs on schedule (default: `true`).
+- **Cron Expression:** Schedule expression (default: `@daily`).
+- **Start Date:** When to start scheduling (default: `2024-01-01`).
+- **End Date:** When to stop scheduling (optional).
+- **Timezone:** Schedule timezone (optional).
+- **Catchup:** Run missed intervals (default: `false`).
+- **Batch Window:** Batch window parameter name (optional).
+- **Partitioning:** Data partitioning strategy (default: `daily`).
+
+**Execution Settings:**
+- **Max Active Runs:** Maximum concurrent pipeline runs (optional).
+- **Timeout Seconds:** Pipeline execution timeout (optional).
+- **Retry Policy:** Pipeline-level retry behavior (default: `{"retries": 2, "retry_delay": 300}`).
+- **Depends on Past:** Whether execution depends on previous run success (optional).
+
+**Component-Specific Parameters:**
+- **Ingest Vendor A:**
+  - `input_file`: Input CSV file for Vendor A (default: `vendor_a_shipments_20240115.csv`).
+  - `output_key`: XCom key for output data (default: `vendor_a_data`).
+
+- **Ingest Vendor B:**
+  - `input_file`: Input CSV file for Vendor B (default: `vendor_b_shipments_20240115.csv`).
+  - `output_key`: XCom key for output data (default: `vendor_b_data`).
+
+- **Ingest Vendor C:**
+  - `input_file`: Input CSV file for Vendor C (default: `vendor_c_shipments_20240115.csv`).
+  - `output_key`: XCom key for output data (default: `vendor_c_data`).
+
+- **Cleanse Data:**
+  - `input_keys`: XCom keys for input data (default: `["vendor_a_data", "vendor_b_data", "vendor_c_data"]`).
+  - `output_key`: XCom key for output data (default: `cleansed_shipment_data`).
+
+- **Load to DB:**
+  - `input_key`: XCom key for input data (default: `cleansed_shipment_data`).
+  - `output_key`: XCom key for output status (default: `db_load_complete`).
+  - `database`: Database connection details (default: `PostgreSQL inventory_db`).
+  - `table`: Database table to load data into (default: `inventory_shipments`).
+
+- **Send Summary Email:**
+  - `to_email`: Recipient email address (default: `supply-chain-team@company.com`).
+  - `subject`: Email subject (default: `Daily ETL Summary`).
+  - `template_variables`: Template variables for email content (default: `{"ds": "{{ ds }}"}`).
+  - `content_format`: Email content format (default: `HTML`).
+
+**Environment Variables:**
+- **VENDOR_A_DATA_PATH:** Path to Vendor A data file (default: `vendor_a_shipments_20240115.csv`).
+- **VENDOR_B_DATA_PATH:** Path to Vendor B data file (default: `vendor_b_shipments_20240115.csv`).
+- **VENDOR_C_DATA_PATH:** Path to Vendor C data file (default: `vendor_c_shipments_20240115.csv`).
+- **DATABASE_CONNECTION_STRING:** Database connection string (default: `PostgreSQL inventory_db`).
+- **EMAIL_RECIPIENT:** Recipient email address for summary email (default: `supply-chain-team@company.com`).
+
+### Integration Points
+
+**External Systems and Connections:**
+- **Vendor A Data Source:** Filesystem for reading Vendor A shipment CSV files.
+- **Vendor B Data Source:** Filesystem for reading Vendor B shipment CSV files.
+- **Vendor C Data Source:** Filesystem for reading Vendor C shipment CSV files.
+- **Location Reference Tables:** Database for enriching data with location information.
+- **Inventory Database:** Database for loading cleansed shipment data.
+- **Email System:** API for sending email notifications.
+
+**Data Sources and Sinks:**
+- **Sources:**
+  - Vendor A shipment data from CSV files.
+  - Vendor B shipment data from CSV files.
+  - Vendor C shipment data from CSV files.
+  - Location reference data from the location reference database.
+- **Sinks:**
+  - Cleansed shipment data loaded into the inventory database.
+
+**Authentication Methods:**
+- **Vendor A, B, C Data Sources:** No authentication required.
+- **Location Reference Tables:** Basic authentication using environment variables.
+- **Inventory Database:** Basic authentication using environment variables.
+- **Email System:** Token-based authentication using an environment variable.
+
+**Data Lineage:**
+- **Sources:**
+  - Vendor A shipment data from CSV files.
+  - Vendor B shipment data from CSV files.
+  - Vendor C shipment data from CSV files.
+  - Location reference data from the location reference database.
+- **Sinks:**
+  - Cleansed shipment data loaded into the inventory database.
+- **Intermediate Datasets:**
+  - `vendor_a_data`
+  - `vendor_b_data`
+  - `vendor_c_data`
+  - `cleansed_shipment_data`
+
+### Implementation Notes
+
+**Complexity Assessment:**
+- The pipeline has a moderate complexity score of 4/10, primarily due to the parallel extraction and the need for data normalization and enrichment.
+
+**Upstream Dependency Policies:**
+- The cleansing and normalization task (`Cleanse and Normalize Data`) depends on the successful completion of all extraction tasks.
+- The loading task (`Load to Database`) depends on the successful completion of the cleansing and normalization task.
+- The notification task (`Send Summary Email`) depends on the successful completion of the loading task.
+
+**Retry and Timeout Configurations:**
+- Each task has a retry policy with up to 2 retries and a 300-second delay.
+- No specific timeout settings are defined at the pipeline level.
+
+**Potential Risks or Considerations:**
+- **Data Quality:** Ensure that the input CSV files are well-formed and consistent.
+- **Network Issues:** Network errors during data extraction or loading could cause failures.
+- **Database Performance:** Loading large amounts of data into the inventory database could impact performance.
+- **Email Notifications:** Ensure that the email system is reliable and can handle the volume of notifications.
+
+### Orchestrator Compatibility
+
+**Assessment for Airflow, Prefect, Dagster:**
+- **Airflow:** The pipeline's structure, with parallel extraction and sequential processing, is well-suited for Airflow. The use of XCom for data passing and TaskGroups for organizing stages aligns well with Airflow's capabilities.
+- **Prefect:** Prefect's flow-based approach and support for parallel tasks and data passing make it a good fit for this pipeline. The use of tasks and flows can effectively manage the parallel and sequential stages.
+- **Dagster:** Dagster's solid-based approach and support for complex data dependencies and parallel execution can handle the pipeline's requirements. The use of solids and pipelines can effectively manage the stages and data flow.
+
+**Pattern-Specific Considerations:**
+- **Parallelism:** Ensure that the orchestrator can handle parallel tasks efficiently.
+- **Data Passing:** The orchestrator should support passing data between tasks, such as using XCom in Airflow or outputs in Prefect and Dagster.
+- **Retry Policies:** The orchestrator should support configurable retry policies for tasks.
+
+### Conclusion
+
+The supply chain shipment ETL pipeline is a well-structured and moderately complex pipeline that efficiently processes data from multiple vendors. The pipeline's use of parallel extraction, data cleansing, and normalization, followed by loading into a database and sending a summary email, ensures a robust and reliable data processing workflow. The pipeline is compatible with various orchestrators, including Airflow, Prefect, and Dagster, making it flexible for different deployment environments.

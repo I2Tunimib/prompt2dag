@@ -1,0 +1,158 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-01 15:04:32.159704
+  source_analysis_file: 
+    Pipeline_Description_Dataset/technoavengers-com__airflow-training-private__assignment_template.py_description.txt
+  pipeline_name: fetch_user_data_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    job_name: fetch_user_data_pipeline
+    description: No description provided.
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - postgres
+      - reqres
+schedule:
+  enabled: false
+  schedule_expression: '@daily'
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: reqres_api
+    conn_type: resource
+    description: Reqres API
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: reqres_api
+      config:
+        base_url: https://reqres.in
+        protocol: https
+  - conn_id: postgres_db
+    conn_type: resource
+    description: PostgreSQL Database
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: postgres_db
+      config:
+        host: localhost
+        port: 5432
+        database: airflow
+        schema: public
+        username: EnvVar('POSTGRES_USER')
+        password: EnvVar('POSTGRES_PASSWORD')
+tasks:
+  - task_id: fetch_user_data
+    task_name: Fetch User Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: fetch_user_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          endpoint:
+            - GET
+            - api/users/2
+      config_schema: {}
+      required_resource_keys:
+        - reqres
+      ins: []
+      outs:
+        - name: user_data
+          dagster_type: Any
+          description: Output to reqres
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: process_user_data
+    task_name: Process User Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: process_user_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: _process_user
+      config_schema: {}
+      required_resource_keys: []
+      ins:
+        - name: user_data
+          dagster_type: Any
+          description: XCom
+      outs:
+        - name: processed_user_data
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids:
+      - fetch_user_data
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: create_user_table
+    task_name: Create User Table
+    operator_class: Op
+    operator_module: dagster
+    component_ref: create_user_table
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - postgres
+      ins: []
+      outs:
+        - name: users_table
+          dagster_type: String
+          description: Output to postgres
+    upstream_task_ids:
+      - process_user_data
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: insert_user_data
+    task_name: Insert User Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: insert_user_data
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - postgres
+      ins:
+        - name: processed_user_data
+          dagster_type: Any
+          description: XCom
+        - name: users_table
+          dagster_type: String
+          description: users
+      outs: []
+    upstream_task_ids:
+      - create_user_table
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

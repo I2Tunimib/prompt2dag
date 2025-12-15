@@ -1,0 +1,158 @@
+# ==============================================================================
+# Generated Prefect Flow - Sequential Pattern
+# Pipeline: {{ pipeline_name }}
+# Pattern: {{ detected_pattern }}
+# Strategy: {{ generator_strategy }}
+# Generated: {{ generation_timestamp }}
+# ==============================================================================
+
+from __future__ import annotations
+
+import os
+from datetime import timedelta
+from typing import Dict, Any
+
+from prefect import flow, task
+from prefect.infrastructure.docker import DockerContainer
+from prefect.deployments import Deployment
+{% if task_runner == 'ConcurrentTaskRunner' %}
+from prefect.task_runners import ConcurrentTaskRunner
+{% else %}
+from prefect.task_runners import SequentialTaskRunner
+{% endif %}
+
+# --- Configuration ---
+HOST_DATA_DIR = os.getenv('HOST_DATA_DIR', '/tmp/prefect/data')
+CONTAINER_DATA_DIR = '/app/data'
+
+# --- Task Definitions ---
+{% for task in processed_tasks %}
+
+@task(
+    name="{{ task.task_name }}",
+    description="{{ task.task_name }} - {{ task.task_id }}",
+    retries={{ task.retries }},
+{% if task.retry_delay_seconds > 0 %}
+    retry_delay_seconds={{ task.retry_delay_seconds }},
+{% endif %}
+    tags=["{{ detected_pattern }}", "docker"],
+)
+def {{ task.task_id }}() -> Dict[str, Any]:
+    """
+    Task: {{ task.task_name }}
+    
+    Executes Docker container: {{ task.image }}
+    """
+    import subprocess
+    import json
+    
+    # Build docker run command
+    cmd = [
+        'docker', 'run',
+        '--rm',  # Auto-remove container
+        '-v', f'{HOST_DATA_DIR}:{CONTAINER_DATA_DIR}',
+{% if task.networks and task.networks | length > 0 %}
+{% for network in task.networks %}
+        '--network', '{{ network }}',
+{% endfor %}
+{% endif %}
+    ]
+    
+    # Add environment variables
+{% if task.environment %}
+{% for key, value in task.environment.items() %}
+    cmd.extend(['-e', '{{ key }}={{ value }}'])
+{% endfor %}
+{% endif %}
+    
+    # Add image
+    cmd.append('{{ task.image }}')
+    
+    # Add command if specified
+{% if task.command %}
+{% if task.command is string %}
+    cmd.extend({{ task.command.split() | tojson }})
+{% else %}
+    cmd.extend({{ task.command | tojson }})
+{% endif %}
+{% endif %}
+    
+    # Execute
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        check=True
+    )
+    
+    return {
+        'task_id': '{{ task.task_id }}',
+        'status': 'success',
+        'stdout': result.stdout,
+        'stderr': result.stderr,
+    }
+
+{% endfor %}
+
+# --- Main Flow ---
+@flow(
+    name="{{ flow_name }}",
+    description="{{ pipeline_description }}",
+{% if task_runner == 'ConcurrentTaskRunner' %}
+    task_runner=ConcurrentTaskRunner(),
+{% else %}
+    task_runner=SequentialTaskRunner(),
+{% endif %}
+    log_prints=True,
+)
+def {{ flow_name }}() -> Dict[str, Any]:
+    """
+    Main flow: {{ pipeline_name }}
+    
+    Pattern: {{ detected_pattern }}
+    Tasks: {{ task_count }}
+    """
+    results = {}
+    
+    # Execute tasks in order
+{% for task_id in task_order %}
+    print(f"Executing task: {{ task_id }}")
+    results['{{ task_id }}'] = {{ task_id }}()
+{% endfor %}
+    
+    return results
+
+
+# --- Deployment Configuration ---
+{% if schedule_enabled and schedule_expression %}
+from prefect.server.schemas.schedules import CronSchedule
+
+deployment = Deployment.build_from_flow(
+    flow={{ flow_name }},
+    name="{{ flow_name }}_deployment",
+    work_pool_name="{{ work_pool }}",
+    work_queue_name="default",
+    schedule=CronSchedule(
+        cron="{{ schedule_expression }}",
+        timezone="{{ timezone }}",
+    ),
+    tags=["{{ detected_pattern }}", "generated", "template"],
+)
+{% else %}
+# No schedule configured - deploy manually or add schedule later
+deployment = Deployment.build_from_flow(
+    flow={{ flow_name }},
+    name="{{ flow_name }}_deployment",
+    work_pool_name="{{ work_pool }}",
+    work_queue_name="default",
+    tags=["{{ detected_pattern }}", "generated", "template"],
+)
+{% endif %}
+
+
+if __name__ == "__main__":
+    # Run flow locally for testing
+    {{ flow_name }}()
+    
+    # To deploy:
+    # deployment.apply()

@@ -1,0 +1,155 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 02:39:20.650742
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_sensor_gated_00_upstream_etl_dependency.py_description.txt
+  pipeline_name: wait_for_sales_aggregation_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    job_name: wait_for_sales_aggregation_pipeline
+    description: No description provided.
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - fs_sales_data
+      - fs_reports
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: aggregated_sales_csv
+    conn_type: fs_io_manager
+    description: Aggregated Sales CSV Files
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: aggregated_sales_csv
+      config:
+        base_path: /data/aggregated_sales
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: email_smtp
+    conn_type: resource
+    description: SMTP Email Server
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: email_smtp
+      config:
+        base_path:
+        base_url:
+        host: smtp.example.com
+        port: 587
+        protocol: smtp
+        database:
+        schema:
+        bucket:
+        queue_name:
+        username: EnvVar('SMTP_USER')
+        password: EnvVar('SMTP_PASSWORD')
+tasks:
+  - task_id: wait_for_sales_aggregation
+    task_name: Wait for Sales Aggregation DAG
+    operator_class: Op
+    operator_module: dagster
+    component_ref: wait_for_sales_aggregation
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys: []
+      ins:
+        - name: upstream_dag_status
+          dagster_type: String
+          description: ''
+      outs:
+        - name: sensor_unlock
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: load_sales_csv
+    task_name: Load Aggregated Sales CSV
+    operator_class: Op
+    operator_module: dagster
+    component_ref: load_sales_csv
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: load_aggregated_sales
+      config_schema: {}
+      required_resource_keys:
+        - fs_sales_data
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: sales_csv_file
+          dagster_type: String
+          description: /data/sales/aggregated/*.csv
+      outs:
+        - name: validated_sales_table
+          dagster_type: String
+          description: Output to fs_sales_data
+    upstream_task_ids:
+      - wait_for_sales_aggregation
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: generate_dashboard
+    task_name: Generate Executive Dashboard
+    operator_class: Op
+    operator_module: dagster
+    component_ref: generate_dashboard
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: generate_executive_dashboard
+      config_schema: {}
+      required_resource_keys:
+        - fs_sales_data
+        - fs_reports
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: validated_sales_data
+          dagster_type: String
+          description: /data/sales/validated/validated_sales.parquet
+      outs:
+        - name: executive_dashboard
+          dagster_type: String
+          description: Output to fs_reports
+    upstream_task_ids:
+      - load_sales_csv
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

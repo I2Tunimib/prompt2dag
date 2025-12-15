@@ -1,0 +1,92 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T04:42:54.229551
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_staged_etl_01_supply_chain_etl.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**1. Executive Summary**  
+The pipeline orchestrates a daily supply‑chain shipment ETL process. Its primary goal is to ingest raw shipment CSV files from three independent vendors, harmonise the data, load the cleansed records into a central PostgreSQL inventory database, and finally notify the supply‑chain team via email.  
+
+- **High‑level flow:** three extraction steps run in parallel, their outputs converge into a single transformation step, followed by a sequential load and notification.  
+- **Detected patterns:** sequential, parallel, and a hybrid combination of both.  
+- **Complexity:** moderate (six components, static parallel fan‑out/fan‑in, simple retry and concurrency settings).  
+
+---
+
+**2. Pipeline Architecture**  
+
+| Aspect | Description |
+|--------|-------------|
+| **Flow Patterns** | *Hybrid*: a static parallel block (“extract_parallel”) fans out to three independent extractors, then a join node (“cleanse_shipment_data”) continues the pipeline sequentially through loading and notification. No branching or conditional routing is present. |
+| **Execution Characteristics** | All components are executed by a *python* executor. No container images, custom commands, or network specifications are defined, implying execution in the native runtime environment of the orchestrator. |
+| **Component Overview** | • **Extractor** – `extract_vendor_a`, `extract_vendor_b`, `extract_vendor_c` (read CSV files). <br>• **Transformer** – `cleanse_shipment_data` (normalise, validate, enrich). <br>• **Loader** – `load_shipment_to_inventory` (write to PostgreSQL). <br>• **Notifier** – `send_etl_summary_email` (SMTP email). |
+| **Flow Description** | 1. **Entry point** – `extract_parallel` initiates three extractor components concurrently. <br>2. **Parallel segment** – Each extractor reads its vendor‑specific CSV and emits a JSON payload (`vendor_*_data`). <br>3. **Join node** – `cleanse_shipment_data` waits for *all* extractor successes, consumes the three JSON payloads, enriches with location reference data, and emits `cleansed_shipment_data`. <br>4. **Sequential segment** – `load_shipment_to_inventory` writes the cleansed data to the `inventory_shipments` table; on success, `send_etl_summary_email` dispatches a summary email. No sensors or additional branching are defined. |
+
+---
+
+**3. Detailed Component Analysis**  
+
+| Component | Category | Purpose | Executor | Inputs | Outputs | Retry Policy | Concurrency | Connections |
+|-----------|----------|---------|----------|--------|---------|--------------|-------------|-------------|
+| **extract_vendor_a** | Extractor | Read *Vendor A* shipment CSV and expose raw records as JSON. | python (default) | `vendor_a_shipments_20240115.csv` (file, CSV) | `vendor_a_data` (JSON object) | Max 2 attempts, 300 s delay, retries on timeout & network error. | No parallelism support; runs as a single instance. | Filesystem connection `fs_vendor_a` (read‑only). |
+| **extract_vendor_b** | Extractor | Read *Vendor B* shipment CSV and expose raw records as JSON. | python | `vendor_b_shipments_20240115.csv` (file, CSV) | `vendor_b_data` (JSON) | Same as above. | Single instance. | Filesystem connection `fs_vendor_b`. |
+| **extract_vendor_c** | Extractor | Read *Vendor C* shipment CSV and expose raw records as JSON. | python | `vendor_c_shipments_20240115.csv` (file, CSV) | `vendor_c_data` (JSON) | Same as above. | Single instance. | Filesystem connection `fs_vendor_c`. |
+| **cleanse_shipment_data** | Transformer | Normalise SKU formats, validate dates, filter invalid rows, and enrich shipments with location reference data from the inventory DB. | python | `vendor_a_data`, `vendor_b_data`, `vendor_c_data` (JSON objects) | `cleansed_shipment_data` (JSON) | Same retry settings as extractors. | Single instance. | Database connection `db_location_ref` (read‑only location reference tables). |
+| **load_shipment_to_inventory** | Loader | Persist cleansed shipment records into the `inventory_shipments` table of PostgreSQL. | python | `cleansed_shipment_data` (JSON) | `db_load_complete` status (JSON) | Same retry settings. | Single instance. | Database connection `postgres_inventory` (write access). |
+| **send_etl_summary_email** | Notifier | Send a daily summary email to the supply‑chain team after a successful load. | python | `db_load_complete` status (JSON) | `email_sent` flag (JSON) | Same retry settings. | Single instance. | Email connection `email_smtp` (SMTP). |
+
+*Upstream policies* are defined as “all_success” for every component downstream of its immediate predecessor, ensuring strict sequential progression after the parallel extraction phase. No custom timeouts are set at the component level.
+
+---
+
+**4. Parameter Schema**  
+
+| Scope | Parameters | Details |
+|-------|------------|---------|
+| **Pipeline** | `name`, `description`, `tags` | Tags default to `["supply_chain","etl","shipments"]`. |
+| **Schedule** | `enabled` (default true), `cron_expression` (default `@daily`), `start_date` (`2024‑01‑01T00:00:00Z`), `end_date` (none), `timezone` (none), `catchup` (false), `batch_window` (none), `partitioning` (none) | Daily execution without catch‑up. |
+| **Execution** | `max_active_runs` (none), `timeout_seconds` (none), `retry_policy` (retries 2, delay 5 min, no email alerts), `depends_on_past` (none) | Pipeline‑level retry mirrors component‑level settings. |
+| **Components** | No component‑specific overrides are defined; each component inherits the default executor and retry configuration. |
+| **Environment** | No environment variables are declared at the pipeline level. Individual connections may reference environment variables for credentials (e.g., `DB_USER_ENV`, `DB_PASSWORD_ENV`, `SMTP_USER_ENV`, `SMTP_PASSWORD_ENV`). |
+
+---
+
+**5. Integration Points**  
+
+| External System | Connection ID | Type | Direction | Authentication | Role in Pipeline |
+|-----------------|---------------|------|-----------|----------------|------------------|
+| Vendor shipment CSV files (shared filesystem) | `vendor_csv_fs` | filesystem | Input | None | Source files for the three extractors. |
+| Inventory PostgreSQL database | `inventory_postgres` | database | Both (read & write) | Basic (username/password via env vars) | Provides location reference tables for enrichment and receives the final shipment records. |
+| SMTP email service | `smtp_email` | other (SMTP) | Output | Basic (username/password via env vars) | Sends the ETL summary notification. |
+
+*Data lineage* flows from the three CSV sources and the location reference tables → intermediate XCom‑style JSON payloads (`vendor_*_data`, `cleansed_shipment_data`, `db_load_complete`) → final sinks: `inventory_shipments` table and the daily summary email.
+
+---
+
+**6. Implementation Notes**  
+
+- **Complexity Assessment:** The pipeline is straightforward, with a single static parallel block and a linear downstream chain. No dynamic mapping, branching, or sensor‑based triggers are used.  
+- **Upstream Dependency Policies:** All downstream components require *all* upstream tasks to succeed (`all_success`). The parallel block uses a “none_failed” policy, meaning the fan‑out proceeds as long as no extractor fails.  
+- **Retry & Timeout:** Uniform retry policy (2 attempts, 5‑minute delay) across all components mitigates transient network or I/O issues. No explicit per‑component timeout is set, relying on default orchestrator limits.  
+- **Potential Risks / Considerations:** <br>• **File Availability:** Missing or malformed CSV files will halt the entire pipeline because downstream steps depend on all three extracts. <br>• **Database Connectivity:** Authentication failures or connectivity loss to PostgreSQL will stop both enrichment and loading. <br>• **Email Delivery:** SMTP authentication or network problems will prevent the final notification, though the load may still succeed. <br>• **Scalability:** Parallelism is limited to the three static extractors; adding more vendors would require extending the parallel block. |
+- **Concurrency:** Only the extraction stage benefits from parallel execution; all other components run singly, which simplifies resource planning.  
+
+---
+
+**7. Orchestrator Compatibility**  
+
+| Orchestrator | Compatibility Highlights | Pattern‑Specific Considerations |
+|--------------|--------------------------|--------------------------------|
+| **Airflow‑style** | Supports static parallelism via task groups or mapped tasks; python executor aligns with default operator implementations. The “all_success” upstream policy maps to typical trigger rules. | Ensure the parallel block is defined as a group with a join downstream; no branching simplifies DAG definition. |
+| **Prefect‑style** | Prefect flows can express parallel branches using `task.map` or `parallel` constructs; the linear downstream chain fits a simple `flow` definition. | The retry policy can be attached at the flow or task level; the lack of dynamic mapping means static task definitions suffice. |
+| **Dagster‑style** | Dagster solids (or ops) can be arranged in a `graph` with a `fan_out_fan_in` pattern; the python executor matches the default `execute_in_process` or containerized execution. | The “all_success” upstream requirement translates to `DependencyDefinition` with `Success` conditions; the static parallel block can be expressed via `@graph` composition. |
+
+All three orchestrators can represent the described hybrid flow, static parallelism, and uniform retry settings without requiring specialized features. The primary consideration is to model the parallel extraction as a fan‑out that joins before the transformation step.
+
+---
+
+**8. Conclusion**  
+
+The pipeline delivers a clear, maintainable ETL solution for daily shipment data integration. Its hybrid design efficiently parallelises vendor ingestion while preserving a simple, deterministic downstream sequence. Uniform retry policies and explicit upstream dependencies enhance reliability, and the integration footprint is limited to three well‑defined external systems (filesystem, PostgreSQL, SMTP). The architecture is readily portable across major orchestration platforms, requiring only standard constructs for parallel execution and sequential chaining.

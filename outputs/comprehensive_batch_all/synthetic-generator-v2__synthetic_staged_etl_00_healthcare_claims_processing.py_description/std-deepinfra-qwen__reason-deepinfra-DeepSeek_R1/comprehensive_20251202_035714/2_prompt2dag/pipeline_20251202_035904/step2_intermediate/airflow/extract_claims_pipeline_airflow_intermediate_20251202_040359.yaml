@@ -1,0 +1,117 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-02 04:03:59.816989
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_staged_etl_00_healthcare_claims_processing.py_description.txt
+  pipeline_name: extract_claims_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific: {}
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: local_filesystem
+    conn_type: fs
+    description: Local File System
+    config:
+      base_path: /path/to/csv
+      protocol: file
+  - conn_id: data_warehouse
+    conn_type: generic
+    description: Data Warehouse
+    config:
+      host: warehouse_host
+      port: 5432
+      protocol: jdbc
+      database: healthcare_analytics
+      schema: public
+      login: WAREHOUSE_USERNAME
+      password: WAREHOUSE_PASSWORD
+  - conn_id: power_bi
+    conn_type: http
+    description: Power BI
+    config:
+      base_url: https://api.powerbi.com
+      protocol: https
+  - conn_id: tableau
+    conn_type: http
+    description: Tableau
+    config:
+      base_url: https://api.tableau.com
+      protocol: https
+      login: TABLEAU_USERNAME
+      password: TABLEAU_PASSWORD
+tasks:
+  - task_id: extract_claims
+    task_name: Extract Claims Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_claims
+    config:
+      python_callable: module.extract_claims
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: extract_providers
+    task_name: Extract Providers Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_providers
+    config:
+      python_callable: module.extract_providers
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: transform_join
+    task_name: Transform and Join Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: transform_join
+    config:
+      python_callable: module.transform_join
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - extract_claims
+      - extract_providers
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: load_warehouse
+    task_name: Load Data to Warehouse
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: load_warehouse
+    config:
+      python_callable: module.load_warehouse
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - transform_join
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: refresh_bi
+    task_name: Refresh BI Tools
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: refresh_bi
+    config:
+      python_callable: module.refresh_bi
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - transform_join
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

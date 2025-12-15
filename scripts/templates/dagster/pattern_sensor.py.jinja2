@@ -1,0 +1,312 @@
+# ==============================================================================
+# Generated Dagster Job - Sensor-Driven Pattern
+# Pipeline: {{ pipeline_name }}
+# Pattern: {{ detected_pattern }}
+# Strategy: {{ generator_strategy }}
+# Generated: {{ generation_timestamp }}
+# ==============================================================================
+
+from __future__ import annotations
+
+import os
+import time
+import subprocess
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, Any, Optional
+
+from dagster import (
+    op,
+    job,
+    sensor,
+    RunRequest,
+    SkipReason,
+    In,
+    Out,
+    OpExecutionContext,
+    SensorEvaluationContext,
+    Failure,
+    RetryPolicy,
+)
+{% if executor_type == 'docker_executor' %}
+from dagster_docker import docker_executor
+{% else %}
+from dagster import in_process_executor
+{% endif %}
+
+# --- Configuration ---
+HOST_DATA_DIR = os.getenv('HOST_DATA_DIR', '/tmp/dagster/data')
+CONTAINER_DATA_DIR = '/app/data'
+
+# --- Sensor Definitions ---
+{% for sensor_id in pattern_analysis.sensor_points %}
+{%   set sensor_task = processed_tasks | selectattr('task_id', 'equalto', sensor_id) | first %}
+{%   set sensor_config = sensor_task.config.get('sensor_config', {}) %}
+{%   set sensor_type = sensor_config.get('sensor_type', 'custom') %}
+
+@sensor(
+    name="{{ sensor_id }}_sensor",
+    job_name="{{ job_name }}",
+    minimum_interval_seconds={{ sensor_config.get('poke_interval_seconds', 60) }},
+)
+def {{ sensor_id }}_sensor(context: SensorEvaluationContext):
+    """
+    Sensor: {{ sensor_task.task_name }}
+    Type: {{ sensor_type }}
+    Target: {{ sensor_config.get('target', 'N/A') }}
+    
+    Checks condition and triggers job when met.
+    """
+{% if sensor_type == 'file' %}
+    # File sensor: Check if file exists
+    target_path = Path('{{ sensor_config.get('target', '/tmp/trigger_file') }}')
+    
+    if target_path.exists():
+        context.log.info(f"File found: {target_path}")
+        return RunRequest(
+            run_key=f"file_sensor_{datetime.now().isoformat()}",
+            run_config={
+                "ops": {
+                    "{{ sensor_id }}": {
+                        "config": {
+                            "trigger_file": str(target_path),
+                            "triggered_at": datetime.now().isoformat(),
+                        }
+                    }
+                }
+            },
+        )
+    else:
+        return SkipReason(f"File not found: {target_path}")
+
+{% elif sensor_type == 'time' %}
+    # Time sensor: Check if target time reached
+    target_time_str = '{{ sensor_config.get('target', '00:00:00') }}'
+    target_hour, target_min, target_sec = map(int, target_time_str.split(':'))
+    
+    now = datetime.now()
+    target_time = now.replace(hour=target_hour, minute=target_min, second=target_sec, microsecond=0)
+    
+    # Check if we're past target time (within tolerance window)
+    if now >= target_time:
+        # Check if we haven't already triggered today
+        last_run = context.cursor or "1970-01-01"
+        if last_run != now.strftime("%Y-%m-%d"):
+            context.update_cursor(now.strftime("%Y-%m-%d"))
+            return RunRequest(
+                run_key=f"time_sensor_{now.strftime('%Y%m%d')}",
+                run_config={},
+            )
+    
+    return SkipReason(f"Target time not reached: {target_time_str}")
+
+{% elif sensor_type == 'http' or sensor_type == 'api' %}
+    # HTTP/API sensor: Check endpoint availability
+    import requests
+    
+    url = '{{ sensor_config.get('target', 'http://localhost') }}'
+    
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            context.log.info(f"API available: {url}")
+            return RunRequest(
+                run_key=f"api_sensor_{datetime.now().isoformat()}",
+                run_config={
+                    "ops": {
+                        "{{ sensor_id }}": {
+                            "config": {
+                                "api_status": response.status_code,
+                                "triggered_at": datetime.now().isoformat(),
+                            }
+                        }
+                    }
+                },
+            )
+    except Exception as e:
+        context.log.warning(f"API check failed: {e}")
+    
+    return SkipReason(f"API not available: {url}")
+
+{% else %}
+    # Custom sensor: Implement custom logic
+    # TODO: Implement custom sensor logic here
+    
+    # Placeholder: Trigger every 10th evaluation
+    cursor = int(context.cursor or "0")
+    cursor += 1
+    context.update_cursor(str(cursor))
+    
+    if cursor % 10 == 0:
+        context.log.info("Custom condition met")
+        return RunRequest(
+            run_key=f"custom_sensor_{cursor}",
+            run_config={},
+        )
+    
+    return SkipReason(f"Custom condition not met (count: {cursor})")
+{% endif %}
+
+{% endfor %}
+
+# --- Regular Op Definitions ---
+{% for task in processed_tasks %}
+{% if task.task_id not in pattern_analysis.sensor_points %}
+
+@op(
+    name="{{ task.task_id }}",
+    description="{{ task.task_name }}",
+{% if task.ins %}
+    ins={
+{%   for input_spec in task.ins %}
+        "{{ input_spec.name }}": In({{ input_spec.dagster_type }}),
+{%   endfor %}
+    },
+{% endif %}
+{% if task.outs %}
+    out={
+{%   for output_spec in task.outs %}
+        "{{ output_spec.name }}": Out({{ output_spec.dagster_type }}),
+{%   endfor %}
+    },
+{% else %}
+    out=Out(Dict[str, Any]),
+{% endif %}
+{% if task.retries > 0 %}
+    retry_policy=RetryPolicy(max_retries={{ task.retries }}, delay={{ task.retry_delay_seconds }}),
+{% endif %}
+    tags={"pattern": "{{ detected_pattern }}", "executor": "docker"},
+)
+def {{ task.task_id }}(
+    context: OpExecutionContext,
+{% if task.ins %}
+{%   for input_spec in task.ins %}
+    {{ input_spec.name }}: {{ input_spec.dagster_type }},
+{%   endfor %}
+{% endif %}
+) -> Dict[str, Any]:
+    """
+    Op: {{ task.task_name }}
+    
+    Executes Docker container: {{ task.image }}
+    """
+    context.log.info(f"Starting op: {{ task.task_id }}")
+    
+    # Build docker run command
+    cmd = [
+        'docker', 'run',
+        '--rm',
+        '-v', f'{HOST_DATA_DIR}:{CONTAINER_DATA_DIR}',
+{% if task.network_mode %}
+        '--network', '{{ task.network_mode }}',
+{% endif %}
+    ]
+    
+{% if task.environment %}
+{% for key, value in task.environment.items() %}
+    cmd.extend(['-e', '{{ key }}={{ value }}'])
+{% endfor %}
+{% endif %}
+    
+    cmd.append('{{ task.image }}')
+    
+{% if task.command %}
+{% if task.command is string %}
+    cmd.extend({{ task.command.split() | tojson }})
+{% elif task.command is iterable %}
+    cmd.extend({{ task.command | tojson }})
+{% endif %}
+{% endif %}
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        
+        context.log.info(f"Op {{ task.task_id }} completed")
+        
+        return {
+            'op_id': '{{ task.task_id }}',
+            'status': 'success',
+            'stdout': result.stdout,
+            'stderr': result.stderr,
+        }
+        
+    except subprocess.CalledProcessError as e:
+        context.log.error(f"Op {{ task.task_id }} failed: {e.stderr}")
+        raise Failure(description=f"Docker container failed: {e.stderr}")
+
+{% endif %}
+{% endfor %}
+
+# --- Job Definition ---
+@job(
+    name="{{ job_name }}",
+    description="{{ pipeline_description }}",
+{% if executor_type == 'docker_executor' %}
+    executor_def=docker_executor,
+{% else %}
+    executor_def=in_process_executor,
+{% endif %}
+    tags={"pattern": "{{ detected_pattern }}", "sensor_driven": "true"},
+)
+def {{ job_name }}():
+    """
+    Job: {{ pipeline_name }}
+    
+    Pattern: {{ detected_pattern }}
+    Sensors: {{ pattern_analysis.sensor_points | length }}
+    
+    This job is triggered by sensors, not scheduled directly.
+    """
+{% set processed = namespace(ops=[]) %}
+{% set non_sensor_tasks = [] %}
+{% for task_id in task_order %}
+{%   if task_id not in pattern_analysis.sensor_points %}
+{%     do non_sensor_tasks.append(task_id) %}
+{%   endif %}
+{% endfor %}
+
+{% for task_id in non_sensor_tasks %}
+{%   set task = processed_tasks | selectattr('task_id', 'equalto', task_id) | first %}
+{%   set upstream_ids = task.upstream_task_ids | reject('in', pattern_analysis.sensor_points) | list %}
+    
+{%   if upstream_ids | length == 0 %}
+    # Entry point (after sensors): {{ task_id }}
+    {{ task_id }}_result = {{ task_id }}()
+{%   elif upstream_ids | length == 1 %}
+    {{ task_id }}_result = {{ task_id }}({{ upstream_ids[0] }}_result={{ upstream_ids[0] }}_result)
+{%   else %}
+    {{ task_id }}_result = {{ task_id }}(
+{%     for upstream_id in upstream_ids %}
+        {{ upstream_id }}_result={{ upstream_id }}_result,
+{%     endfor %}
+    )
+{%   endif %}
+{%   do processed.ops.append(task_id) %}
+{% endfor %}
+
+
+# --- Repository ---
+from dagster import repository
+
+@repository
+def {{ job_name }}_repository():
+    """
+    Repository containing job and sensors.
+    """
+    return [
+        {{ job_name }},
+{% for sensor_id in pattern_analysis.sensor_points %}
+        {{ sensor_id }}_sensor,
+{% endfor %}
+    ]
+
+
+if __name__ == "__main__":
+    # Note: Sensors run continuously, execute job directly for testing
+    result = {{ job_name }}.execute_in_process()
+    print(f"Job execution result: {result.success}")

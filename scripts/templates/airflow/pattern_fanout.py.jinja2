@@ -1,0 +1,107 @@
+# ==============================================================================
+# Generated Airflow DAG - Fan-Out/Fan-In Pattern
+# Pipeline: {{ pipeline_name }}
+# Pattern: {{ detected_pattern }}
+# Strategy: {{ generator_strategy }}
+# Generated: {{ generation_timestamp }}
+# ==============================================================================
+
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta
+
+from airflow.models.dag import DAG
+from airflow.providers.docker.operators.docker import DockerOperator
+from airflow.operators.empty import EmptyOperator
+from docker.types import Mount
+
+# --- Configuration ---
+HOST_DATA_DIR = os.getenv('HOST_DATA_DIR', {{ host_data_dir_default | repr }})
+CONTAINER_DATA_DIR = '/app/data'
+
+# --- Default Arguments ---
+default_args = {
+    'owner': 'airflow',
+    'depends_on_past': False,
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': {{ default_retries }},
+    'retry_delay': timedelta(minutes={{ default_retry_delay }}),
+}
+
+# --- DAG Definition ---
+with DAG(
+    dag_id={{ dag_id | repr }},
+    default_args=default_args,
+    description={{ pipeline_description | repr }},
+    schedule_interval={{ schedule_expression | schedule_repr }},
+    start_date=datetime({{ start_date.year }}, {{ start_date.month }}, {{ start_date.day }}),
+    catchup={{ catchup }},
+    tags={{ tags | to_python_list }},
+) as dag:
+
+    # ==========================================================================
+    # Task Definitions
+    # ==========================================================================
+
+    # Identify fan-out and fan-in points
+{% set fanout_tasks = [] %}
+{% set fanin_tasks = [] %}
+{% for task in processed_tasks %}
+{%   set downstream_count = namespace(count=0) %}
+{%   for dep_src, dep_dst in dependencies %}
+{%     if dep_src == task.task_id %}
+{%       set downstream_count.count = downstream_count.count + 1 %}
+{%     endif %}
+{%   endfor %}
+{%   set upstream_count = task.upstream_task_ids | length %}
+{%   if downstream_count.count > 1 %}
+{%     do fanout_tasks.append(task.task_id) %}
+{%   endif %}
+{%   if upstream_count > 1 %}
+{%     do fanin_tasks.append(task.task_id) %}
+{%   endif %}
+{% endfor %}
+
+{% for task in processed_tasks %}
+    # Task: {{ task.task_id }}
+{% if task.task_id in fanout_tasks %}
+    # ⚡ FAN-OUT POINT: Multiple downstream tasks
+{% elif task.task_id in fanin_tasks %}
+    # 🔀 FAN-IN POINT: Multiple upstream tasks (trigger_rule={{ task.trigger_rule }})
+{% endif %}
+    {{ task.task_id }} = DockerOperator(
+        task_id={{ task.task_id | repr }},
+        image={{ task.image | repr }},
+{% if task.command %}
+        command={{ task.command | repr }},
+{% endif %}
+        environment={{ task.environment | to_python_dict }},
+        network_mode={{ task.network_mode | repr }},
+        mounts=[Mount(source=HOST_DATA_DIR, target=CONTAINER_DATA_DIR, type='bind')],
+        auto_remove={{ task.auto_remove }},
+        docker_url={{ task.docker_url | repr }},
+{% if task.task_id in fanin_tasks and task.trigger_rule != 'all_success' %}
+        trigger_rule={{ task.trigger_rule | repr }},
+{% endif %}
+        mount_tmp_dir=False,
+        force_pull=False,
+        tty=True,
+    )
+
+{% endfor %}
+
+    # ==========================================================================
+    # Task Dependencies - Fan-Out/Fan-In Pattern
+    # ==========================================================================
+    # Fan-out points: {{ fanout_tasks if fanout_tasks else 'None detected' }}
+    # Fan-in points: {{ fanin_tasks if fanin_tasks else 'None detected' }}
+
+{% if dependencies %}
+{% for src, dst in dependencies %}
+    {{ src }} >> {{ dst }}
+{% endfor %}
+{% else %}
+    # No dependencies (single task)
+{% endif %}

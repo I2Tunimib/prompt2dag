@@ -1,0 +1,238 @@
+# ==============================================================================
+# Generated Prefect Flow - Conditional Branching Pattern
+# Pipeline: {{ pipeline_name }}
+# Pattern: {{ detected_pattern }}
+# Strategy: {{ generator_strategy }}
+# Generated: {{ generation_timestamp }}
+# ==============================================================================
+
+from __future__ import annotations
+
+import os
+from datetime import timedelta
+from typing import Dict, Any, Optional, List
+
+from prefect import flow, task
+from prefect.infrastructure.docker import DockerContainer
+from prefect.deployments import Deployment
+from prefect.task_runners import SequentialTaskRunner
+
+# --- Configuration ---
+HOST_DATA_DIR = os.getenv('HOST_DATA_DIR', '/tmp/prefect/data')
+CONTAINER_DATA_DIR = '/app/data'
+
+# --- Decision Functions ---
+{% for task_id in pattern_analysis.branch_points %}
+
+def decide_{{ task_id }}(upstream_result: Dict[str, Any]) -> str:
+    """
+    Branch decision logic for {{ task_id }}.
+    
+    Returns the name of the next task to execute based on conditions.
+    
+    TODO: Implement actual branching logic here.
+    """
+    # Example logic - replace with actual implementation
+    # Check upstream results, environment variables, or external state
+    
+    # Get available downstream branches
+    branches = [
+{%   for dep_src, dep_dst in dependencies %}
+{%     if dep_src == task_id %}
+        '{{ dep_dst }}',
+{%     endif %}
+{%   endfor %}
+    ]
+    
+    # Default: return first branch
+    if branches:
+        print(f"Branch decision: Taking path '{branches[0]}'")
+        return branches[0]
+    
+    return None
+
+{% endfor %}
+
+# --- Task Definitions ---
+{% for task in processed_tasks %}
+{% if task.task_id not in pattern_analysis.branch_points %}
+
+@task(
+    name="{{ task.task_name }}",
+    description="{{ task.task_name }} - {{ task.task_id }}",
+    retries={{ task.retries }},
+{% if task.retry_delay_seconds > 0 %}
+    retry_delay_seconds={{ task.retry_delay_seconds }},
+{% endif %}
+    tags=["{{ detected_pattern }}", "docker"],
+)
+def {{ task.task_id }}(upstream_result: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Task: {{ task.task_name }}
+    
+    Executes Docker container: {{ task.image }}
+    """
+    import subprocess
+    import json
+    
+    # Build docker run command
+    cmd = [
+        'docker', 'run',
+        '--rm',
+        '-v', f'{HOST_DATA_DIR}:{CONTAINER_DATA_DIR}',
+{% if task.networks and task.networks | length > 0 %}
+{% for network in task.networks %}
+        '--network', '{{ network }}',
+{% endfor %}
+{% endif %}
+    ]
+    
+    # Add environment variables
+{% if task.environment %}
+{% for key, value in task.environment.items() %}
+    cmd.extend(['-e', '{{ key }}={{ value }}'])
+{% endfor %}
+{% endif %}
+    
+    # Add image
+    cmd.append('{{ task.image }}')
+    
+    # Add command if specified
+{% if task.command %}
+{% if task.command is string %}
+    cmd.extend({{ task.command.split() | tojson }})
+{% else %}
+    cmd.extend({{ task.command | tojson }})
+{% endif %}
+{% endif %}
+    
+    # Execute
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        check=True
+    )
+    
+    return {
+        'task_id': '{{ task.task_id }}',
+        'status': 'success',
+        'stdout': result.stdout,
+        'stderr': result.stderr,
+        'upstream_result': upstream_result,
+    }
+
+{% endif %}
+{% endfor %}
+
+# --- Main Flow with Branching ---
+@flow(
+    name="{{ flow_name }}",
+    description="{{ pipeline_description }}",
+    task_runner=SequentialTaskRunner(),
+    log_prints=True,
+)
+def {{ flow_name }}() -> Dict[str, Any]:
+    """
+    Main flow: {{ pipeline_name }}
+    
+    Pattern: {{ detected_pattern }}
+    Branch points: {{ pattern_analysis.branch_points | length }}
+    """
+    results = {}
+    executed_tasks = set()
+    
+{% set processed = namespace(tasks=[]) %}
+{% for task_id in task_order %}
+{%   set task = processed_tasks | selectattr('task_id', 'equalto', task_id) | first %}
+{%   set upstream_ids = task.upstream_task_ids %}
+    
+{%   if task_id in pattern_analysis.branch_points %}
+    # Branch point: {{ task_id }}
+    print(f"Branch point: {{ task_id }}")
+    
+{%     if upstream_ids | length > 0 %}
+    upstream_result = results.get('{{ upstream_ids[0] }}')
+{%     else %}
+    upstream_result = None
+{%     endif %}
+    
+    next_task = decide_{{ task_id }}(upstream_result)
+    print(f"  Decision: Execute '{next_task}'")
+    
+    # Execute chosen branch
+    if next_task:
+        results[next_task] = globals()[next_task](upstream_result)
+        executed_tasks.add(next_task)
+    
+{%   elif upstream_ids | length == 0 %}
+    # Entry point
+    print(f"Executing entry point: {{ task_id }}")
+    results['{{ task_id }}'] = {{ task_id }}()
+    executed_tasks.add('{{ task_id }}')
+    
+{%   else %}
+    # Regular task (conditional execution based on upstream branches)
+{%     set first_upstream = upstream_ids[0] %}
+{%     if first_upstream in pattern_analysis.branch_points %}
+    # Only execute if this path was chosen
+    if '{{ task_id }}' in executed_tasks or True:  # Adjust logic as needed
+        print(f"Executing task: {{ task_id }}")
+{%       if upstream_ids | length == 1 %}
+        results['{{ task_id }}'] = {{ task_id }}(results.get('{{ upstream_ids[0] }}'))
+{%       else %}
+        # Fan-in after branch
+        upstream_results = {uid: results.get(uid) for uid in {{ upstream_ids | tojson }}}
+        results['{{ task_id }}'] = {{ task_id }}(upstream_results)
+{%       endif %}
+        executed_tasks.add('{{ task_id }}')
+{%     else %}
+    # Normal execution
+    print(f"Executing task: {{ task_id }}")
+{%       if upstream_ids | length == 1 %}
+    results['{{ task_id }}'] = {{ task_id }}(results.get('{{ upstream_ids[0] }}'))
+{%       else %}
+    upstream_results = {uid: results.get(uid) for uid in {{ upstream_ids | tojson }}}
+    results['{{ task_id }}'] = {{ task_id }}(upstream_results)
+{%       endif %}
+    executed_tasks.add('{{ task_id }}')
+{%     endif %}
+{%   endif %}
+{%   do processed.tasks.append(task_id) %}
+{% endfor %}
+    
+    return {
+        'results': results,
+        'executed_tasks': list(executed_tasks),
+    }
+
+
+# --- Deployment Configuration ---
+{% if schedule_enabled and schedule_expression %}
+from prefect.server.schemas.schedules import CronSchedule
+
+deployment = Deployment.build_from_flow(
+    flow={{ flow_name }},
+    name="{{ flow_name }}_deployment",
+    work_pool_name="{{ work_pool }}",
+    work_queue_name="default",
+    schedule=CronSchedule(
+        cron="{{ schedule_expression }}",
+        timezone="{{ timezone }}",
+    ),
+    tags=["{{ detected_pattern }}", "generated", "branching"],
+)
+{% else %}
+deployment = Deployment.build_from_flow(
+    flow={{ flow_name }},
+    name="{{ flow_name }}_deployment",
+    work_pool_name="{{ work_pool }}",
+    work_queue_name="default",
+    tags=["{{ detected_pattern }}", "generated", "branching"],
+)
+{% endif %}
+
+
+if __name__ == "__main__":
+    # Run flow locally for testing
+    {{ flow_name }}()

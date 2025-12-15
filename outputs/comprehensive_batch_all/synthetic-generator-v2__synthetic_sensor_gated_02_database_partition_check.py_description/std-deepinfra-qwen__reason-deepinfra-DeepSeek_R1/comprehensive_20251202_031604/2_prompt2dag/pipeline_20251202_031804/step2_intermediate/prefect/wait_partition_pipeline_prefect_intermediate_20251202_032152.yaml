@@ -1,0 +1,128 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-02 03:21:52.885254
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_sensor_gated_02_database_partition_check.py_description.txt
+  pipeline_name: wait_partition_pipeline
+  pipeline_description: This is a sensor-gated daily ETL pipeline that waits for database partition availability before 
+    extracting, transforming, and loading incremental orders data.
+  orchestrator_specific:
+    flow_name: wait_partition_pipeline
+    deployment_name: wait_partition_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: SequentialTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: database_conn
+    conn_type: Secret
+    description: Database Connection
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: database_conn
+      config:
+        host: hostname
+        port: 3306
+        protocol: jdbc
+        database: orders_db
+        schema: public
+        username_secret_name: DATABASE_USERNAME
+        password_secret_name: DATABASE_PASSWORD
+  - conn_id: data_warehouse_conn
+    conn_type: Secret
+    description: Data Warehouse Connection
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: data_warehouse_conn
+      config:
+        host: data_warehouse_host
+        port: 5439
+        protocol: jdbc
+        database: dw_db
+        schema: public
+        username_secret_name: DATA_WAREHOUSE_USERNAME
+        password_secret_name: DATA_WAREHOUSE_PASSWORD
+tasks:
+  - task_id: wait_partition
+    task_name: Wait for Partition
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: wait_partition
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 0
+      retry_delay_seconds: 300
+    upstream_task_ids: []
+    trigger_rule: wait_for='all'
+    retries: 0
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: extract_incremental
+    task_name: Extract Incremental Orders
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: extract_incremental
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - wait_partition
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: transform
+    task_name: Transform Orders Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: transform
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - extract_incremental
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: load
+    task_name: Load Orders Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: load
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - transform
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

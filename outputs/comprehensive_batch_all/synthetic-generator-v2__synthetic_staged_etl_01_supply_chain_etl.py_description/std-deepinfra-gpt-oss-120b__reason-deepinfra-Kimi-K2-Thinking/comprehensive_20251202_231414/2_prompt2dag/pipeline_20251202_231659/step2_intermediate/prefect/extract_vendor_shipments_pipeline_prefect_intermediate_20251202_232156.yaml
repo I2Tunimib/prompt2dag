@@ -1,0 +1,154 @@
+metadata:
+  target_orchestrator: prefect
+  generated_at: 2025-12-02 23:21:56.982673
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_staged_etl_01_supply_chain_etl.py_description.txt
+  pipeline_name: extract_vendor_shipments_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    flow_name: extract_vendor_shipments_pipeline
+    deployment_name: extract_vendor_shipments_pipeline_deployment
+    work_pool: default-agent-pool
+    task_runner: ConcurrentTaskRunner
+    prefect_version: 2.14.0
+schedule:
+  enabled: false
+  schedule_expression: '@daily'
+  start_date: '2024-01-01'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: vendor_csv_files
+    conn_type: LocalFileSystem
+    description: Vendor Shipment CSV Files
+    config:
+      block_type: LocalFileSystem
+      block_module: prefect.filesystems
+      block_name: vendor_csv_files
+      config:
+        base_path: /data/vendors
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: inventory_postgres
+    conn_type: Secret
+    description: Inventory PostgreSQL Database
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: inventory_postgres
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: postgresql
+        database: inventory_db
+        schema: public
+        bucket:
+        queue_name:
+        username_secret_name: POSTGRES_USER
+        password_secret_name: POSTGRES_PASSWORD
+  - conn_id: email_smtp
+    conn_type: Secret
+    description: Email SMTP Server
+    config:
+      block_type: Secret
+      block_module: prefect.blocks.system
+      block_name: email_smtp
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: smtp
+        database:
+        schema:
+        bucket:
+        queue_name:
+        username_secret_name: SMTP_USER
+        password_secret_name: SMTP_PASSWORD
+tasks:
+  - task_id: extract_vendor_shipments
+    task_name: Extract Vendor Shipment CSVs
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: extract_vendor_shipments
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+      task_runner: ConcurrentTaskRunner
+    upstream_task_ids:
+      - extract_join
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: cleanse_and_normalize_shipments
+    task_name: Cleanse and Normalize Shipment Data
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: cleanse_and_normalize_shipments
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - extract_vendor_shipments
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: load_shipment_data
+    task_name: Load Cleansed Shipments to Inventory Database
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: load_shipment_data
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - cleanse_and_normalize_shipments
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: send_summary_email
+    task_name: Send ETL Summary Email
+    operator_class: Process
+    operator_module: prefect.infrastructure.process
+    component_ref: send_summary_email
+    config:
+      task_decorator: '@task'
+      infrastructure:
+        type: Process
+        module: prefect.infrastructure.process
+        config: {}
+      retries: 2
+      retry_delay_seconds: 300
+    upstream_task_ids:
+      - load_shipment_data
+    trigger_rule: wait_for='all'
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

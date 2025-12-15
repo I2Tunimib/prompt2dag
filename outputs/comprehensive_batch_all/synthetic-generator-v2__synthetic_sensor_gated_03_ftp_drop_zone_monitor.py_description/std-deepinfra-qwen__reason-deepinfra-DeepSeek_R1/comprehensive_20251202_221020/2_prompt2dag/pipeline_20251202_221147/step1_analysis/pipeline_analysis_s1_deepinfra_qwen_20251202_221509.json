@@ -1,0 +1,707 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T22:15:09.641755",
+    "source_file": "Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_sensor_gated_03_ftp_drop_zone_monitor.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "qwen",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "sensor_driven"
+      ],
+      "task_executors_used": [
+        "python",
+        "custom"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": true,
+      "total_components": 4,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Native sensor support"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "wait_for() or custom sensors"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "Sensors via run_status_sensor"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "wait_for_ftp_file_pipeline",
+    "description": "No description provided.",
+    "flow_patterns": [
+      "sequential",
+      "sensor_driven"
+    ],
+    "task_executors": [
+      "python",
+      "custom"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "wait_for_ftp_file",
+      "name": "Wait for FTP File",
+      "category": "Sensor",
+      "description": "Monitors FTP server for vendor_inventory.csv file availability before proceeding with data processing pipeline.",
+      "inputs": [],
+      "outputs": [
+        "File detection signal"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "FTP server connection",
+          "direction": "input",
+          "kind": "api",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": "ftp_server"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_done",
+        "description": "No upstream dependencies, starts the pipeline",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "ftp_server",
+          "type": "api",
+          "purpose": "FTP server connection"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "download_vendor_file",
+      "name": "Download Vendor File",
+      "category": "Extractor",
+      "description": "Downloads the detected vendor_inventory.csv file from FTP server to local filesystem for processing.",
+      "inputs": [
+        "File detection signal"
+      ],
+      "outputs": [
+        "/tmp/vendor_inventory.csv"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "FTP server connection",
+          "direction": "input",
+          "kind": "api",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": "ftp_server"
+        },
+        {
+          "name": "Local file",
+          "direction": "output",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/tmp/vendor_inventory.csv",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "one_success",
+        "description": "Executes only when the sensor successfully detects the file",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "ftp_server",
+          "type": "api",
+          "purpose": "FTP server connection"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "vendor_inventory.csv"
+        ]
+      }
+    },
+    {
+      "id": "cleanse_vendor_data",
+      "name": "Cleanse Vendor Data",
+      "category": "Transformer",
+      "description": "Cleanses vendor inventory data by removing null values from critical columns to ensure data quality.",
+      "inputs": [
+        "/tmp/vendor_inventory.csv"
+      ],
+      "outputs": [
+        "Cleansed vendor data"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "Local file",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/tmp/vendor_inventory.csv",
+          "connection_id": null
+        },
+        {
+          "name": "Cleansed data",
+          "direction": "output",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "one_success",
+        "description": "Executes only when the download task is successful",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "vendor_inventory.csv"
+        ],
+        "produces": [
+          "cleansed_vendor_data"
+        ]
+      }
+    },
+    {
+      "id": "merge_with_internal_inventory",
+      "name": "Merge with Internal Inventory",
+      "category": "Merger",
+      "description": "Merges processed vendor inventory data with internal inventory system to update stock levels and pricing.",
+      "inputs": [
+        "Cleansed vendor data"
+      ],
+      "outputs": [
+        "Updated internal inventory records"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {},
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "Cleansed data",
+          "direction": "input",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "Internal inventory system",
+          "direction": "output",
+          "kind": "database",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": "internal_inventory"
+        }
+      ],
+      "upstream_policy": {
+        "type": "one_success",
+        "description": "Executes only when the cleansing task is successful",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "network_error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "internal_inventory",
+          "type": "database",
+          "purpose": "Internal inventory system"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "cleansed_vendor_data"
+        ],
+        "produces": [
+          "internal_inventory_records"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sensor_driven",
+    "entry_points": [
+      "wait_for_ftp_file"
+    ],
+    "nodes": {
+      "wait_for_ftp_file": {
+        "kind": "Sensor",
+        "component_type_id": "wait_for_ftp_file",
+        "upstream_policy": {
+          "type": "all_done",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "download_vendor_file"
+        ],
+        "sensor_config": {
+          "sensor_type": "custom",
+          "target": "vendor_inventory.csv",
+          "poke_interval_seconds": 30,
+          "timeout_seconds": 300,
+          "mode": "poke"
+        },
+        "branch_config": null,
+        "parallel_config": null
+      },
+      "download_vendor_file": {
+        "kind": "Task",
+        "component_type_id": "download_vendor_file",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "cleanse_vendor_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "cleanse_vendor_data": {
+        "kind": "Task",
+        "component_type_id": "cleanse_vendor_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "merge_with_internal_inventory"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "merge_with_internal_inventory": {
+        "kind": "Task",
+        "component_type_id": "merge_with_internal_inventory",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "wait_for_ftp_file",
+        "to": "download_vendor_file",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "download_vendor_file",
+        "to": "cleanse_vendor_data",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "cleanse_vendor_data",
+        "to": "merge_with_internal_inventory",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "description": {
+        "description": "Comprehensive Pipeline Description",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2024-01-01T00:00:00Z",
+        "required": false,
+        "format": "ISO8601"
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 2,
+          "retry_delay_seconds": 300
+        },
+        "required": false
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": null,
+        "required": false
+      }
+    },
+    "components": {
+      "wait_for_ftp_file": {
+        "mode": {
+          "description": "Sensor mode (e.g., poke, reschedule)",
+          "type": "string",
+          "default": "poke",
+          "required": false
+        },
+        "poke_interval": {
+          "description": "Polling interval in seconds",
+          "type": "integer",
+          "default": 30,
+          "required": false
+        },
+        "timeout": {
+          "description": "Timeout in seconds",
+          "type": "integer",
+          "default": 300,
+          "required": false
+        }
+      },
+      "download_vendor_file": {
+        "file_path": {
+          "description": "Local file path for downloaded file",
+          "type": "string",
+          "default": "/tmp/vendor_inventory.csv",
+          "required": false
+        }
+      },
+      "cleanse_vendor_data": {
+        "columns": {
+          "description": "Columns to focus on for data cleansing",
+          "type": "array",
+          "default": [
+            "product_id",
+            "quantity",
+            "price"
+          ],
+          "required": false
+        }
+      },
+      "merge_with_internal_inventory": {
+        "join_column": {
+          "description": "Column to join on for merging",
+          "type": "string",
+          "default": "product_id",
+          "required": false
+        }
+      }
+    },
+    "environment": {
+      "FTP_SERVER_CONNECTION": {
+        "description": "FTP server connection details",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "wait_for_ftp_file"
+      },
+      "INTERNAL_INVENTORY_SYSTEM": {
+        "description": "Internal inventory system connection details",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "associated_component_id": "merge_with_internal_inventory"
+      }
+    }
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "ftp_server",
+        "name": "FTP Server",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/",
+          "base_url": "ftp://ftp.vendor.com",
+          "host": "ftp.vendor.com",
+          "port": 21,
+          "protocol": "ftp"
+        },
+        "authentication": {
+          "type": "basic",
+          "username_env_var": "FTP_USERNAME",
+          "password_env_var": "FTP_PASSWORD"
+        },
+        "used_by_components": [
+          "wait_for_ftp_file",
+          "download_vendor_file"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "vendor_inventory.csv"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "local_filesystem",
+        "name": "Local Filesystem",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/tmp",
+          "protocol": "file"
+        },
+        "authentication": {
+          "type": "none"
+        },
+        "used_by_components": [
+          "download_vendor_file",
+          "cleanse_vendor_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "vendor_inventory.csv"
+          ],
+          "consumes": [
+            "vendor_inventory.csv"
+          ]
+        }
+      },
+      {
+        "id": "internal_inventory_system",
+        "name": "Internal Inventory System",
+        "type": "database",
+        "config": {
+          "host": "internal-db.example.com",
+          "port": 5432,
+          "protocol": "jdbc",
+          "database": "inventory",
+          "schema": "public"
+        },
+        "authentication": {
+          "type": "basic",
+          "username_env_var": "DB_USERNAME",
+          "password_env_var": "DB_PASSWORD"
+        },
+        "used_by_components": [
+          "merge_with_internal_inventory"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "internal_inventory_records"
+          ]
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "FTP server at ftp://ftp.vendor.com for vendor_inventory.csv file"
+      ],
+      "sinks": [
+        "Internal inventory system at internal-db.example.com for updating stock levels and pricing"
+      ],
+      "intermediate_datasets": [
+        "/tmp/vendor_inventory.csv"
+      ]
+    }
+  }
+}

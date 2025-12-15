@@ -1,0 +1,288 @@
+# ==============================================================================
+# Generated Prefect Flow - Sensor-Driven Pattern
+# Pipeline: {{ pipeline_name }}
+# Pattern: {{ detected_pattern }}
+# Strategy: {{ generator_strategy }}
+# Generated: {{ generation_timestamp }}
+# ==============================================================================
+
+from __future__ import annotations
+
+import os
+import time
+from datetime import timedelta, datetime
+from typing import Dict, Any, Optional
+from pathlib import Path
+
+from prefect import flow, task
+from prefect.infrastructure.docker import DockerContainer
+from prefect.deployments import Deployment
+from prefect.task_runners import SequentialTaskRunner
+
+# --- Configuration ---
+HOST_DATA_DIR = os.getenv('HOST_DATA_DIR', '/tmp/prefect/data')
+CONTAINER_DATA_DIR = '/app/data'
+
+# --- Sensor Functions ---
+{% for task_id in pattern_analysis.sensor_points %}
+{%   set sensor_task = processed_tasks | selectattr('task_id', 'equalto', task_id) | first %}
+{%   set sensor_config = sensor_task.config.get('sensor_config', {}) %}
+{%   set sensor_type = sensor_config.get('sensor_type', 'custom') %}
+
+@task(
+    name="Sensor: {{ sensor_task.task_name }}",
+    description="Wait for condition: {{ sensor_config.get('target', 'unknown') }}",
+    retries=0,
+    tags=["sensor", "{{ sensor_type }}"],
+)
+def {{ task_id }}(
+    timeout_seconds: int = {{ sensor_config.get('timeout_seconds', 3600) }},
+    poke_interval: int = {{ sensor_config.get('poke_interval_seconds', 60) }}
+) -> Dict[str, Any]:
+    """
+    Sensor: {{ sensor_task.task_name }}
+    Type: {{ sensor_type }}
+    Target: {{ sensor_config.get('target', 'N/A') }}
+    
+    Waits until condition is met or timeout is reached.
+    """
+    import time
+    
+    start_time = time.time()
+    elapsed = 0
+    
+    print(f"Starting sensor: {{ task_id }}")
+    print(f"  Timeout: {timeout_seconds}s")
+    print(f"  Poke interval: {poke_interval}s")
+    
+    while elapsed < timeout_seconds:
+{% if sensor_type == 'file' %}
+        # File sensor: Check if file exists
+        target_path = Path('{{ sensor_config.get('target', '/tmp/trigger_file') }}')
+        print(f"  Checking for file: {target_path}")
+        
+        if target_path.exists():
+            print(f"  ✓ File found: {target_path}")
+            return {
+                'sensor_id': '{{ task_id }}',
+                'status': 'success',
+                'found_at': datetime.now().isoformat(),
+                'elapsed_seconds': elapsed,
+            }
+{% elif sensor_type == 'time' %}
+        # Time sensor: Check if target time reached
+        target_time_str = '{{ sensor_config.get('target', '00:00:00') }}'
+        target_hour, target_min, target_sec = map(int, target_time_str.split(':'))
+        
+        now = datetime.now()
+        target_time = now.replace(hour=target_hour, minute=target_min, second=target_sec)
+        
+        print(f"  Current time: {now.strftime('%H:%M:%S')}")
+        print(f"  Target time: {target_time.strftime('%H:%M:%S')}")
+        
+        if now >= target_time:
+            print(f"  ✓ Target time reached")
+            return {
+                'sensor_id': '{{ task_id }}',
+                'status': 'success',
+                'reached_at': now.isoformat(),
+                'elapsed_seconds': elapsed,
+            }
+{% elif sensor_type == 'http' or sensor_type == 'api' %}
+        # HTTP/API sensor: Check endpoint availability
+        import requests
+        
+        url = '{{ sensor_config.get('target', 'http://localhost') }}'
+        print(f"  Checking URL: {url}")
+        
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                print(f"  ✓ API available (status {response.status_code})")
+                return {
+                    'sensor_id': '{{ task_id }}',
+                    'status': 'success',
+                    'api_status': response.status_code,
+                    'elapsed_seconds': elapsed,
+                }
+        except Exception as e:
+            print(f"  ✗ API check failed: {e}")
+{% else %}
+        # Custom sensor: Implement custom logic
+        print(f"  Checking custom condition...")
+        
+        # TODO: Implement custom sensor logic here
+        # Example: Check database state, message queue, etc.
+        
+        # Placeholder: Random success for demo
+        import random
+        if random.random() > 0.9:  # 10% chance per check
+            print(f"  ✓ Custom condition met")
+            return {
+                'sensor_id': '{{ task_id }}',
+                'status': 'success',
+                'elapsed_seconds': elapsed,
+            }
+{% endif %}
+        
+        # Wait before next check
+        print(f"  Condition not met, waiting {poke_interval}s...")
+        time.sleep(poke_interval)
+        elapsed = time.time() - start_time
+    
+    # Timeout reached
+    raise TimeoutError(
+        f"Sensor {{ task_id }} timed out after {timeout_seconds}s"
+    )
+
+{% endfor %}
+
+# --- Regular Task Definitions ---
+{% for task in processed_tasks %}
+{% if task.task_id not in pattern_analysis.sensor_points %}
+
+@task(
+    name="{{ task.task_name }}",
+    description="{{ task.task_name }} - {{ task.task_id }}",
+    retries={{ task.retries }},
+{% if task.retry_delay_seconds > 0 %}
+    retry_delay_seconds={{ task.retry_delay_seconds }},
+{% endif %}
+    tags=["{{ detected_pattern }}", "docker"],
+)
+def {{ task.task_id }}(sensor_results: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Task: {{ task.task_name }}
+    
+    Executes Docker container: {{ task.image }}
+    """
+    import subprocess
+    
+    # Build docker run command
+    cmd = [
+        'docker', 'run',
+        '--rm',
+        '-v', f'{HOST_DATA_DIR}:{CONTAINER_DATA_DIR}',
+{% if task.networks and task.networks | length > 0 %}
+{% for network in task.networks %}
+        '--network', '{{ network }}',
+{% endfor %}
+{% endif %}
+    ]
+    
+    # Add environment variables
+{% if task.environment %}
+{% for key, value in task.environment.items() %}
+    cmd.extend(['-e', '{{ key }}={{ value }}'])
+{% endfor %}
+{% endif %}
+    
+    # Add image
+    cmd.append('{{ task.image }}')
+    
+    # Add command if specified
+{% if task.command %}
+{% if task.command is string %}
+    cmd.extend({{ task.command.split() | tojson }})
+{% else %}
+    cmd.extend({{ task.command | tojson }})
+{% endif %}
+{% endif %}
+    
+    # Execute
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        check=True
+    )
+    
+    return {
+        'task_id': '{{ task.task_id }}',
+        'status': 'success',
+        'stdout': result.stdout,
+        'stderr': result.stderr,
+        'sensor_results': sensor_results,
+    }
+
+{% endif %}
+{% endfor %}
+
+# --- Main Flow with Sensors ---
+@flow(
+    name="{{ flow_name }}",
+    description="{{ pipeline_description }}",
+    task_runner=SequentialTaskRunner(),
+    log_prints=True,
+)
+def {{ flow_name }}() -> Dict[str, Any]:
+    """
+    Main flow: {{ pipeline_name }}
+    
+    Pattern: {{ detected_pattern }}
+    Sensors: {{ pattern_analysis.sensor_points | length }}
+    """
+    results = {}
+    sensor_results = {}
+    
+    # Execute sensors first (they gate the rest of the pipeline)
+{% for sensor_id in pattern_analysis.sensor_points %}
+    print(f"Waiting for sensor: {{ sensor_id }}")
+    sensor_results['{{ sensor_id }}'] = {{ sensor_id }}()
+    results['{{ sensor_id }}'] = sensor_results['{{ sensor_id }}']
+{% endfor %}
+    
+    # Execute regular tasks after sensors succeed
+{% for task_id in task_order %}
+{%   if task_id not in pattern_analysis.sensor_points %}
+{%     set task = processed_tasks | selectattr('task_id', 'equalto', task_id) | first %}
+{%     set upstream_ids = task.upstream_task_ids %}
+    
+    print(f"Executing task: {{ task_id }}")
+{%     if upstream_ids | length == 0 %}
+    results['{{ task_id }}'] = {{ task_id }}()
+{%     elif upstream_ids | length == 1 %}
+    results['{{ task_id }}'] = {{ task_id }}(results.get('{{ upstream_ids[0] }}'))
+{%     else %}
+    # Multiple upstreams (including sensors)
+    combined_results = {
+        'sensors': sensor_results,
+        'tasks': {uid: results.get(uid) for uid in {{ upstream_ids | tojson }} if uid not in sensor_results}
+    }
+    results['{{ task_id }}'] = {{ task_id }}(combined_results)
+{%     endif %}
+{%   endif %}
+{% endfor %}
+    
+    return results
+
+
+# --- Deployment Configuration ---
+{% if schedule_enabled and schedule_expression %}
+from prefect.server.schemas.schedules import CronSchedule
+
+deployment = Deployment.build_from_flow(
+    flow={{ flow_name }},
+    name="{{ flow_name }}_deployment",
+    work_pool_name="{{ work_pool }}",
+    work_queue_name="default",
+    schedule=CronSchedule(
+        cron="{{ schedule_expression }}",
+        timezone="{{ timezone }}",
+    ),
+    tags=["{{ detected_pattern }}", "generated", "sensor"],
+)
+{% else %}
+deployment = Deployment.build_from_flow(
+    flow={{ flow_name }},
+    name="{{ flow_name }}_deployment",
+    work_pool_name="{{ work_pool }}",
+    work_queue_name="default",
+    tags=["{{ detected_pattern }}", "generated", "sensor"],
+)
+{% endif %}
+
+
+if __name__ == "__main__":
+    # Run flow locally for testing
+    {{ flow_name }}()

@@ -1,0 +1,104 @@
+# Sequential Pipeline Template
+
+You are an expert Airflow DAG developer. Generate a complete Airflow DAG for a SEQUENTIAL PIPELINE based on the provided YAML definition.
+
+## Pipeline Pattern
+- Linear chain of tasks
+- Each task depends on exactly one previous task
+- No workflow.flow_constructs section
+- All component_types have is_internally_parallelized: false
+
+## Implementation Guidelines
+
+1. **YAML Analysis:**
+   - Extract DAG ID from `pipeline_name`
+   - Extract description from `description`
+   - Identify tasks from `workflow.tasks`
+   - Extract task dependencies from `workflow.tasks[].depends_on` and `workflow.tasks[].triggers`
+   - Get component details from `component_types` matching each `component_type_id`
+
+2. **Task Creation:**
+   - For each task in the workflow:
+     - Create a DockerOperator if the component has an `image` specified
+     - Use the exact `task_id` from the YAML
+     - Set image to the value from corresponding component_type
+     - Create proper command arguments based on component parameters
+     - Set proper environment variables
+
+3. **Task Dependencies:**
+   - Create the dependency chain by following `depends_on` and `triggers` relationships
+   - Use the Airflow operator >> syntax for dependencies
+
+**CRITICAL OUTPUT REQUIREMENT:** Your final output must be **only** the raw Python code for the DAG file. Do not include any introductory text, explanations, or markdown code fences.
+
+## Example Structure
+
+```python
+import os
+import glob
+import json
+from datetime import datetime, timedelta
+from airflow import DAG
+from airflow.providers.docker.operators.docker import DockerOperator
+from docker.types import Mount
+from airflow.utils.dates import days_ago
+
+# Global variables - extract from parameters.global
+host_data_dir = os.getenv('DATA_DIR', '/tmp/airflow_data')
+container_data_dir = '/app/data'  # Standard mount point
+
+default_args = {
+    'owner': 'airflow',
+    'depends_on_past': False,
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': int(os.getenv('AIRFLOW_DEFAULT_RETRIES', 1)),
+    'retry_delay': timedelta(minutes=5),
+}
+
+with DAG(
+    dag_id='pipeline_name_from_yaml',  # Use pipeline_name from YAML
+    description='description_from_yaml',  # Use description from YAML
+    schedule_interval=None,  # Or extract from execution_environment
+    default_args=default_args,
+    start_date=days_ago(1),
+    catchup=False,
+    tags=['generated', 'sequential']
+) as dag:
+
+    # Dynamically create tasks based on workflow.tasks and component_types
+    # For each task in the workflow:
+    task1 = DockerOperator(
+        task_id='task1_id_from_yaml',  # Use task_id from workflow.tasks
+        image='image_from_component_type',  # From component_types[].image
+        command=[
+            'python',
+            '/app/scripts/script_name.py',  # Usually based on component_type_id
+            # Add arguments based on component parameters
+            '--param1', 'value1',
+            '--param2', 'value2',
+        ],
+        network_mode=os.getenv('APP_NETWORK', 'app_network'),
+        mounts=[Mount(source=host_data_dir, target=container_data_dir, type='bind')],
+        docker_url='unix://var/run/docker.sock',
+        mount_tmp_dir=False,
+        auto_remove=True,
+        force_pull=False,
+        tty=False,
+        environment={
+            'CONTAINER_DATA_DIR': container_data_dir,
+            # Add other environment variables from parameters or integrations
+        },
+        dag=dag
+    )
+
+    task2 = DockerOperator(
+        task_id='task2_id_from_yaml',
+        # ... similar configuration as task1 ...
+        dag=dag
+    )
+
+    # More tasks as defined in the YAML...
+
+    # Define the task dependencies based on workflow.tasks[].depends_on and triggers
+    task1 >> task2 >> task3  # Build the linear chain

@@ -1,0 +1,187 @@
+# Parallel Pipeline Template
+
+You are an expert Airflow DAG developer. Generate a complete Airflow DAG for a PARALLEL PIPELINE based on the provided YAML.
+
+## IMPORTANT: String Formatting Rules
+When creating command arguments that include both part numbers and placeholders:
+
+CORRECT ways to format strings with variable parts and placeholders:
+1. Use string concatenation: f"prefix{part}_" + "{}.suffix"
+2. Use escaped braces in f-string: f"prefix{part}_{{}}.suffix"
+
+INCORRECT (will cause syntax error):
+- f"prefix{part}_{}.suffix"  ← THIS IS INVALID
+
+## Pipeline Pattern
+- Split-map-wait-merge architecture for parallel processing
+
+## Example Structure
+
+```python
+import os
+import glob
+import time
+import pandas as pd
+from datetime import timedelta
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from airflow.providers.docker.operators.docker import DockerOperator
+from airflow.utils.dates import days_ago
+from airflow.exceptions import AirflowException
+from docker.types import Mount
+
+# Global variables
+NUM_PARALLEL_PROCESSES = int(os.environ.get('NUM_PARALLEL_PROCESSES', 2))
+host_data_dir = os.getenv('DATA_DIR', '/path/to/data')
+container_data_dir = '/app/data'
+
+# Helper functions
+def split_dataset(**kwargs):
+    input_file = os.path.join(container_data_dir, 'JOT_tiny.csv')
+    print(f"Reading input file: {input_file}")
+    df = pd.read_csv(input_file)
+    chunk_size = len(df) // NUM_PARALLEL_PROCESSES
+    for i in range(NUM_PARALLEL_PROCESSES):
+        start = i * chunk_size
+        end = (i + 1) * chunk_size if i < NUM_PARALLEL_PROCESSES - 1 else None
+        df_chunk = df.iloc[start:end]
+        output_file = os.path.join(container_data_dir, f'JOT_tiny_{i+1}.csv')
+        df_chunk.to_csv(output_file, index=False)
+        print(f"Created chunk {i+1}: {output_file}")
+
+def wait_for_files(**kwargs):
+    patterns = [f"enriched_data_part{i+1}_*.csv" for i in range(NUM_PARALLEL_PROCESSES)]
+    max_wait = 3600
+    start_time = time.time()
+    while True:
+        all_found = True
+        for pattern in patterns:
+            if not glob.glob(os.path.join(container_data_dir, pattern)):
+                all_found = False
+                break
+        if all_found:
+            print("All files found")
+            return
+        if time.time() - start_time > max_wait:
+            raise AirflowException("Timeout waiting for files")
+        time.sleep(30)
+
+def concatenate_results(**kwargs):
+    files = glob.glob(os.path.join(container_data_dir, "enriched_data_part*_*.csv"))
+    dfs = [pd.read_csv(f) for f in files]
+    result = pd.concat(dfs)
+    result.to_csv(os.path.join(container_data_dir, "final_concatenated_output.csv"), index=False)
+
+# Create branch tasks
+def create_branch_tasks(dag, branch_num):
+    # First task in branch
+    task1 = DockerOperator(
+        task_id=f'load_and_modify_{branch_num}',
+        image='i2t-backendwithintertwino6-load-and-modify:latest',
+        network_mode=os.getenv('APP_NETWORK', 'app_network'),
+        mounts=[Mount(source=host_data_dir, target=container_data_dir, type='bind')],
+        command=[
+            "python", "/app/scripts/load_and_modify.py",
+            "--input_pattern", f"JOT_tiny_{branch_num}.csv",
+            # NOTICE: This is the CORRECT way to format strings with a placeholder:
+            "--output_pattern", f"table_data_part{branch_num}_" + "{}.json",
+            "--dataset_id", "2",
+            "--date_column", "Fecha_id",
+            "--table_name", f"JOT_part{branch_num}_" + "{}"
+        ],
+        environment={
+            "CONTAINER_DATA_DIR": container_data_dir
+        },
+        docker_url="unix://var/run/docker.sock",
+        auto_remove=True,
+        dag=dag
+    )
+    
+    # Second task in branch  
+    task2 = DockerOperator(
+        task_id=f'data_reconciliation_{branch_num}',
+        image='i2t-backendwithintertwino6-reconciliation:latest',
+        network_mode=os.getenv('APP_NETWORK', 'app_network'),
+        mounts=[Mount(source=host_data_dir, target=container_data_dir, type='bind')],
+        command=[
+            "python", "/app/scripts/data_reconciliation.py",
+            "--input_pattern", f"table_data_part{branch_num}_*.json",
+            # NOTICE: This is another CORRECT way to format strings with a placeholder:
+            "--output_pattern", f"reconciled_table_part{branch_num}_" + "{}.json",
+            "--primary_column", "City"
+        ],
+        environment={
+            "CONTAINER_DATA_DIR": container_data_dir
+        },
+        docker_url="unix://var/run/docker.sock",
+        auto_remove=True,
+        dag=dag
+    )
+    
+    # Final task in branch
+    task3 = DockerOperator(
+        task_id=f'save_{branch_num}',
+        image='i2t-backendwithintertwino6-save:latest',
+        network_mode=os.getenv('APP_NETWORK', 'app_network'),
+        mounts=[Mount(source=host_data_dir, target=container_data_dir, type='bind')],
+        command=[
+            "python", "/app/scripts/save.py",
+            "--input_pattern", f"reconciled_table_part{branch_num}_*.json",
+            # Another example of correctly formatting:
+            "--output_filename", f"enriched_data_part{branch_num}_" + "{}.csv"
+        ],
+        environment={
+            "CONTAINER_DATA_DIR": container_data_dir
+        },
+        docker_url="unix://var/run/docker.sock",
+        auto_remove=True,
+        dag=dag
+    )
+    
+    # Set dependencies
+    task1 >> task2 >> task3
+    
+    return task1, task3
+
+# Create DAG
+with DAG(
+    dag_id='split_dataset_analysis',
+    description='Parallel processing pipeline',
+    schedule_interval=None,
+    default_args={'owner': 'airflow'},
+    start_date=days_ago(1),
+    catchup=False,
+) as dag:
+    
+    # Split task
+    split_task = PythonOperator(
+        task_id='split_dataset',
+        python_callable=split_dataset,
+        dag=dag
+    )
+    
+    # Create all branch tasks
+    first_tasks = []
+    last_tasks = []
+    for i in range(1, NUM_PARALLEL_PROCESSES + 1):
+        first, last = create_branch_tasks(dag, i)
+        first_tasks.append(first)
+        last_tasks.append(last)
+    
+    # Wait task
+    wait_task = PythonOperator(
+        task_id='synchronize_processing',
+        python_callable=wait_for_files,
+        dag=dag
+    )
+    
+    # Concatenate task
+    concat_task = PythonOperator(
+        task_id='concatenate_results',
+        python_callable=concatenate_results,
+        dag=dag
+    )
+    
+    # Set dependencies
+    split_task >> first_tasks
+    last_tasks >> wait_task >> concat_task

@@ -1,0 +1,54 @@
+# Python Task: {{ task.task_id }}
+    def {{ task.task_id }}_callable(**context):
+        """
+        Python callable for task: {{ task.task_name }}
+        """
+        import sys
+        import subprocess
+{% if task.environment %}
+        import os
+        
+        # Set environment variables
+{%   for key, value in task.environment.items() %}
+        os.environ['{{ key }}'] = {{ value | repr }}
+{%   endfor %}
+{% endif %}
+        
+        # Execute Python script/module
+{% if task.script_path %}
+        script_path = {{ task.script_path | repr }}
+        result = subprocess.run(
+            [sys.executable, script_path],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+{% elif task.entry_point %}
+        # Import and execute function
+        module_name, func_name = {{ task.entry_point | repr }}.rsplit('.', 1)
+        import importlib
+        module = importlib.import_module(module_name)
+        func = getattr(module, func_name)
+        result = func(**context)
+{% else %}
+        # Default: Print task info
+        print(f"Executing task: {{ task.task_id }}")
+        result = {'status': 'success', 'task_id': '{{ task.task_id }}'}
+{% endif %}
+        
+        return result
+    
+    {{ task.task_id }} = PythonOperator(
+        task_id={{ task.task_id | repr }},
+        python_callable={{ task.task_id }}_callable,
+        provide_context=True,
+{% if task.retries and task.retries != default_retries %}
+        retries={{ task.retries }},
+{% endif %}
+{% if task.retry_delay_seconds and task.retry_delay_seconds > 0 %}
+        retry_delay={{ task.retry_delay_seconds | format_timedelta }},
+{% endif %}
+{% if task.trigger_rule and task.trigger_rule != 'all_success' %}
+        trigger_rule={{ task.trigger_rule | repr }},
+{% endif %}
+    )

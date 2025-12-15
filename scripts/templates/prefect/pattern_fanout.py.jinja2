@@ -1,0 +1,211 @@
+# ==============================================================================
+# Generated Prefect Flow - Fan-Out/Fan-In Pattern
+# Pipeline: {{ pipeline_name }}
+# Pattern: {{ detected_pattern }}
+# Strategy: {{ generator_strategy }}
+# Generated: {{ generation_timestamp }}
+# ==============================================================================
+
+from __future__ import annotations
+
+import os
+from datetime import timedelta
+from typing import Dict, Any, List
+from concurrent.futures import as_completed
+
+from prefect import flow, task
+from prefect.infrastructure.docker import DockerContainer
+from prefect.deployments import Deployment
+from prefect.task_runners import ConcurrentTaskRunner
+
+# --- Configuration ---
+HOST_DATA_DIR = os.getenv('HOST_DATA_DIR', '/tmp/prefect/data')
+CONTAINER_DATA_DIR = '/app/data'
+
+# --- Task Definitions ---
+{% for task in processed_tasks %}
+
+@task(
+    name="{{ task.task_name }}",
+    description="{{ task.task_name }} - {{ task.task_id }}",
+    retries={{ task.retries }},
+{% if task.retry_delay_seconds > 0 %}
+    retry_delay_seconds={{ task.retry_delay_seconds }},
+{% endif %}
+    tags=["{{ detected_pattern }}", "docker"],
+)
+def {{ task.task_id }}(upstream_results: Dict[str, Any] = None) -> Dict[str, Any]:
+    """
+    Task: {{ task.task_name }}
+    
+{% if task.task_id in pattern_analysis.fanout_points %}
+    ⚡ FAN-OUT POINT: This task feeds multiple downstream tasks
+{% elif task.task_id in pattern_analysis.fanin_points %}
+    🔀 FAN-IN POINT: This task receives from multiple upstream tasks
+{% endif %}
+    
+    Executes Docker container: {{ task.image }}
+    """
+    import subprocess
+    import json
+    
+    # Build docker run command
+    cmd = [
+        'docker', 'run',
+        '--rm',
+        '-v', f'{HOST_DATA_DIR}:{CONTAINER_DATA_DIR}',
+{% if task.networks and task.networks | length > 0 %}
+{% for network in task.networks %}
+        '--network', '{{ network }}',
+{% endfor %}
+{% endif %}
+    ]
+    
+    # Add environment variables
+{% if task.environment %}
+{% for key, value in task.environment.items() %}
+    cmd.extend(['-e', '{{ key }}={{ value }}'])
+{% endfor %}
+{% endif %}
+    
+    # Add image
+    cmd.append('{{ task.image }}')
+    
+    # Add command if specified
+{% if task.command %}
+{% if task.command is string %}
+    cmd.extend({{ task.command.split() | tojson }})
+{% else %}
+    cmd.extend({{ task.command | tojson }})
+{% endif %}
+{% endif %}
+    
+    # Execute
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        check=True
+    )
+    
+    return {
+        'task_id': '{{ task.task_id }}',
+        'status': 'success',
+        'stdout': result.stdout,
+        'stderr': result.stderr,
+        'upstream_results': upstream_results,
+    }
+
+{% endfor %}
+
+# --- Main Flow with Fan-Out/Fan-In ---
+@flow(
+    name="{{ flow_name }}",
+    description="{{ pipeline_description }}",
+    task_runner=ConcurrentTaskRunner(),  # Enable parallel execution
+    log_prints=True,
+)
+def {{ flow_name }}() -> Dict[str, Any]:
+    """
+    Main flow: {{ pipeline_name }}
+    
+    Pattern: {{ detected_pattern }}
+    Fan-out points: {{ pattern_analysis.fanout_points | length }}
+    Fan-in points: {{ pattern_analysis.fanin_points | length }}
+    """
+    results = {}
+    
+{% set processed = namespace(tasks=[]) %}
+{% for task_id in task_order %}
+{%   set task = processed_tasks | selectattr('task_id', 'equalto', task_id) | first %}
+{%   set upstream_ids = task.upstream_task_ids %}
+    
+    # Task: {{ task_id }}
+{%   if upstream_ids | length == 0 %}
+    # Entry point - no dependencies
+    print(f"Executing entry point: {{ task_id }}")
+    results['{{ task_id }}'] = {{ task_id }}()
+    
+{%   elif upstream_ids | length == 1 %}
+    # Single upstream dependency
+    print(f"Executing task: {{ task_id }} (after {{ upstream_ids[0] }})")
+    results['{{ task_id }}'] = {{ task_id }}(upstream_results=results.get('{{ upstream_ids[0] }}'))
+    
+{%   elif task_id in pattern_analysis.fanout_points %}
+    # Fan-out point: Launch parallel downstream tasks
+    print(f"Fan-out from: {{ task_id }}")
+    results['{{ task_id }}'] = {{ task_id }}(
+{%     if upstream_ids | length > 0 %}
+        upstream_results={
+{%       for up_id in upstream_ids %}
+            '{{ up_id }}': results.get('{{ up_id }}'),
+{%       endfor %}
+        }
+{%     endif %}
+    )
+    
+    # Launch parallel tasks
+    parallel_futures = []
+{%     for dep_src, dep_dst in dependencies %}
+{%       if dep_src == task_id %}
+    print(f"  Launching parallel task: {{ dep_dst }}")
+{%       endif %}
+{%     endfor %}
+    
+{%   elif task_id in pattern_analysis.fanin_points %}
+    # Fan-in point: Wait for all parallel tasks
+    print(f"Fan-in at: {{ task_id }} (waiting for {{ upstream_ids | length }} tasks)")
+    results['{{ task_id }}'] = {{ task_id }}(
+        upstream_results={
+{%     for up_id in upstream_ids %}
+            '{{ up_id }}': results.get('{{ up_id }}'),
+{%     endfor %}
+        }
+    )
+    
+{%   else %}
+    # Regular task with multiple upstreams
+    print(f"Executing task: {{ task_id }}")
+    results['{{ task_id }}'] = {{ task_id }}(
+        upstream_results={
+{%     for up_id in upstream_ids %}
+            '{{ up_id }}': results.get('{{ up_id }}'),
+{%     endfor %}
+        }
+    )
+{%   endif %}
+{%   do processed.tasks.append(task_id) %}
+{% endfor %}
+    
+    return results
+
+
+# --- Deployment Configuration ---
+{% if schedule_enabled and schedule_expression %}
+from prefect.server.schemas.schedules import CronSchedule
+
+deployment = Deployment.build_from_flow(
+    flow={{ flow_name }},
+    name="{{ flow_name }}_deployment",
+    work_pool_name="{{ work_pool }}",
+    work_queue_name="default",
+    schedule=CronSchedule(
+        cron="{{ schedule_expression }}",
+        timezone="{{ timezone }}",
+    ),
+    tags=["{{ detected_pattern }}", "generated", "fanout", "fanin"],
+)
+{% else %}
+deployment = Deployment.build_from_flow(
+    flow={{ flow_name }},
+    name="{{ flow_name }}_deployment",
+    work_pool_name="{{ work_pool }}",
+    work_queue_name="default",
+    tags=["{{ detected_pattern }}", "generated", "fanout", "fanin"],
+)
+{% endif %}
+
+
+if __name__ == "__main__":
+    # Run flow locally for testing
+    {{ flow_name }}()

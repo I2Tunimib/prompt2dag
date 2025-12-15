@@ -1,0 +1,169 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 03:30:19.373711
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_sensor_gated_02_database_partition_check.py_description.txt
+  pipeline_name: wait_partition_pipeline
+  pipeline_description: Database Partition Check ETL
+  orchestrator_specific:
+    job_name: wait_partition_pipeline
+    description: Database Partition Check ETL
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - database_conn
+schedule:
+  enabled: false
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: database_conn
+    conn_type: resource
+    description: Primary Database Connection
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: database_conn
+      config:
+        base_path:
+        base_url:
+        host:
+        port:
+        protocol: jdbc
+        database:
+        schema:
+        bucket:
+        queue_name:
+tasks:
+  - task_id: wait_partition
+    task_name: Wait for Daily Partition
+    operator_class: Op
+    operator_module: dagster
+    component_ref: wait_partition
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - database_conn
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: partition_metadata
+          dagster_type: String
+          description: information_schema.partitions
+      outs:
+        - name: sensor_success
+          dagster_type: Any
+          description: Output to None
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: extract_incremental
+    task_name: Extract Incremental Orders
+    operator_class: Op
+    operator_module: dagster
+    component_ref: extract_incremental
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - database_conn
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: partition_ready
+          dagster_type: Any
+          description: ''
+      outs:
+        - name: orders_incremental
+          dagster_type: String
+          description: Output to database_conn
+    upstream_task_ids:
+      - wait_partition
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: transform_orders
+    task_name: Transform Orders Data
+    operator_class: Op
+    operator_module: dagster
+    component_ref: transform_orders
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - database_conn
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: raw_orders
+          dagster_type: String
+          description: orders_partition_{date}
+      outs:
+        - name: clean_orders
+          dagster_type: String
+          description: Output to database_conn
+    upstream_task_ids:
+      - extract_incremental
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: load_orders
+    task_name: Load Orders to Warehouse
+    operator_class: Op
+    operator_module: dagster
+    component_ref: load_orders
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config: {}
+      config_schema: {}
+      required_resource_keys:
+        - database_conn
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins:
+        - name: clean_orders
+          dagster_type: String
+          description: clean_orders_{date}
+      outs:
+        - name: fact_orders
+          dagster_type: String
+          description: Output to database_conn
+    upstream_task_ids:
+      - transform_orders
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

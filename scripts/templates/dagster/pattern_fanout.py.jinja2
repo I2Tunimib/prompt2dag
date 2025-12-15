@@ -1,0 +1,264 @@
+# ==============================================================================
+# Generated Dagster Job - Fan-Out/Fan-In Pattern
+# Pipeline: {{ pipeline_name }}
+# Pattern: {{ detected_pattern }}
+# Strategy: {{ generator_strategy }}
+# Generated: {{ generation_timestamp }}
+# ==============================================================================
+
+from __future__ import annotations
+
+import os
+import subprocess
+from typing import Dict, Any, List
+
+from dagster import (
+    op,
+    job,
+    In,
+    Out,
+    DynamicOut,
+    DynamicOutput,
+    OpExecutionContext,
+    Failure,
+    RetryPolicy,
+)
+{% if executor_type == 'docker_executor' %}
+from dagster_docker import docker_executor
+{% elif executor_type == 'k8s_job_executor' %}
+from dagster_k8s import k8s_job_executor
+{% else %}
+from dagster import in_process_executor
+{% endif %}
+
+# --- Configuration ---
+HOST_DATA_DIR = os.getenv('HOST_DATA_DIR', '/tmp/dagster/data')
+CONTAINER_DATA_DIR = '/app/data'
+
+# --- Op Definitions ---
+{% for task in processed_tasks %}
+
+@op(
+    name="{{ task.task_id }}",
+    description="{{ task.task_name }}",
+{% if task.ins %}
+    ins={
+{%   for input_spec in task.ins %}
+        "{{ input_spec.name }}": In({{ input_spec.dagster_type }}),
+{%   endfor %}
+    },
+{% endif %}
+{% if task.task_id in pattern_analysis.fanout_points %}
+    # Fan-out point: Uses DynamicOut
+    out=DynamicOut(Dict[str, Any]),
+{% elif task.outs %}
+    out={
+{%   for output_spec in task.outs %}
+        "{{ output_spec.name }}": Out({{ output_spec.dagster_type }}),
+{%   endfor %}
+    },
+{% else %}
+    out=Out(Dict[str, Any]),
+{% endif %}
+{% if task.retries > 0 %}
+    retry_policy=RetryPolicy(max_retries={{ task.retries }}, delay={{ task.retry_delay_seconds }}),
+{% endif %}
+{% if task.required_resource_keys %}
+    required_resource_keys={{ task.required_resource_keys | tojson }},
+{% endif %}
+    tags={
+        "pattern": "{{ detected_pattern }}", 
+        "executor": "docker",
+{% if task.task_id in pattern_analysis.fanout_points %}
+        "fanout": "true",
+{% elif task.task_id in pattern_analysis.fanin_points %}
+        "fanin": "true",
+{% endif %}
+    },
+)
+def {{ task.task_id }}(
+    context: OpExecutionContext,
+{% if task.ins %}
+{%   for input_spec in task.ins %}
+    {{ input_spec.name }}: {{ input_spec.dagster_type }},
+{%   endfor %}
+{% endif %}
+){% if task.task_id in pattern_analysis.fanout_points %} -> List[DynamicOutput[Dict[str, Any]]]{% else %} -> Dict[str, Any]{% endif %}:
+    """
+    Op: {{ task.task_name }}
+    
+{% if task.task_id in pattern_analysis.fanout_points %}
+    ⚡ FAN-OUT POINT: Emits multiple dynamic outputs
+{% elif task.task_id in pattern_analysis.fanin_points %}
+    🔀 FAN-IN POINT: Collects results from multiple upstream ops
+{% endif %}
+    
+    Executes Docker container: {{ task.image }}
+    """
+    context.log.info(f"Starting op: {{ task.task_id }}")
+    
+    # Build docker run command
+    cmd = [
+        'docker', 'run',
+        '--rm',
+        '-v', f'{HOST_DATA_DIR}:{CONTAINER_DATA_DIR}',
+{% if task.network_mode %}
+        '--network', '{{ task.network_mode }}',
+{% endif %}
+    ]
+    
+    # Add environment variables
+{% if task.environment %}
+{% for key, value in task.environment.items() %}
+    cmd.extend(['-e', '{{ key }}={{ value }}'])
+{% endfor %}
+{% endif %}
+    
+    cmd.append('{{ task.image }}')
+    
+{% if task.command %}
+{% if task.command is string %}
+    cmd.extend({{ task.command.split() | tojson }})
+{% elif task.command is iterable %}
+    cmd.extend({{ task.command | tojson }})
+{% endif %}
+{% endif %}
+    
+    # Execute
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        
+        context.log.info(f"Op {{ task.task_id }} completed successfully")
+        
+        base_result = {
+            'op_id': '{{ task.task_id }}',
+            'status': 'success',
+            'stdout': result.stdout,
+            'stderr': result.stderr,
+        }
+        
+{% if task.task_id in pattern_analysis.fanout_points %}
+        # Fan-out: Yield multiple dynamic outputs
+        # TODO: Adjust logic based on actual partitioning needs
+        partitions = ['partition_1', 'partition_2', 'partition_3']  # Example
+        
+        outputs = []
+        for partition in partitions:
+            context.log.info(f"Emitting output for partition: {partition}")
+            outputs.append(
+                DynamicOutput(
+                    value={**base_result, 'partition': partition},
+                    mapping_key=partition,
+                )
+            )
+        return outputs
+{% else %}
+        return base_result
+{% endif %}
+        
+    except subprocess.CalledProcessError as e:
+        context.log.error(f"Op {{ task.task_id }} failed: {e.stderr}")
+        raise Failure(description=f"Docker container failed: {e.stderr}")
+
+{% endfor %}
+
+# --- Job Definition with Fan-Out/Fan-In ---
+@job(
+    name="{{ job_name }}",
+    description="{{ pipeline_description }}",
+{% if executor_type == 'docker_executor' %}
+    executor_def=docker_executor,
+{% else %}
+    executor_def=in_process_executor,
+{% endif %}
+    tags={"pattern": "{{ detected_pattern }}", "fanout": "true", "fanin": "true"},
+)
+def {{ job_name }}():
+    """
+    Job: {{ pipeline_name }}
+    
+    Pattern: {{ detected_pattern }}
+    Fan-out points: {{ pattern_analysis.fanout_points | length }}
+    Fan-in points: {{ pattern_analysis.fanin_points | length }}
+    """
+{% set processed = namespace(ops=[]) %}
+{% for task_id in task_order %}
+{%   set task = processed_tasks | selectattr('task_id', 'equalto', task_id) | first %}
+{%   set upstream_ids = task.upstream_task_ids %}
+    
+{%   if task_id in pattern_analysis.fanout_points %}
+    # Fan-out point: {{ task_id }}
+{%     if upstream_ids | length == 0 %}
+    {{ task_id }}_results = {{ task_id }}()
+{%     else %}
+    {{ task_id }}_results = {{ task_id }}(
+{%       for upstream_id in upstream_ids %}
+        {{ upstream_id }}_result={{ upstream_id }}_result,
+{%       endfor %}
+    )
+{%     endif %}
+    
+{%   elif task_id in pattern_analysis.fanin_points %}
+    # Fan-in point: {{ task_id }}
+    # Collect results from all upstream ops
+{%     set fanout_upstream = [] %}
+{%     for upstream_id in upstream_ids %}
+{%       if upstream_id in pattern_analysis.fanout_points %}
+{%         do fanout_upstream.append(upstream_id) %}
+{%       endif %}
+{%     endfor %}
+{%     if fanout_upstream %}
+    # Map over dynamic outputs from fan-out
+{%       for fanout_id in fanout_upstream %}
+    {{ task_id }}_result = {{ fanout_id }}_results.map({{ task_id }})
+{%       endfor %}
+{%     else %}
+    {{ task_id }}_result = {{ task_id }}(
+{%       for upstream_id in upstream_ids %}
+        {{ upstream_id }}_result={{ upstream_id }}_result,
+{%       endfor %}
+    )
+{%     endif %}
+    
+{%   elif upstream_ids | length == 0 %}
+    # Entry point: {{ task_id }}
+    {{ task_id }}_result = {{ task_id }}()
+    
+{%   elif upstream_ids | length == 1 %}
+    # Single upstream: {{ task_id }}
+{%     set upstream_id = upstream_ids[0] %}
+{%     if upstream_id in pattern_analysis.fanout_points %}
+    # Map over dynamic outputs
+    {{ task_id }}_results = {{ upstream_id }}_results.map({{ task_id }})
+{%     else %}
+    {{ task_id }}_result = {{ task_id }}({{ upstream_id }}_result={{ upstream_id }}_result)
+{%     endif %}
+    
+{%   else %}
+    # Multiple upstreams: {{ task_id }}
+    {{ task_id }}_result = {{ task_id }}(
+{%     for upstream_id in upstream_ids %}
+        {{ upstream_id }}_result={{ upstream_id }}_result,
+{%     endfor %}
+    )
+{%   endif %}
+{%   do processed.ops.append(task_id) %}
+{% endfor %}
+
+
+# --- Repository ---
+from dagster import repository
+
+@repository
+def {{ job_name }}_repository():
+    return [{{ job_name }}]
+
+
+if __name__ == "__main__":
+    result = {{ job_name }}.execute_in_process()
+    print(f"Job execution result: {result.success}")

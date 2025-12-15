@@ -1,0 +1,122 @@
+# ==============================================================================
+# Generated Airflow DAG - Conditional Branch Pattern
+# Pipeline: {{ pipeline_name }}
+# Pattern: {{ detected_pattern }}
+# Strategy: {{ generator_strategy }}
+# Generated: {{ generation_timestamp }}
+# ==============================================================================
+
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta
+from typing import List
+
+from airflow.models.dag import DAG
+from airflow.providers.docker.operators.docker import DockerOperator
+from airflow.operators.python import BranchPythonOperator
+from airflow.operators.empty import EmptyOperator
+from docker.types import Mount
+
+# --- Configuration ---
+HOST_DATA_DIR = os.getenv('HOST_DATA_DIR', {{ host_data_dir_default | repr }})
+CONTAINER_DATA_DIR = '/app/data'
+
+# --- Branch Decision Functions ---
+{% for task in processed_tasks %}
+{%   if 'branch' in task.operator_class.lower() %}
+
+def decide_{{ task.task_id }}(**context):
+    """
+    Branch decision logic for {{ task.task_id }}.
+    
+    This is a placeholder implementation. Replace with actual branching logic.
+    Returns the task_id of the next task to execute.
+    """
+    # TODO: Implement actual branching logic here
+    # Example: Check XCom values, environment variables, or external state
+    
+    # Get potential downstream tasks
+    downstream_tasks = [
+{%     for dep_src, dep_dst in dependencies %}
+{%       if dep_src == task.task_id %}
+        {{ dep_dst | repr }},
+{%       endif %}
+{%     endfor %}
+    ]
+    
+    # Default: return first downstream task
+    if downstream_tasks:
+        return downstream_tasks[0]
+    
+    return None
+
+{%   endif %}
+{% endfor %}
+
+# --- Default Arguments ---
+default_args = {
+    'owner': 'airflow',
+    'depends_on_past': False,
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': {{ default_retries }},
+    'retry_delay': timedelta(minutes={{ default_retry_delay }}),
+}
+
+# --- DAG Definition ---
+with DAG(
+    dag_id={{ dag_id | repr }},
+    default_args=default_args,
+    description={{ pipeline_description | repr }},
+    schedule_interval={{ schedule_expression | schedule_repr }},
+    start_date=datetime({{ start_date.year }}, {{ start_date.month }}, {{ start_date.day }}),
+    catchup={{ catchup }},
+    tags={{ tags | to_python_list }},
+) as dag:
+
+    # ==========================================================================
+    # Task Definitions
+    # ==========================================================================
+
+{% for task in processed_tasks %}
+    # Task: {{ task.task_id }}
+{% if 'branch' in task.operator_class.lower() %}
+    # 🔀 BRANCH POINT
+    {{ task.task_id }} = BranchPythonOperator(
+        task_id={{ task.task_id | repr }},
+        python_callable=decide_{{ task.task_id }},
+        provide_context=True,
+    )
+
+{% else %}
+    {{ task.task_id }} = DockerOperator(
+        task_id={{ task.task_id | repr }},
+        image={{ task.image | repr }},
+{% if task.command %}
+        command={{ task.command | repr }},
+{% endif %}
+        environment={{ task.environment | format_env_dict }},
+        network_mode={{ task.network_mode | repr }},
+        mounts=[Mount(source=HOST_DATA_DIR, target=CONTAINER_DATA_DIR, type='bind')],
+        auto_remove={{ task.auto_remove | default(true) }},
+        docker_url={{ task.docker_url | default('unix://var/run/docker.sock') | repr }},
+{% if task.trigger_rule and task.trigger_rule != 'all_success' %}
+        trigger_rule={{ task.trigger_rule | repr }},
+{% endif %}
+        mount_tmp_dir=False,
+        force_pull=False,
+        tty=True,
+    )
+
+{% endif %}
+{% endfor %}
+
+    # ==========================================================================
+    # Task Dependencies - Branching Pattern
+    # ==========================================================================
+{% if dependencies %}
+{% for src, dst in dependencies %}
+    {{ src }} >> {{ dst }}
+{% endfor %}
+{% endif %}

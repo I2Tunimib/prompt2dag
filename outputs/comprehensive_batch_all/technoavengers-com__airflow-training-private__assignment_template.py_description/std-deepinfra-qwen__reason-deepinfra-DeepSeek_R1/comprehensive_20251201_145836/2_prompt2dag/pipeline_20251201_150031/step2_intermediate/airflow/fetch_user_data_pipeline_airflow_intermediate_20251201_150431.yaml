@@ -1,0 +1,84 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-01 15:04:31.488177
+  source_analysis_file: 
+    Pipeline_Description_Dataset/technoavengers-com__airflow-training-private__assignment_template.py_description.txt
+  pipeline_name: fetch_user_data_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression: '@daily'
+  start_date:
+  end_date:
+  timezone: UTC
+  catchup: true
+connections:
+  - conn_id: reqres_api
+    conn_type: http
+    description: Reqres API
+    config:
+      base_url: https://reqres.in
+      protocol: https
+  - conn_id: postgres_db
+    conn_type: generic
+    description: PostgreSQL Database
+    config:
+      host: localhost
+      port: 5432
+      database: airflow
+      schema: public
+      login: POSTGRES_USER
+      password: POSTGRES_PASSWORD
+tasks:
+  - task_id: fetch_user_data
+    task_name: Fetch User Data
+    operator_class: SimpleHttpOperator
+    operator_module: airflow.providers.http.operators.http
+    component_ref: fetch_user_data
+    config:
+      endpoint:
+        - GET
+        - api/users/2
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: process_user_data
+    task_name: Process User Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: process_user_data
+    config:
+      python_callable: _process_user
+    upstream_task_ids:
+      - fetch_user_data
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: create_user_table
+    task_name: Create User Table
+    operator_class: SQLExecuteQueryOperator
+    operator_module: airflow.providers.common.sql.operators.sql
+    component_ref: create_user_table
+    config: {}
+    upstream_task_ids:
+      - process_user_data
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []
+  - task_id: insert_user_data
+    task_name: Insert User Data
+    operator_class: SQLExecuteQueryOperator
+    operator_module: airflow.providers.common.sql.operators.sql
+    component_ref: insert_user_data
+    config: {}
+    upstream_task_ids:
+      - create_user_table
+    trigger_rule: all_success
+    retries: 0
+    retry_delay_seconds: 0
+    validation_warnings: []

@@ -1,0 +1,92 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T23:20:19.236937
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_staged_etl_01_supply_chain_etl.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**1. Executive Summary**  
+- **Purpose** – The pipeline implements a three‑stage ETL process that ingests daily shipment files from three external vendors, normalises the data, loads the result into a central inventory database and notifies the supply‑chain team via email.  
+- **High‑level flow** – A hybrid topology is used: a parallel fan‑out extracts the three vendor CSVs, the results are joined and then processed sequentially through transformation, loading and notification.  
+- **Key patterns & complexity** – Detected patterns include *sequential*, *parallel* and *hybrid* execution. The overall complexity is moderate (≈ 4/10) with six logical components and a clear linear downstream flow after the initial parallel segment.  
+
+---
+
+**2. Pipeline Architecture**  
+
+| Aspect | Description |
+|--------|-------------|
+| **Flow Patterns** | • **Parallel fan‑out** – three virtual ingestion nodes run concurrently. <br>• **Join** – a static join synchronises the three streams before the main extraction task. <br>• **Sequential downstream** – transformation → load → notification. |
+| **Execution Characteristics** | All components are executed by a *python* executor. No container images, custom commands or GPU resources are defined. |
+| **Component Overview** | 1. **Extractor** – *Extract Vendor Shipment CSVs* (reads raw files). <br>2. **Transformer** – *Cleanse and Normalize Shipment Data* (combines, validates, enriches). <br>3. **Loader** – *Load Cleansed Shipments to Inventory Database* (writes to PostgreSQL). <br>4. **Notifier** – *Send ETL Summary Email* (SMTP notification). |
+| **Flow Description** | **Entry point** – a virtual *extract_parallel* node triggers three parallel virtual ingestion nodes (*ingest_vendor_a*, *ingest_vendor_b*, *ingest_vendor_c*). <br>**Join** – *extract_join* waits for all three to succeed. <br>**Main sequence** – *extract_vendor_shipments* → *cleanse_and_normalize_shipments* → *load_shipment_data* → *send_summary_email*. <br>There are no branching decisions or sensor‑based waits. |
+
+---
+
+**3. Detailed Component Analysis**  
+
+| Component | Purpose & Category | Executor & Config | Inputs | Outputs | Retry Policy | Concurrency | Connected Systems |
+|-----------|-------------------|-------------------|--------|---------|--------------|-------------|-------------------|
+| **extract_vendor_shipments** | Reads three vendor CSV files and pushes parsed JSON objects downstream. *Extractor* | python executor; no custom image/command; default environment. | `vendor_a_shipments_20240115.csv` (fs_vendor_a) <br>`vendor_b_shipments_20240115.csv` (fs_vendor_b) <br>`vendor_c_shipments_20240115.csv` (fs_vendor_c) | `vendor_a_data` (JSON) <br>`vendor_b_data` (JSON) <br>`vendor_c_data` (JSON) | Max 2 attempts, 300 s delay, retries on *timeout* and *network_error*. No exponential back‑off. | Supports parallelism; up to **3** parallel instances (one per vendor). | Filesystem connections: **fs_vendor_a**, **fs_vendor_b**, **fs_vendor_c**. |
+| **cleanse_and_normalize_shipments** | Merges the three vendor datasets, normalises SKU formats, validates dates, filters bad rows and enriches with location reference data. *Transformer* | python executor; default resources. | `vendor_a_data` (JSON) <br>`vendor_b_data` (JSON) <br>`vendor_c_data` (JSON) | `cleansed_shipment_data` (JSON) | Same retry settings as above (2 attempts, 5 min delay). | No parallelism; runs as a single instance. | Database connection **ref_location** (location reference tables). |
+| **load_shipment_data** | Persists the cleansed shipment records into the `inventory_shipments` table of a PostgreSQL database. *Loader* | python executor; default resources. | `cleansed_shipment_data` (JSON) | `db_load_complete` (JSON status flag) | Same retry settings (2 attempts, 5 min delay). | No parallelism. | Database connection **postgres_inventory** (PostgreSQL inventory DB). |
+| **send_summary_email** | Sends a daily summary email to the supply‑chain team after a successful load. *Notifier* | python executor; default resources. | `db_load_complete` (JSON) | `summary_email_sent` (JSON flag) | Same retry settings (2 attempts, 5 min delay). | No parallelism. | Email connection **email_smtp** (SMTP server). |
+
+*All components share an upstream policy of **all_success**, meaning downstream execution only proceeds when every upstream component finishes without error.*
+
+---
+
+**4. Parameter Schema**  
+
+| Scope | Parameters |
+|-------|------------|
+| **Pipeline‑level** | `name` (string, optional) – “Supply Chain Shipment ETL”. <br>`description` (string) – detailed description of the three‑stage process. <br>`tags` (array) – `["supply_chain","etl","shipments"]`. |
+| **Schedule** | `enabled` (boolean, optional). <br>`cron_expression` – default `@daily`. <br>`start_date` – `2024‑01‑01`. <br>`end_date` – none. <br>`timezone` – none. <br>`catchup` – `false`. <br>`batch_window` – none. <br>`partitioning` – none. |
+| **Execution** | `max_active_runs` – none defined (default unlimited). <br>`timeout_seconds` – none defined. <br>`retry_policy` – `{retries: 2, retry_delay_minutes: 5, email_on_failure: false, email_on_retry: false}` applied at pipeline level. <br>`depends_on_past` – none. |
+| **Component‑specific** | No additional parameters are defined for individual components; they rely on defaults and the connection definitions. |
+| **Environment** | No environment variables are explicitly required; authentication credentials are read from environment variables (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `SMTP_USER`, `SMTP_PASSWORD`). |
+
+---
+
+**5. Integration Points**  
+
+| External System | Connection ID | Type | Purpose | Authentication | Datasets Involved |
+|-----------------|---------------|------|---------|----------------|-------------------|
+| Vendor CSV files (three vendors) | `fs_vendor_a`, `fs_vendor_b`, `fs_vendor_c` | filesystem | Input files for extraction | **none** (local file access) | Source CSVs → intermediate JSON objects (`vendor_*_data`). |
+| Inventory PostgreSQL Database | `postgres_inventory` (also `ref_location` for enrichment) | database (PostgreSQL) | Reads location reference tables; writes `inventory_shipments` table. | **basic** – username/password via `POSTGRES_USER` / `POSTGRES_PASSWORD`. | Consumes: location reference tables. Produces: `inventory_shipments` table. |
+| Email SMTP Server | `email_smtp` | other (SMTP) | Sends daily ETL summary email. | **basic** – credentials via `SMTP_USER` / `SMTP_PASSWORD`. | Produces: ETL summary email to `supply-chain-team@company.com`. |
+
+**Data Lineage** –  
+- **Sources**: Vendor CSV files and location reference tables in PostgreSQL.  
+- **Intermediate datasets**: `vendor_a_data`, `vendor_b_data`, `vendor_c_data`, `cleansed_shipment_data`, `db_load_complete`.  
+- **Sinks**: `inventory_shipments` table (PostgreSQL) and the daily summary email.
+
+---
+
+**6. Implementation Notes**  
+
+- **Complexity** – Moderate; the parallel extraction adds concurrency handling, but the downstream flow is linear and straightforward.  
+- **Upstream dependency policy** – All downstream components require *all_success* from their immediate upstream nodes, providing strong failure isolation (no partial loads).  
+- **Retry & timeout** – Uniform retry policy (2 attempts, 5 min delay) across components; retries trigger on timeout and network errors. No explicit task‑level timeout is set, so defaults of the execution environment apply.  
+- **Parallelism** – Extraction component explicitly supports up to three parallel instances, matching the three vendors. No dynamic mapping is used.  
+- **Potential Risks** – <br>• Missing or malformed vendor CSV files could halt the entire pipeline. <br>• Network or authentication failures when accessing PostgreSQL or SMTP may cause retries and eventual failure. <br>• Absence of explicit timeouts could lead to hanging runs if an external system becomes unresponsive.  
+- **Mitigations** – Ensure file availability before the scheduled run, monitor connection health, and consider adding explicit task‑level timeouts if the execution environment permits.  
+
+---
+
+**7. Orchestrator Compatibility**  
+
+| Orchestrator | Compatibility Assessment (neutral) |
+|--------------|------------------------------------|
+| **Airflow‑style engines** | Supports static parallel branches, join synchronization, python‑based execution, retry policies and XCom‑style data passing – all required constructs are present. |
+| **Prefect‑style engines** | Handles parallel mapping (static) and sequential flows, supports retry and timeout configuration, and can store intermediate results in its state management – compatible. |
+| **Dagster‑style engines** | Provides solid support for assets, parallel solids, and resource‑based connections; the linear downstream chain after the join maps cleanly to a Dagster job. |
+
+*All three major orchestration families can represent the described hybrid flow, parallelism, and retry semantics without requiring tool‑specific features.*  
+
+---
+
+**8. Conclusion**  
+
+The Supply Chain Shipment ETL pipeline is a well‑structured, hybrid workflow that efficiently extracts three vendor data streams in parallel, normalises the combined dataset, loads it into a central PostgreSQL inventory store, and notifies stakeholders via email. Its design leverages simple python‑based components, clear upstream dependency rules, and a uniform retry strategy, making it portable across major orchestration platforms while maintaining robustness and traceability through explicit data lineage and connection definitions.

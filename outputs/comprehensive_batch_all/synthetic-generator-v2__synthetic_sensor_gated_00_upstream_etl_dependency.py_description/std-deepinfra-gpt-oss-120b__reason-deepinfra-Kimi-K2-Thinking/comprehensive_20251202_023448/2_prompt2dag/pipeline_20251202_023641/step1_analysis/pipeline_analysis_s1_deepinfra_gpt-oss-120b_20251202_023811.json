@@ -1,0 +1,651 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T02:38:11.240783",
+    "source_file": "Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_sensor_gated_00_upstream_etl_dependency.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "gpt-oss-120b",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential",
+        "sensor_driven"
+      ],
+      "task_executors_used": [
+        "python"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": true,
+      "total_components": 3,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported",
+          "Native sensor support"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies",
+          "wait_for() or custom sensors"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies",
+          "Sensors via run_status_sensor"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "wait_for_sales_aggregation_pipeline",
+    "description": "No description provided.",
+    "flow_patterns": [
+      "sequential",
+      "sensor_driven"
+    ],
+    "task_executors": [
+      "python"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "wait_for_sales_aggregation",
+      "name": "Wait for Sales Aggregation DAG",
+      "category": "Sensor",
+      "description": "Blocks pipeline execution until the external daily_sales_aggregation DAG finishes successfully.",
+      "inputs": [
+        "external_dag_completion_status"
+      ],
+      "outputs": [
+        "sensor_unlock_signal"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": null,
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "upstream_dag_status",
+          "direction": "input",
+          "kind": "api",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        },
+        {
+          "name": "sensor_unlock",
+          "direction": "output",
+          "kind": "object",
+          "format": "other",
+          "path_pattern": null,
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "First component in the pipeline, no upstream dependencies.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [],
+        "produces": []
+      }
+    },
+    {
+      "id": "load_sales_csv",
+      "name": "Load Aggregated Sales CSV",
+      "category": "Extractor",
+      "description": "Loads and validates the aggregated sales CSV files produced by the upstream DAG.",
+      "inputs": [
+        "sensor_unlock_signal",
+        "aggregated_sales_csv_files"
+      ],
+      "outputs": [
+        "validated_sales_data"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "load_aggregated_sales",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "sales_csv_file",
+          "direction": "input",
+          "kind": "file",
+          "format": "csv",
+          "path_pattern": "/data/sales/aggregated/*.csv",
+          "connection_id": "fs_sales_data"
+        },
+        {
+          "name": "validated_sales_table",
+          "direction": "output",
+          "kind": "table",
+          "format": "parquet",
+          "path_pattern": "/data/sales/validated/validated_sales.parquet",
+          "connection_id": "fs_sales_data"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Executes only after the sensor confirms the upstream DAG succeeded.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_sales_data",
+          "type": "filesystem",
+          "purpose": "Access aggregated CSV files and store validated data"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "aggregated_sales_csv"
+        ],
+        "produces": [
+          "validated_sales_data"
+        ]
+      }
+    },
+    {
+      "id": "generate_dashboard",
+      "name": "Generate Executive Dashboard",
+      "category": "Transformer",
+      "description": "Creates an executive dashboard with sales metrics, visualizations, and regional analysis from the validated sales data.",
+      "inputs": [
+        "validated_sales_data"
+      ],
+      "outputs": [
+        "executive_dashboard"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "generate_executive_dashboard",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "validated_sales_data",
+          "direction": "input",
+          "kind": "table",
+          "format": "parquet",
+          "path_pattern": "/data/sales/validated/validated_sales.parquet",
+          "connection_id": "fs_sales_data"
+        },
+        {
+          "name": "executive_dashboard",
+          "direction": "output",
+          "kind": "file",
+          "format": "html",
+          "path_pattern": "/reports/executive_dashboard.html",
+          "connection_id": "fs_reports"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after the sales CSV has been successfully loaded and validated.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 2,
+        "delay_seconds": 300,
+        "exponential_backoff": false,
+        "retry_on": [
+          "timeout",
+          "error"
+        ]
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "fs_sales_data",
+          "type": "filesystem",
+          "purpose": "Read validated sales data"
+        },
+        {
+          "id": "fs_reports",
+          "type": "filesystem",
+          "purpose": "Write generated executive dashboard"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "validated_sales_data"
+        ],
+        "produces": [
+          "executive_dashboard"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "hybrid",
+    "entry_points": [
+      "wait_for_sales_aggregation"
+    ],
+    "nodes": {
+      "wait_for_sales_aggregation": {
+        "kind": "Sensor",
+        "component_type_id": "wait_for_sales_aggregation",
+        "upstream_policy": {
+          "type": "none_failed",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "load_sales_csv"
+        ],
+        "sensor_config": {
+          "sensor_type": "external_task",
+          "target": "daily_sales_aggregation",
+          "poke_interval_seconds": 60,
+          "timeout_seconds": 3600,
+          "mode": "reschedule"
+        },
+        "branch_config": null,
+        "parallel_config": null
+      },
+      "load_sales_csv": {
+        "kind": "Task",
+        "component_type_id": "load_sales_csv",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "generate_dashboard"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "generate_dashboard": {
+        "kind": "Task",
+        "component_type_id": "generate_dashboard",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "wait_for_sales_aggregation",
+        "to": "load_sales_csv",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "load_sales_csv",
+        "to": "generate_dashboard",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Human‑readable description of the pipeline",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false,
+        "constraints": null
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false,
+        "constraints": null
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false,
+        "constraints": null
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": "2024-01-01T00:00:00",
+        "required": false,
+        "format": "ISO8601",
+        "constraints": null
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false,
+        "format": "ISO8601",
+        "constraints": null
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": false,
+        "required": false,
+        "constraints": null
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": {
+          "retries": 2,
+          "delay_seconds": 300
+        },
+        "required": false,
+        "constraints": null
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": false,
+        "required": false,
+        "constraints": null
+      }
+    },
+    "components": {
+      "wait_for_sales_aggregation": {
+        "external_dag_id": {
+          "description": "ID of the external DAG to monitor",
+          "type": "string",
+          "default": "daily_sales_aggregation",
+          "required": false,
+          "constraints": null
+        },
+        "external_task_id": {
+          "description": "Specific task within the external DAG to monitor (None means whole DAG)",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "allowed_states": {
+          "description": "List of external DAG states that satisfy the sensor",
+          "type": "array",
+          "default": [
+            "success"
+          ],
+          "required": false,
+          "constraints": null
+        },
+        "failed_states": {
+          "description": "List of external DAG states that cause the sensor to fail",
+          "type": "array",
+          "default": [
+            "failed",
+            "skipped"
+          ],
+          "required": false,
+          "constraints": null
+        },
+        "mode": {
+          "description": "Sensor mode (e.g., poke, reschedule)",
+          "type": "string",
+          "default": "reschedule",
+          "required": false,
+          "constraints": null
+        },
+        "timeout": {
+          "description": "Maximum time (seconds) to wait for the external DAG",
+          "type": "integer",
+          "default": 3600,
+          "required": false,
+          "constraints": null
+        },
+        "poke_interval": {
+          "description": "Time (seconds) between successive checks",
+          "type": "integer",
+          "default": 60,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "load_sales_csv": {
+        "python_callable": {
+          "description": "Python callable that loads and validates the aggregated sales CSV",
+          "type": "string",
+          "default": "load_aggregated_sales",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "generate_dashboard": {
+        "python_callable": {
+          "description": "Python callable that creates the executive dashboard from validated sales data",
+          "type": "string",
+          "default": "generate_executive_dashboard",
+          "required": false,
+          "constraints": null
+        }
+      }
+    },
+    "environment": {}
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "aggregated_sales_csv",
+        "name": "Aggregated Sales CSV Files",
+        "type": "filesystem",
+        "config": {
+          "base_path": "/data/aggregated_sales",
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "file",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "load_sales_csv"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [],
+          "consumes": [
+            "aggregated_sales_raw.csv"
+          ]
+        }
+      },
+      {
+        "id": "email_smtp",
+        "name": "SMTP Email Server",
+        "type": "other",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": "smtp.example.com",
+          "port": 587,
+          "protocol": "smtp",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "basic",
+          "token_env_var": null,
+          "username_env_var": "SMTP_USER",
+          "password_env_var": "SMTP_PASSWORD",
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "wait_for_sales_aggregation",
+          "load_sales_csv",
+          "generate_dashboard"
+        ],
+        "direction": "output",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "failure_alert_email"
+          ],
+          "consumes": []
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "Aggregated sales CSV files generated by the upstream 'daily_sales_aggregation' DAG"
+      ],
+      "sinks": [
+        "Executive dashboard (HTML/PDF) containing revenue trends, product performance, and regional analysis"
+      ],
+      "intermediate_datasets": [
+        "Validated sales data (in‑memory or temporary storage after load_sales_csv)",
+        "Aggregated sales CSV files (raw input)"
+      ]
+    }
+  }
+}

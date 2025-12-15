@@ -1,0 +1,132 @@
+metadata:
+  target_orchestrator: dagster
+  generated_at: 2025-12-02 20:59:39.819451
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_sensor_gated_00_upstream_etl_dependency.py_description.txt
+  pipeline_name: wait_for_sales_aggregation_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific:
+    job_name: wait_for_sales_aggregation_pipeline
+    description: No description provided.
+    executor_type: in_process_executor
+    io_manager: fs_io_manager
+    dagster_version: 1.5.0
+    use_assets: false
+    required_resources:
+      - daily_sales_aggregation
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: daily_sales_aggregation_dag
+    conn_type: resource
+    description: Daily Sales Aggregation DAG
+    config:
+      resource_type: resource
+      resource_module: dagster
+      resource_key: daily_sales_aggregation_dag
+      config:
+        base_url:
+        host:
+        port:
+        protocol:
+        database:
+        schema:
+        bucket:
+        queue_name:
+  - conn_id: sales_csv_data
+    conn_type: fs_io_manager
+    description: Sales CSV Data
+    config:
+      resource_type: fs_io_manager
+      resource_module: dagster
+      resource_key: sales_csv_data
+      config:
+        base_path: /path/to/sales/csv
+        base_url:
+        host:
+        port:
+        protocol: file
+        database:
+        schema:
+        bucket:
+        queue_name:
+tasks:
+  - task_id: wait_for_sales_aggregation
+    task_name: Wait for Sales Aggregation
+    operator_class: Op
+    operator_module: dagster
+    component_ref: wait_for_sales_aggregation
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: module.wait_for_sales_aggregation
+      config_schema: {}
+      required_resource_keys:
+        - daily_sales_aggregation
+      ins: []
+      outs: []
+    upstream_task_ids: []
+    trigger_rule: default
+    retries: 0
+    retry_delay_seconds: 60
+    validation_warnings: []
+  - task_id: load_sales_csv
+    task_name: Load Sales CSV
+    operator_class: Op
+    operator_module: dagster
+    component_ref: load_sales_csv
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: module.load_aggregated_sales
+      config_schema: {}
+      required_resource_keys: []
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins: []
+      outs: []
+    upstream_task_ids:
+      - wait_for_sales_aggregation
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: generate_dashboard
+    task_name: Generate Dashboard
+    operator_class: Op
+    operator_module: dagster
+    component_ref: generate_dashboard
+    config:
+      op_decorator: '@op'
+      executor:
+        type: in_process_executor
+        module: dagster
+        config:
+          compute_fn: module.generate_executive_dashboard
+      config_schema: {}
+      required_resource_keys: []
+      retry_policy:
+        max_retries: 2
+        delay: 300
+        backoff: CONSTANT
+      ins: []
+      outs: []
+    upstream_task_ids:
+      - load_sales_csv
+    trigger_rule: default
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

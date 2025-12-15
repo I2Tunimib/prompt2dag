@@ -1,0 +1,155 @@
+# ==============================================================================
+# Generated Airflow DAG - Sensor-Driven Pattern
+# Pipeline: {{ pipeline_name }}
+# Pattern: {{ detected_pattern }}
+# Strategy: {{ generator_strategy }}
+# Generated: {{ generation_timestamp }}
+# ==============================================================================
+
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta
+
+from airflow.models.dag import DAG
+from airflow.providers.docker.operators.docker import DockerOperator
+from airflow.sensors.filesystem import FileSensor
+from airflow.sensors.time_sensor import TimeSensor
+from airflow.sensors.external_task import ExternalTaskSensor
+from airflow.operators.python import PythonSensor
+from docker.types import Mount
+
+# --- Configuration ---
+HOST_DATA_DIR = os.getenv('HOST_DATA_DIR', {{ host_data_dir_default | repr }})
+CONTAINER_DATA_DIR = '/app/data'
+
+# --- Default Arguments ---
+default_args = {
+    'owner': 'airflow',
+    'depends_on_past': False,
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': {{ default_retries }},
+    'retry_delay': timedelta(minutes={{ default_retry_delay }}),
+}
+
+# --- Custom Sensor Functions ---
+{% set sensor_tasks = [] %}
+{% for task in processed_tasks %}
+{%   if 'sensor' in task.operator_class.lower() %}
+{%     do sensor_tasks.append(task) %}
+{%   endif %}
+{% endfor %}
+
+{% for sensor_task in sensor_tasks %}
+{% if 'python' in sensor_task.operator_class.lower() or 'custom' in sensor_task.operator_class.lower() %}
+def sensor_check_{{ sensor_task.task_id }}(**context):
+    """
+    Custom sensor check for {{ sensor_task.task_id }}.
+    
+    Returns:
+        bool: True if condition is met, False otherwise
+    """
+    # TODO: Implement actual sensor logic here
+    # Example: Check file existence, API status, database state, etc.
+    
+    # Placeholder implementation
+    import random
+    return random.choice([True, False])
+
+{% endif %}
+{% endfor %}
+
+# --- DAG Definition ---
+with DAG(
+    dag_id={{ dag_id | repr }},
+    default_args=default_args,
+    description={{ pipeline_description | repr }},
+    schedule_interval={{ schedule_expression | schedule_repr }},
+    start_date=datetime({{ start_date.year }}, {{ start_date.month }}, {{ start_date.day }}),
+    catchup={{ catchup }},
+    tags={{ tags | to_python_list }},
+) as dag:
+
+    # ==========================================================================
+    # Task Definitions
+    # ==========================================================================
+
+{% for task in processed_tasks %}
+{% if 'sensor' in task.operator_class.lower() %}
+    # Sensor Task: {{ task.task_id }}
+{% set sensor_config = task.config.get('sensor_config', {}) %}
+{% set sensor_type = sensor_config.get('sensor_type', 'file') %}
+{% if sensor_type == 'file' %}
+    {{ task.task_id }} = FileSensor(
+        task_id={{ task.task_id | repr }},
+        filepath={{ sensor_config.get('target', '/tmp/trigger_file') | repr }},
+        poke_interval={{ sensor_config.get('poke_interval_seconds', 60) }},
+        timeout={{ sensor_config.get('timeout_seconds', 3600) }},
+        mode={{ sensor_config.get('mode', 'poke') | repr }},
+        fs_conn_id='fs_default',
+    )
+
+{% elif sensor_type == 'time' %}
+    {{ task.task_id }} = TimeSensor(
+        task_id={{ task.task_id | repr }},
+        target_time={{ sensor_config.get('target', '00:00:00') | repr }},
+        poke_interval={{ sensor_config.get('poke_interval_seconds', 60) }},
+        timeout={{ sensor_config.get('timeout_seconds', 3600) }},
+        mode={{ sensor_config.get('mode', 'poke') | repr }},
+    )
+
+{% elif sensor_type == 'external_task' %}
+    {{ task.task_id }} = ExternalTaskSensor(
+        task_id={{ task.task_id | repr }},
+        external_dag_id={{ sensor_config.get('external_dag_id', 'upstream_dag') | repr }},
+        external_task_id={{ sensor_config.get('external_task_id', 'upstream_task') | repr }},
+        poke_interval={{ sensor_config.get('poke_interval_seconds', 60) }},
+        timeout={{ sensor_config.get('timeout_seconds', 3600) }},
+        mode={{ sensor_config.get('mode', 'poke') | repr }},
+    )
+
+{% else %}
+    # Custom/Python Sensor
+    {{ task.task_id }} = PythonSensor(
+        task_id={{ task.task_id | repr }},
+        python_callable=sensor_check_{{ task.task_id }},
+        poke_interval={{ sensor_config.get('poke_interval_seconds', 60) }},
+        timeout={{ sensor_config.get('timeout_seconds', 3600) }},
+        mode={{ sensor_config.get('mode', 'poke') | repr }},
+    )
+{% endif %}
+
+{% else %}
+    # Task: {{ task.task_id }}
+    {{ task.task_id }} = DockerOperator(
+        task_id={{ task.task_id | repr }},
+        image={{ task.image | repr }},
+{% if task.command %}
+        command={{ task.command | repr }},
+{% endif %}
+        environment={{ task.environment | to_python_dict }},
+        network_mode={{ task.network_mode | repr }},
+        mounts=[Mount(source=HOST_DATA_DIR, target=CONTAINER_DATA_DIR, type='bind')],
+        auto_remove={{ task.auto_remove }},
+        docker_url={{ task.docker_url | repr }},
+        mount_tmp_dir=False,
+        force_pull=False,
+        tty=True,
+    )
+
+{% endif %}
+{% endfor %}
+
+    # ==========================================================================
+    # Task Dependencies - Sensor-Driven Pattern
+    # ==========================================================================
+    # Sensors will gate execution until conditions are met
+
+{% if dependencies %}
+{% for src, dst in dependencies %}
+    {{ src }} >> {{ dst }}
+{% endfor %}
+{% else %}
+    # No dependencies
+{% endif %}

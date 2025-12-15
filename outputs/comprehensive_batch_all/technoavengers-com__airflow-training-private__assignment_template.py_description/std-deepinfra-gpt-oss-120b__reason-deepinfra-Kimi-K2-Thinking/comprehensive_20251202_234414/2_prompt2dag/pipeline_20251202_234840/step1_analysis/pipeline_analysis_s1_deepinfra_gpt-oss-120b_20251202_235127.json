@@ -1,0 +1,744 @@
+{
+  "metadata": {
+    "schema_version": "1.0",
+    "analysis_timestamp": "2025-12-02T23:51:27.378089",
+    "source_file": "Pipeline_Description_Dataset/technoavengers-com__airflow-training-private__assignment_template.py_description.txt",
+    "llm_provider": "deepinfra",
+    "llm_model": "gpt-oss-120b",
+    "analysis_results": {
+      "detected_patterns": [
+        "sequential"
+      ],
+      "task_executors_used": [
+        "http",
+        "python",
+        "sql",
+        "custom"
+      ],
+      "has_branching": false,
+      "has_parallelism": false,
+      "has_sensors": false,
+      "total_components": 4,
+      "complexity_score": "low"
+    },
+    "orchestrator_compatibility": {
+      "airflow": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential pattern fully supported"
+        ]
+      },
+      "prefect": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Sequential flow with task dependencies"
+        ]
+      },
+      "dagster": {
+        "supported": true,
+        "confidence": "high",
+        "notes": [
+          "Op graph with dependencies"
+        ]
+      }
+    },
+    "validation_warnings": []
+  },
+  "pipeline_summary": {
+    "name": "extract_user_api_pipeline",
+    "description": "No description provided.",
+    "flow_patterns": [
+      "sequential"
+    ],
+    "task_executors": [
+      "http",
+      "python",
+      "sql",
+      "custom"
+    ],
+    "complexity": "low"
+  },
+  "components": [
+    {
+      "id": "extract_user_api",
+      "name": "Extract User from API",
+      "category": "Extractor",
+      "description": "Fetches user JSON from the external ReqRes API endpoint using the configured HTTP connection and pushes the raw response to XCom.",
+      "inputs": [
+        "reqres HTTP connection (endpoint api/users/2)"
+      ],
+      "outputs": [
+        "raw_user_json (XCom)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "airflow.providers.http.operators.simple_http.SimpleHttpOperator",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "api_endpoint",
+          "direction": "input",
+          "kind": "api",
+          "format": "json",
+          "path_pattern": "https://reqres.in/api/users/2",
+          "connection_id": "reqres"
+        },
+        {
+          "name": "raw_user_json",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "xcom://extract_user_api",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "No upstream dependencies; this is the first task in the DAG.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "reqres",
+          "type": "api",
+          "purpose": "HTTP GET request to fetch user data"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "user_api"
+        ],
+        "produces": [
+          "raw_user_json"
+        ]
+      }
+    },
+    {
+      "id": "process_user_data",
+      "name": "Process User Data",
+      "category": "Transformer",
+      "description": "Parses the raw JSON from the API, extracts firstname, lastname and email fields, and pushes the processed data to XCom for downstream use.",
+      "inputs": [
+        "raw_user_json (XCom)"
+      ],
+      "outputs": [
+        "processed_user_fields (XCom)"
+      ],
+      "executor_type": "python",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "airflow.operators.python.PythonOperator",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "raw_user_json",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "xcom://extract_user_api",
+          "connection_id": null
+        },
+        {
+          "name": "processed_user_fields",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "xcom://process_user_data",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful completion of extract_user_api.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [],
+      "datasets": {
+        "consumes": [
+          "raw_user_json"
+        ],
+        "produces": [
+          "processed_user_fields"
+        ]
+      }
+    },
+    {
+      "id": "create_user_table",
+      "name": "Create User Table",
+      "category": "SQLTransform",
+      "description": "Executes a DDL statement via PostgresOperator to create the 'users' table with columns for firstname, lastname, and email.",
+      "inputs": [
+        "process_user_data completion signal"
+      ],
+      "outputs": [
+        "users table created in PostgreSQL"
+      ],
+      "executor_type": "sql",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "airflow.providers.postgres.operators.postgres.PostgresOperator",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "ddl_statement",
+          "direction": "input",
+          "kind": "sql",
+          "format": "sql",
+          "path_pattern": "variable://create_user_table_sql",
+          "connection_id": "postgres"
+        },
+        {
+          "name": "users_table",
+          "direction": "output",
+          "kind": "table",
+          "format": "sql",
+          "path_pattern": "postgres://users",
+          "connection_id": "postgres"
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful completion of process_user_data.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "postgres",
+          "type": "database",
+          "purpose": "Execute DDL to create the users table"
+        }
+      ],
+      "datasets": {
+        "consumes": [],
+        "produces": [
+          "users_table"
+        ]
+      }
+    },
+    {
+      "id": "insert_user_data",
+      "name": "Insert User Data",
+      "category": "Loader",
+      "description": "Inserts the processed user fields into the previously created PostgreSQL 'users' table using a templated INSERT statement.",
+      "inputs": [
+        "processed_user_fields (XCom)",
+        "users table existence"
+      ],
+      "outputs": [
+        "user record inserted into PostgreSQL"
+      ],
+      "executor_type": "sql",
+      "executor_config": {
+        "image": null,
+        "command": null,
+        "script_path": null,
+        "entry_point": "custom_operators.custom_postgres.CustomPostgresOperator",
+        "environment": {},
+        "resources": {
+          "cpu": null,
+          "memory": null,
+          "gpu": null
+        },
+        "network": null
+      },
+      "io_spec": [
+        {
+          "name": "processed_user_fields",
+          "direction": "input",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "xcom://process_user_data",
+          "connection_id": null
+        },
+        {
+          "name": "insert_statement",
+          "direction": "input",
+          "kind": "sql",
+          "format": "sql",
+          "path_pattern": "template://insert_user_sql",
+          "connection_id": "postgres"
+        },
+        {
+          "name": "insert_result",
+          "direction": "output",
+          "kind": "object",
+          "format": "json",
+          "path_pattern": "xcom://insert_user_data",
+          "connection_id": null
+        }
+      ],
+      "upstream_policy": {
+        "type": "all_success",
+        "description": "Runs after successful completion of both process_user_data and create_user_table.",
+        "timeout_seconds": null
+      },
+      "retry_policy": {
+        "max_attempts": 0,
+        "delay_seconds": 0,
+        "exponential_backoff": false,
+        "retry_on": []
+      },
+      "concurrency": {
+        "supports_parallelism": false,
+        "supports_dynamic_mapping": false,
+        "map_over_param": null,
+        "max_parallel_instances": null
+      },
+      "connections": [
+        {
+          "id": "postgres",
+          "type": "database",
+          "purpose": "Insert processed user record into the users table"
+        }
+      ],
+      "datasets": {
+        "consumes": [
+          "processed_user_fields"
+        ],
+        "produces": [
+          "user_record"
+        ]
+      }
+    }
+  ],
+  "flow_structure": {
+    "pattern": "sequential",
+    "entry_points": [
+      "extract_user_api"
+    ],
+    "nodes": {
+      "extract_user_api": {
+        "kind": "Task",
+        "component_type_id": "extract_user_api",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "process_user_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "process_user_data": {
+        "kind": "Task",
+        "component_type_id": "process_user_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "create_user_table"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "create_user_table": {
+        "kind": "Task",
+        "component_type_id": "create_user_table",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [
+          "insert_user_data"
+        ],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      },
+      "insert_user_data": {
+        "kind": "Task",
+        "component_type_id": "insert_user_data",
+        "upstream_policy": {
+          "type": "all_success",
+          "timeout_seconds": null
+        },
+        "next_nodes": [],
+        "branch_config": null,
+        "sensor_config": null,
+        "parallel_config": null
+      }
+    },
+    "edges": [
+      {
+        "from": "extract_user_api",
+        "to": "process_user_data",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "process_user_data",
+        "to": "create_user_table",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      },
+      {
+        "from": "create_user_table",
+        "to": "insert_user_data",
+        "edge_type": "success",
+        "condition": null,
+        "metadata": {}
+      }
+    ]
+  },
+  "parameters": {
+    "pipeline": {
+      "name": {
+        "description": "Pipeline identifier",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "description": {
+        "description": "Pipeline that fetches user data from an external API, processes it, creates a PostgreSQL table, and inserts the processed data.",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "tags": {
+        "description": "Classification tags",
+        "type": "array",
+        "default": [],
+        "required": false,
+        "constraints": null
+      }
+    },
+    "schedule": {
+      "enabled": {
+        "description": "Whether pipeline runs on schedule",
+        "type": "boolean",
+        "default": true,
+        "required": false,
+        "constraints": null
+      },
+      "cron_expression": {
+        "description": "Cron or preset (e.g., @daily, 0 0 * * *)",
+        "type": "string",
+        "default": "@daily",
+        "required": false,
+        "constraints": null
+      },
+      "start_date": {
+        "description": "When to start scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false,
+        "format": "ISO8601",
+        "constraints": null
+      },
+      "end_date": {
+        "description": "When to stop scheduling",
+        "type": "datetime",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "timezone": {
+        "description": "Schedule timezone",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "catchup": {
+        "description": "Run missed intervals",
+        "type": "boolean",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "batch_window": {
+        "description": "Batch window parameter name (e.g., ds, execution_date)",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "partitioning": {
+        "description": "Data partitioning strategy (e.g., daily, hourly, monthly)",
+        "type": "string",
+        "default": null,
+        "required": false,
+        "constraints": null
+      }
+    },
+    "execution": {
+      "max_active_runs": {
+        "description": "Max concurrent pipeline runs",
+        "type": "integer",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "timeout_seconds": {
+        "description": "Pipeline execution timeout",
+        "type": "integer",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "retry_policy": {
+        "description": "Pipeline-level retry behavior",
+        "type": "object",
+        "default": null,
+        "required": false,
+        "constraints": null
+      },
+      "depends_on_past": {
+        "description": "Whether execution depends on previous run success",
+        "type": "boolean",
+        "default": false,
+        "required": false,
+        "constraints": null
+      }
+    },
+    "components": {
+      "extract_user_api": {
+        "http_conn_id": {
+          "description": "HTTP connection ID for API",
+          "type": "string",
+          "default": "reqres",
+          "required": false,
+          "constraints": null
+        },
+        "endpoint": {
+          "description": "API endpoint path",
+          "type": "string",
+          "default": "api/users/2",
+          "required": false,
+          "constraints": null
+        },
+        "method": {
+          "description": "HTTP method to use",
+          "type": "string",
+          "default": "GET",
+          "required": false,
+          "constraints": null
+        },
+        "response_filter": {
+          "description": "Filter to extract JSON from response",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "process_user_data": {
+        "python_callable": {
+          "description": "Callable that processes raw user JSON",
+          "type": "string",
+          "default": "_process_user",
+          "required": false,
+          "constraints": null
+        }
+      },
+      "create_user_table": {
+        "postgres_conn_id": {
+          "description": "PostgreSQL connection ID",
+          "type": "string",
+          "default": "postgres",
+          "required": false,
+          "constraints": null
+        },
+        "sql": {
+          "description": "DDL statement to create the users table, provided via Airflow Variable",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      },
+      "insert_user_data": {
+        "postgres_conn_id": {
+          "description": "PostgreSQL connection ID",
+          "type": "string",
+          "default": "postgres",
+          "required": false,
+          "constraints": null
+        },
+        "sql": {
+          "description": "Templated INSERT statement for user data",
+          "type": "string",
+          "default": null,
+          "required": false,
+          "constraints": null
+        },
+        "parameters": {
+          "description": "Mapping of XCom values to SQL placeholders",
+          "type": "object",
+          "default": null,
+          "required": false,
+          "constraints": null
+        }
+      }
+    },
+    "environment": {}
+  },
+  "integrations": {
+    "connections": [
+      {
+        "id": "reqres_api",
+        "name": "ReqRes HTTP API",
+        "type": "api",
+        "config": {
+          "base_path": null,
+          "base_url": "https://reqres.in",
+          "host": null,
+          "port": null,
+          "protocol": "https",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "extract_user_api"
+        ],
+        "direction": "input",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "raw_user_json"
+          ],
+          "consumes": []
+        }
+      },
+      {
+        "id": "postgres_db",
+        "name": "PostgreSQL Database",
+        "type": "database",
+        "config": {
+          "base_path": null,
+          "base_url": null,
+          "host": null,
+          "port": null,
+          "protocol": "postgresql",
+          "database": null,
+          "schema": null,
+          "bucket": null,
+          "queue_name": null
+        },
+        "authentication": {
+          "type": "none",
+          "token_env_var": null,
+          "username_env_var": null,
+          "password_env_var": null,
+          "credentials_path": null
+        },
+        "used_by_components": [
+          "create_user_table",
+          "insert_user_data"
+        ],
+        "direction": "both",
+        "rate_limit": {
+          "requests_per_second": null,
+          "burst": null
+        },
+        "datasets": {
+          "produces": [
+            "users_table"
+          ],
+          "consumes": [
+            "processed_user_data"
+          ]
+        }
+      }
+    ],
+    "data_lineage": {
+      "sources": [
+        "User data fetched from the ReqRes API endpoint /api/users/2 (JSON response)."
+      ],
+      "sinks": [
+        "Processed user record inserted into the PostgreSQL 'users' table."
+      ],
+      "intermediate_datasets": [
+        "raw_user_json (XCom payload from get_user task)",
+        "processed_user_data (firstname, lastname, email) (XCom payload from process_user task)",
+        "users table schema (created by create_user_table task)"
+      ]
+    }
+  }
+}

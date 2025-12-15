@@ -1,0 +1,81 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-02 22:01:47.533879
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_sensor_gated_02_database_partition_check.py_description.txt
+  pipeline_name: wait_partition_pipeline
+  pipeline_description: No description provided.
+  orchestrator_specific: {}
+schedule:
+  enabled: false
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: database_conn
+    conn_type: generic
+    description: Source/Target Database Connection
+    config:
+      base_path:
+      base_url:
+      host:
+      port:
+      protocol: sql
+      database:
+      schema:
+      bucket:
+      queue_name:
+tasks:
+  - task_id: wait_partition
+    task_name: Wait for Daily Orders Partition
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: wait_partition
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: none_failed
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: extract_incremental
+    task_name: Extract Incremental Orders
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_incremental
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - wait_partition
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: transform
+    task_name: Transform Orders Data
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: transform
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - extract_incremental
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: load
+    task_name: Load Orders to Data Warehouse
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: load
+    config:
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - transform
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

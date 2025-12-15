@@ -1,0 +1,145 @@
+metadata:
+  target_orchestrator: airflow
+  generated_at: 2025-12-02 04:13:14.686713
+  source_analysis_file: 
+    Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_staged_etl_00_healthcare_claims_processing.py_description.txt
+  pipeline_name: extract_claims_pipeline
+  pipeline_description: Healthcare claims processing ETL pipeline implementing a staged ETL pattern with parallel 
+    extraction, transformation, and parallel loading stages.
+  orchestrator_specific: {}
+schedule:
+  enabled: true
+  schedule_expression: '@daily'
+  start_date: '2024-01-01T00:00:00Z'
+  end_date:
+  timezone: UTC
+  catchup: false
+connections:
+  - conn_id: local_csv
+    conn_type: fs
+    description: Local CSV Filesystem
+    config:
+      base_path: /data/csv
+      base_url:
+      host:
+      port:
+      protocol: file
+      database:
+      schema:
+      bucket:
+      queue_name:
+  - conn_id: postgres_warehouse
+    conn_type: generic
+    description: Healthcare Analytics PostgreSQL Warehouse
+    config:
+      base_path:
+      base_url:
+      host:
+      port:
+      protocol: postgresql
+      database: healthcare_analytics
+      schema:
+      bucket:
+      queue_name:
+      login: POSTGRES_USER
+      password: POSTGRES_PASSWORD
+  - conn_id: power_bi
+    conn_type: http
+    description: Power BI Refresh API
+    config:
+      base_path:
+      base_url: https://api.powerbi.com
+      host:
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+      extra:
+        token_env_var: POWER_BI_TOKEN
+  - conn_id: tableau
+    conn_type: http
+    description: Tableau Refresh API
+    config:
+      base_path:
+      base_url: https://api.tableau.com
+      host:
+      port:
+      protocol: https
+      database:
+      schema:
+      bucket:
+      queue_name:
+      extra:
+        token_env_var: TABLEAU_TOKEN
+tasks:
+  - task_id: extract_claims
+    task_name: Extract Claims CSV
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_claims
+    config:
+      python_callable: extract_claims
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: extract_providers
+    task_name: Extract Providers CSV
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: extract_providers
+    config:
+      python_callable: extract_providers
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids: []
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: transform_join
+    task_name: Join Claims and Providers, Anonymize PII, Calculate Risk Scores
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: transform_join
+    config:
+      python_callable: transform_join
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - extract_claims
+      - extract_providers
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: load_warehouse
+    task_name: Load Transformed Data to Data Warehouse
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: load_warehouse
+    config:
+      python_callable: load_warehouse
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - transform_join
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []
+  - task_id: refresh_bi
+    task_name: Refresh BI Dashboards
+    operator_class: PythonOperator
+    operator_module: airflow.operators.python
+    component_ref: refresh_bi
+    config:
+      python_callable: refresh_bi
+      retry_delay: timedelta(seconds=300)
+    upstream_task_ids:
+      - transform_join
+    trigger_rule: all_success
+    retries: 2
+    retry_delay_seconds: 300
+    validation_warnings: []

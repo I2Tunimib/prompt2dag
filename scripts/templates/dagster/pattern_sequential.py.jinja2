@@ -1,0 +1,242 @@
+# ==============================================================================
+# Generated Dagster Job - Sequential Pattern
+# Pipeline: {{ pipeline_name }}
+# Pattern: {{ detected_pattern }}
+# Strategy: {{ generator_strategy }}
+# Generated: {{ generation_timestamp }}
+# ==============================================================================
+
+from __future__ import annotations
+
+import os
+import subprocess
+from typing import Dict, Any
+
+from dagster import (
+    op,
+    job,
+    In,
+    Out,
+    Nothing,
+    OpExecutionContext,
+    Failure,
+    RetryPolicy,
+)
+{% if executor_type == 'docker_executor' %}
+from dagster_docker import docker_executor
+{% elif executor_type == 'k8s_job_executor' %}
+from dagster_k8s import k8s_job_executor
+{% else %}
+from dagster import in_process_executor
+{% endif %}
+
+# --- Configuration ---
+HOST_DATA_DIR = os.getenv('HOST_DATA_DIR', '/tmp/dagster/data')
+CONTAINER_DATA_DIR = '/app/data'
+
+# --- Op Definitions ---
+{% for task in processed_tasks %}
+
+@op(
+    name="{{ task.task_id }}",
+    description="{{ task.task_name }}",
+{% if task.ins %}
+    ins={
+{%   for input_spec in task.ins %}
+        "{{ input_spec.name }}": In({{ input_spec.dagster_type }}),
+{%   endfor %}
+    },
+{% endif %}
+{% if task.outs %}
+    out={
+{%   for output_spec in task.outs %}
+        "{{ output_spec.name }}": Out({{ output_spec.dagster_type }}),
+{%   endfor %}
+    },
+{% else %}
+    out=Out(Dict[str, Any]),
+{% endif %}
+{% if task.retries > 0 %}
+    retry_policy=RetryPolicy(
+        max_retries={{ task.retries }},
+        delay={{ task.retry_delay_seconds }},
+    ),
+{% endif %}
+{% if task.required_resource_keys %}
+    required_resource_keys={{ task.required_resource_keys | tojson }},
+{% endif %}
+    tags={"pattern": "{{ detected_pattern }}", "executor": "docker"},
+)
+def {{ task.task_id }}(context: OpExecutionContext{% if task.ins %}, {% for input_spec in task.ins %}{{ input_spec.name }}: {{ input_spec.dagster_type }}{{ ", " if not loop.last }}{% endfor %}{% endif %}) -> Dict[str, Any]:
+    """
+    Op: {{ task.task_name }}
+    
+    Executes Docker container: {{ task.image }}
+{% if task.ins %}
+    
+    Inputs:
+{%   for input_spec in task.ins %}
+      - {{ input_spec.name }}: {{ input_spec.dagster_type }}
+{%   endfor %}
+{% endif %}
+    """
+    context.log.info(f"Starting op: {{ task.task_id }}")
+    context.log.info(f"Image: {{ task.image }}")
+    
+    # Build docker run command
+    cmd = [
+        'docker', 'run',
+        '--rm',
+        '-v', f'{HOST_DATA_DIR}:{CONTAINER_DATA_DIR}',
+{% if task.network_mode %}
+        '--network', '{{ task.network_mode }}',
+{% endif %}
+    ]
+    
+    # Add environment variables
+{% if task.environment %}
+{% for key, value in task.environment.items() %}
+    cmd.extend(['-e', '{{ key }}={{ value }}'])
+{% endfor %}
+{% endif %}
+    
+    # Add image
+    cmd.append('{{ task.image }}')
+    
+    # Add command if specified
+{% if task.command %}
+{% if task.command is string %}
+    cmd.extend({{ task.command.split() | tojson }})
+{% elif task.command is iterable %}
+    cmd.extend({{ task.command | tojson }})
+{% endif %}
+{% endif %}
+    
+    # Execute
+    context.log.info(f"Executing: {' '.join(cmd)}")
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout={{ task.config.get('timeout_seconds', 3600) if task.config else 3600 }},
+        )
+        
+        context.log.info(f"Op {{ task.task_id }} completed successfully")
+        if result.stdout:
+            context.log.debug(f"STDOUT: {result.stdout}")
+        
+        return {
+            'op_id': '{{ task.task_id }}',
+            'status': 'success',
+            'stdout': result.stdout,
+            'stderr': result.stderr,
+            'return_code': result.returncode,
+        }
+        
+    except subprocess.CalledProcessError as e:
+        context.log.error(f"Op {{ task.task_id }} failed with return code {e.returncode}")
+        context.log.error(f"STDERR: {e.stderr}")
+        raise Failure(
+            description=f"Docker container failed: {e.stderr}",
+            metadata={
+                'return_code': e.returncode,
+                'stdout': e.stdout,
+                'stderr': e.stderr,
+            }
+        )
+    except subprocess.TimeoutExpired as e:
+        context.log.error(f"Op {{ task.task_id }} timed out")
+        raise Failure(
+            description=f"Docker container timed out after {{ task.config.get('timeout_seconds', 3600) if task.config else 3600 }}s",
+        )
+
+{% endfor %}
+
+# --- Job Definition ---
+@job(
+    name="{{ job_name }}",
+    description="{{ pipeline_description }}",
+{% if executor_type == 'docker_executor' %}
+    executor_def=docker_executor,
+{% elif executor_type == 'k8s_job_executor' %}
+    executor_def=k8s_job_executor,
+{% else %}
+    executor_def=in_process_executor,
+{% endif %}
+    tags={"pattern": "{{ detected_pattern }}", "generated": "template"},
+)
+def {{ job_name }}():
+    """
+    Job: {{ pipeline_name }}
+    
+    Pattern: {{ detected_pattern }}
+    Ops: {{ task_count }}
+    """
+    # Execute ops in order based on dependencies
+{% for task_id in task_order %}
+{%   set task = processed_tasks | selectattr('task_id', 'equalto', task_id) | first %}
+{%   set upstream_ids = task.upstream_task_ids %}
+    
+    # Op: {{ task_id }}
+{%   if upstream_ids | length == 0 %}
+    # Entry point - no dependencies
+    {{ task_id }}_result = {{ task_id }}()
+{%   elif upstream_ids | length == 1 %}
+    # Single upstream dependency
+{%     set upstream_task = processed_tasks | selectattr('task_id', 'equalto', upstream_ids[0]) | first %}
+{%     if upstream_task.outs %}
+    {{ task_id }}_result = {{ task_id }}(
+{%       for out_spec in upstream_task.outs %}
+        {{ out_spec.name }}={{ upstream_ids[0] }}_result.{{ out_spec.name }},
+{%       endfor %}
+    )
+{%     else %}
+    {{ task_id }}_result = {{ task_id }}()
+{%     endif %}
+{%   else %}
+    # Multiple upstream dependencies
+    {{ task_id }}_result = {{ task_id }}(
+{%     for upstream_id in upstream_ids %}
+{%       set upstream_task = processed_tasks | selectattr('task_id', 'equalto', upstream_id) | first %}
+{%       if upstream_task.outs %}
+{%         for out_spec in upstream_task.outs %}
+        {{ out_spec.name }}_from_{{ upstream_id }}={{ upstream_id }}_result.{{ out_spec.name }},
+{%         endfor %}
+{%       endif %}
+{%     endfor %}
+    )
+{%   endif %}
+{% endfor %}
+
+
+# --- Resources ---
+{% if required_resources %}
+from dagster import resource
+
+{%   for resource_key in required_resources %}
+@resource
+def {{ resource_key }}_resource(context):
+    """Resource: {{ resource_key }}"""
+    # TODO: Implement resource initialization
+    return {"resource_key": "{{ resource_key }}"}
+
+{%   endfor %}
+{% endif %}
+
+
+# --- Repository ---
+from dagster import repository
+
+@repository
+def {{ job_name }}_repository():
+    """Repository containing {{ job_name }} job."""
+    return [{{ job_name }}]
+
+
+if __name__ == "__main__":
+    # Execute job locally for testing
+    result = {{ job_name }}.execute_in_process()
+    print(f"Job execution result: {result.success}")

@@ -1,0 +1,138 @@
+# scripts/utils/templates/prefect_sequential_template.py.j2
+"""
+Sequential Prefect Pipeline Template with Docker Execution
+
+This template demonstrates a complete Prefect flow with Docker containers.
+"""
+
+from prefect import flow, task
+import docker
+import os
+import logging
+from typing import Dict, List, Optional
+from docker.types import Mount
+from pathlib import Path
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Define data directories - customize based on your environment
+host_data_dir = os.getenv('DATA_DIR', '/tmp/data')
+container_data_dir = '/app/data'
+
+def run_docker_container(
+    image: str,
+    command: List[str],
+    environment: Dict[str, str],
+    network_mode: str = 'bridge',
+    mounts: Optional[List[Mount]] = None
+) -> bool:
+    """
+    Run a Docker container and handle its execution.
+    
+    Args:
+        image: Docker image name
+        command: Command to execute in the container
+        environment: Environment variables to set in the container
+        network_mode: Docker network mode
+        mounts: List of volume mounts
+        
+    Returns:
+        bool: True if successful
+    """
+    client = docker.from_env()
+    logger.info(f"Running container with image: {image}")
+    
+    # Default mount if none provided
+    if not mounts:
+        mounts = [Mount(source=host_data_dir, target=container_data_dir, type='bind')]
+    
+    try:
+        container = client.containers.run(
+            image=image,
+            command=command,
+            environment=environment,
+            network_mode=network_mode,
+            mounts=mounts,
+            remove=True,  # Auto-remove the container when it exits
+            detach=True   # Run in detached mode to get the container object
+        )
+        
+        # Stream logs as the container runs
+        for log in container.logs(stream=True, follow=True):
+            logger.info(log.decode().strip())
+            
+        # Wait for the container to finish
+        result = container.wait()
+        if result['StatusCode'] != 0:
+            logger.error(f"Container exited with non-zero status: {result['StatusCode']}")
+            return False
+            
+        logger.info("Container completed successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Error running container: {e}")
+        return False
+
+@task(name="load_and_modify_task", retries=1, retry_delay_seconds=30)
+def load_and_modify() -> bool:
+    """Task to load and modify data using Docker container"""
+    image = "my-data-loader:latest"
+    command = [
+        "python", "/app/scripts/load_and_modify.py",
+        "--input_pattern", os.getenv("LOAD_MODIFY_INPUT_PATTERN", "*.csv"),
+        "--output_pattern", os.getenv("LOAD_MODIFY_OUTPUT_PATTERN", "processed_*.json")
+    ]
+    
+    environment = {
+        "LOAD_MODIFY_INPUT_PATTERN": os.getenv("LOAD_MODIFY_INPUT_PATTERN", "*.csv"),
+        "LOAD_MODIFY_OUTPUT_PATTERN": os.getenv("LOAD_MODIFY_OUTPUT_PATTERN", "processed_*.json")
+    }
+    
+    return run_docker_container(
+        image=image, 
+        command=command, 
+        environment=environment,
+        network_mode=os.getenv("DOCKER_NETWORK", "bridge")
+    )
+
+@task(name="transform_task", retries=1, retry_delay_seconds=30)
+def transform() -> bool:
+    """Task to transform data using Docker container"""
+    image = "my-transformer:latest"
+    command = [
+        "python", "/app/scripts/transform.py",
+        "--input_pattern", os.getenv("TRANSFORM_INPUT_PATTERN", "processed_*.json"),
+        "--output_pattern", os.getenv("TRANSFORM_OUTPUT_PATTERN", "transformed_*.json")
+    ]
+    
+    environment = {
+        "TRANSFORM_INPUT_PATTERN": os.getenv("TRANSFORM_INPUT_PATTERN", "processed_*.json"),
+        "TRANSFORM_OUTPUT_PATTERN": os.getenv("TRANSFORM_OUTPUT_PATTERN", "transformed_*.json")
+    }
+    
+    return run_docker_container(
+        image=image, 
+        command=command, 
+        environment=environment,
+        network_mode=os.getenv("DOCKER_NETWORK", "bridge")
+    )
+
+@flow(name="sequential_etl_pipeline")
+def sequential_pipeline():
+    """
+    Main sequential data pipeline flow.
+    This flow orchestrates the ETL process by running tasks in sequence.
+    """
+    # Run the tasks in sequence - dependencies are handled by execution order
+    load_result = load_and_modify()
+    transform_result = transform()
+    
+    # You could also use explicit dependencies like this:
+    # transform_result = transform(wait_for=[load_result])
+    
+    return "Pipeline completed successfully"
+
+if __name__ == "__main__":
+    sequential_pipeline()

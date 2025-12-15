@@ -1,0 +1,110 @@
+# ==============================================================================
+# Generated Airflow DAG
+# Pipeline: extract_vendor_shipments_pipeline
+# Pattern: sequential
+# Strategy: template
+# Generated: 2025-12-02T23:21:58.237384
+# ==============================================================================
+
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta
+
+from airflow.models.dag import DAG
+from airflow.providers.docker.operators.docker import DockerOperator
+from airflow.utils.helpers import chain
+from docker.types import Mount
+
+# --- Configuration ---
+HOST_DATA_DIR = os.getenv('HOST_DATA_DIR', '/tmp/airflow/data')
+CONTAINER_DATA_DIR = '/app/data'
+
+# --- Default Arguments ---
+default_args = {
+    'owner': 'airflow',
+    'depends_on_past': False,
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+# --- DAG Definition ---
+with DAG(
+    dag_id='extract_vendor_shipments_pipeline',
+    default_args=default_args,
+    description='No description provided.',
+    schedule_interval='@daily',
+    start_date=datetime(2024, 1, 1),
+    catchup=False,
+    tags=['generated', 'template', 'sequential'],
+) as dag:
+
+    # ==========================================================================
+    # Task Definitions
+    # ==========================================================================
+
+    # Task: extract_vendor_shipments
+    extract_vendor_shipments = DockerOperator(
+        task_id='extract_vendor_shipments',
+        image=Undefined,
+        environment={},
+        network_mode=Undefined,
+        mounts=[Mount(source=HOST_DATA_DIR, target=CONTAINER_DATA_DIR, type='bind')],
+        auto_remove=,
+        docker_url=Undefined,
+        mount_tmp_dir=False,
+        force_pull=False,
+        tty=True,
+    )
+
+    # Task: cleanse_and_normalize_shipments
+    cleanse_and_normalize_shipments = DockerOperator(
+        task_id='cleanse_and_normalize_shipments',
+        image=Undefined,
+        environment={},
+        network_mode=Undefined,
+        mounts=[Mount(source=HOST_DATA_DIR, target=CONTAINER_DATA_DIR, type='bind')],
+        auto_remove=,
+        docker_url=Undefined,
+        mount_tmp_dir=False,
+        force_pull=False,
+        tty=True,
+    )
+
+    # Task: load_shipment_data
+    load_shipment_data = DockerOperator(
+        task_id='load_shipment_data',
+        image=Undefined,
+        environment={},
+        network_mode=Undefined,
+        mounts=[Mount(source=HOST_DATA_DIR, target=CONTAINER_DATA_DIR, type='bind')],
+        auto_remove=,
+        docker_url=Undefined,
+        mount_tmp_dir=False,
+        force_pull=False,
+        tty=True,
+    )
+
+    # Task: send_summary_email
+    send_summary_email = DockerOperator(
+        task_id='send_summary_email',
+        image=Undefined,
+        environment={},
+        network_mode=Undefined,
+        mounts=[Mount(source=HOST_DATA_DIR, target=CONTAINER_DATA_DIR, type='bind')],
+        auto_remove=,
+        docker_url=Undefined,
+        mount_tmp_dir=False,
+        force_pull=False,
+        tty=True,
+    )
+
+    # ==========================================================================
+    # Task Dependencies
+    # ==========================================================================
+    extract_join >> extract_vendor_shipments
+    extract_vendor_shipments >> cleanse_and_normalize_shipments
+    cleanse_and_normalize_shipments >> load_shipment_data
+    load_shipment_data >> send_summary_email

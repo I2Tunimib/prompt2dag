@@ -1,0 +1,334 @@
+# Internal Parallelism Pipeline Template
+
+You are an expert Airflow DAG developer. Generate a complete Airflow DAG for an INTERNAL PARALLELISM PIPELINE based on the provided YAML definition.
+
+## Pipeline Pattern
+- Identified when at least one component_type has is_internally_parallelized: true
+- Mix of regular sequential tasks and internally parallelized tasks
+- Special handling for tasks with internal parallelism
+
+## ==================================================================
+## EXAMPLE 3: INTERNAL PARALLELISM PIPELINE
+## ==================================================================
+"""
+Internal Parallelism Pipeline Pattern
+- Identified when at least one component_type has is_internally_parallelized: true
+- Mix of regular sequential tasks and internally parallelized tasks
+- Special handling for tasks with internal parallelism
+- Includes helper functions for the internally parallelized tasks
+"""
+import os
+import glob
+import time
+import json
+import math
+import pandas as pd
+from datetime import datetime, timedelta
+from airflow import DAG
+from airflow.exceptions import AirflowException
+from airflow.utils.dates import days_ago
+from airflow.operators.python import PythonOperator
+from airflow.providers.docker.operators.docker import DockerOperator
+from docker.types import Mount
+
+# Global variables
+container_data_dir = os.getenv('DATA_DIR', '/tmp/airflow_data')
+NUM_PARALLEL_PROCESSES = int(os.getenv('NUM_PARALLEL_PROCESSES', 2))
+
+default_args = {
+    'owner': 'airflow',
+    'depends_on_past': False,
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': int(os.getenv('AIRFLOW_DEFAULT_RETRIES', 1)),
+    'retry_delay': timedelta(minutes=5),
+}
+
+# Helper Functions for internally parallelized tasks
+def split_dataset(**kwargs):
+    input_file = kwargs['input_file']
+    num_chunks = int(kwargs.get('num_chunks', 2))
+    container_data_dir = kwargs['container_data_dir']
+    output_pattern = kwargs.get('output_pattern', 'chunk_{}.csv')
+    
+    if not os.path.isabs(input_file):
+        input_file = os.path.join(container_data_dir, input_file)
+    print(f"Reading file for splitting: {input_file}")
+    
+    if not os.path.exists(input_file):
+        raise FileNotFoundError(f"Input file not found: {input_file}")
+    
+    df = pd.read_csv(input_file)
+    chunk_size = (len(df) + num_chunks - 1) // num_chunks
+    
+    for i in range(num_chunks):
+        start = i * chunk_size
+        end = min((i+1) * chunk_size, len(df))
+        chunk_df = df.iloc[start:end]
+        output_path = os.path.join(container_data_dir, output_pattern.format(i+1))
+        chunk_df.to_csv(output_path, index=False)
+        print(f"Written chunk {i+1} to {output_path}")
+
+def wait_for_files(**kwargs):
+    container_data_dir = kwargs['container_data_dir']
+    file_patterns = kwargs['file_patterns']  # List of patterns to check
+    max_wait_time = int(kwargs.get('max_wait_time', 3600))
+    check_interval = int(kwargs.get('check_interval', 10))
+    
+    start_time = time.time()
+    while True:
+        all_found = True
+        for pattern in file_patterns:
+            full_pattern = os.path.join(container_data_dir, pattern)
+            if not glob.glob(full_pattern):
+                all_found = False
+                print(f"Still waiting for: {pattern}")
+                break
+        
+        if all_found:
+            print(f"All required files found!")
+            return
+            
+        if time.time() - start_time > max_wait_time:
+            raise AirflowException(f"Timeout after {max_wait_time}s waiting for files.")
+            
+        time.sleep(check_interval)
+
+def merge_complex_json_rows(**kwargs):
+    container_data_dir = kwargs['container_data_dir']
+    input_files = kwargs['input_files']  # List of files to merge
+    output_file = kwargs['output_file']
+    
+    if not input_files:
+        raise ValueError("No input files provided for merging")
+    
+    merged_data = {}
+    merged_rows = {}
+    first = True
+    
+    for filename in input_files:
+        file_path = os.path.join(container_data_dir, filename)
+        if not os.path.exists(file_path):
+            print(f"Warning: File not found: {file_path}")
+            continue
+            
+        with open(file_path, 'r', encoding='utf-8') as f:
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                print(f"Error: Invalid JSON in {file_path}")
+                continue
+                
+        if first:
+            # Copy metadata from first file
+            merged_data['table'] = data.get('table', {})
+            merged_data['columns'] = data.get('columns', {})
+            first = False
+            
+        rows = data.get('rows', {})
+        if isinstance(rows, dict):
+            merged_rows.update(rows)
+            
+    # Store the merged rows
+    merged_data['rows'] = merged_rows
+    
+    # Save the merged result
+    output_path = os.path.join(container_data_dir, output_file)
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(merged_data, f, indent=2)
+    
+    print(f"Merged file created: {output_path}")
+    return output_path
+
+# DAG Definition
+dag = DAG(
+    dag_id='load_and_modify_data_analysis',
+    description='Pipeline with task-specific internal parallelism',
+    schedule_interval=None,
+    default_args=default_args,
+    start_date=days_ago(1),
+    catchup=False,
+    tags=['generated', 'internal_parallelism']
+)
+
+# Regular sequential task (not parallelized internally)
+load_and_modify_data = DockerOperator(
+    task_id='load_and_modify_data',
+    image='i2t-backendwithintertwino6-load-and-modify:latest',
+    command=[
+        'python', 
+        f'/app/scripts/load_and_modify_data.py', 
+        '--input', 'input.csv', 
+        '--output', 'load_and_modify_data_output.json'
+    ],
+    network_mode=os.getenv('APP_NETWORK', 'app_network'),
+    mounts=[Mount(source=container_data_dir, target='/app/data', type='bind')],
+    docker_url='unix://var/run/docker.sock',
+    mount_tmp_dir=False,
+    auto_remove=True,
+    force_pull=False,
+    tty=False,
+    environment={'CONTAINER_DATA_DIR': container_data_dir},
+    dag=dag
+)
+
+# Internally parallelized task (using split-process-merge pattern)
+# Note the special block structure with 'with dag:' to group related tasks
+with dag:
+    # 1. Split the data for parallel reconciliation
+    reconcile_data_splitter = PythonOperator(
+        task_id='reconcile_data_splitter',
+        python_callable=split_dataset,
+        op_kwargs={
+            'input_file': 'load_and_modify_data_output.json',
+            'num_chunks': NUM_PARALLEL_PROCESSES,
+            'container_data_dir': container_data_dir,
+            'output_pattern': 'reconcile_data_input_part_{}.json'
+        },
+        dag=dag
+    )
+    
+    # 2. Parallel execution of reconciliation on chunks
+    reconcile_data_mapped_1 = DockerOperator(
+        task_id='reconcile_data_mapped_1',
+        image='i2t-backendwithintertwino6-reconciliation:latest',
+        command=[
+            'python', 
+            f'/app/scripts/reconcile_data.py', 
+            '--input', 'reconcile_data_input_part_1.json', 
+            '--output', 'reconcile_data_output_part_1.json',
+            '--primary_column', os.getenv('PRIMARY_COLUMN', 'City')
+        ],
+        network_mode=os.getenv('APP_NETWORK', 'app_network'),
+        mounts=[Mount(source=container_data_dir, target='/app/data', type='bind')],
+        docker_url='unix://var/run/docker.sock',
+        mount_tmp_dir=False,
+        auto_remove=True,
+        force_pull=False,
+        tty=False,
+        environment={
+            'CONTAINER_DATA_DIR': container_data_dir,
+            'PRIMARY_COLUMN': os.getenv('PRIMARY_COLUMN', 'City')
+        },
+        dag=dag
+    )
+    
+    reconcile_data_mapped_2 = DockerOperator(
+        task_id='reconcile_data_mapped_2',
+        image='i2t-backendwithintertwino6-reconciliation:latest',
+        command=[
+            'python', 
+            f'/app/scripts/reconcile_data.py', 
+            '--input', 'reconcile_data_input_part_2.json', 
+            '--output', 'reconcile_data_output_part_2.json',
+            '--primary_column', os.getenv('PRIMARY_COLUMN', 'City')
+        ],
+        network_mode=os.getenv('APP_NETWORK', 'app_network'),
+        mounts=[Mount(source=container_data_dir, target='/app/data', type='bind')],
+        docker_url='unix://var/run/docker.sock',
+        mount_tmp_dir=False,
+        auto_remove=True, 
+        force_pull=False,
+        tty=False,
+        environment={
+            'CONTAINER_DATA_DIR': container_data_dir,
+            'PRIMARY_COLUMN': os.getenv('PRIMARY_COLUMN', 'City')
+        },
+        dag=dag
+    )
+    
+    # 3. Wait for all parallel reconciliation tasks to complete
+    reconcile_data_waiter = PythonOperator(
+        task_id='reconcile_data_waiter',
+        python_callable=wait_for_files,
+        op_kwargs={
+            'container_data_dir': container_data_dir,
+            'file_patterns': ['reconcile_data_output_part_1.json', 'reconcile_data_output_part_2.json']
+        },
+        dag=dag
+    )
+    
+    # 4. Merge the reconciled results
+    reconcile_data_merger = PythonOperator(
+        task_id='reconcile_data_merger',
+        python_callable=merge_complex_json_rows,
+        op_kwargs={
+            'container_data_dir': container_data_dir,
+            'input_files': ['reconcile_data_output_part_1.json', 'reconcile_data_output_part_2.json'],
+            'output_file': 'reconcile_data_merged.json'
+        },
+        dag=dag
+    )
+    
+    # Set dependencies within the internal parallelism block
+    reconcile_data_splitter >> [reconcile_data_mapped_1, reconcile_data_mapped_2]
+    [reconcile_data_mapped_1, reconcile_data_mapped_2] >> reconcile_data_waiter >> reconcile_data_merger
+
+# Resume with regular sequential tasks
+enrich_with_open_meteo_data = DockerOperator(
+    task_id='enrich_with_open_meteo_data',
+    image='i2t-backendwithintertwino6-openmeteo-extension:latest',
+    command=[
+        'python', 
+        f'/app/scripts/enrich_with_open_meteo_data.py', 
+        '--input', 'reconcile_data_merged.json', 
+        '--output', 'enrich_with_open_meteo_data_output.json'
+    ],
+    network_mode=os.getenv('APP_NETWORK', 'app_network'),
+    mounts=[Mount(source=container_data_dir, target='/app/data', type='bind')],
+    docker_url='unix://var/run/docker.sock',
+    mount_tmp_dir=False,
+    auto_remove=True,
+    force_pull=False,
+    tty=False,
+    environment={'CONTAINER_DATA_DIR': container_data_dir},
+    dag=dag
+)
+
+extend_columns = DockerOperator(
+    task_id='extend_columns',
+    image='i2t-backendwithintertwino6-column-extension:latest',
+    command=[
+        'python', 
+        f'/app/scripts/extend_columns.py', 
+        '--input', 'enrich_with_open_meteo_data_output.json', 
+        '--output', 'extend_columns_output.json'
+    ],
+    network_mode=os.getenv('APP_NETWORK', 'app_network'),
+    mounts=[Mount(source=container_data_dir, target='/app/data', type='bind')],
+    docker_url='unix://var/run/docker.sock',
+    mount_tmp_dir=False,
+    auto_remove=True,
+    force_pull=False,
+    tty=False,
+    environment={'CONTAINER_DATA_DIR': container_data_dir},
+    dag=dag
+)
+
+save_final_data = DockerOperator(
+    task_id='save_final_data',
+    image='i2t-backendwithintertwino6-save:latest',
+    command=[
+        'python', 
+        f'/app/scripts/save_final_data.py', 
+        '--input', 'extend_columns_output.json', 
+        '--output', 'final_output.csv'
+    ],
+    network_mode=os.getenv('APP_NETWORK', 'app_network'),
+    mounts=[Mount(source=container_data_dir, target='/app/data', type='bind')],
+    docker_url='unix://var/run/docker.sock',
+    mount_tmp_dir=False,
+    auto_remove=True,
+    force_pull=False,
+    tty=False,
+    environment={'CONTAINER_DATA_DIR': container_data_dir},
+    dag=dag
+)
+
+# Inter-Task Dependencies (connecting regular tasks with internally parallelized tasks)
+load_and_modify_data >> reconcile_data_splitter
+reconcile_data_merger >> enrich_with_open_meteo_data
+enrich_with_open_meteo_data >> extend_columns
+extend_columns >> save_final_data
+
+Remember to return ONLY raw Python code without markdown formatting, explanations, or code block delimiters.

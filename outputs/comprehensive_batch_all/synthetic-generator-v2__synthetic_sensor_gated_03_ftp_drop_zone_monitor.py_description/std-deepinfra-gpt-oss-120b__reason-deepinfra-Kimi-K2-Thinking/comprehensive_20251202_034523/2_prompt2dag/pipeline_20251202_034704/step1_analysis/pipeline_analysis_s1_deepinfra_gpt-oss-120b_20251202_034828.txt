@@ -1,0 +1,116 @@
+# Pipeline Analysis Report (Step 1 - Schema 1.0)
+# Generated: 2025-12-02T03:48:28.182193
+# Provider: deepinfra
+# Model: gpt-oss-120b
+# Source: Pipeline_Description_Dataset/synthetic-generator-v2__synthetic_sensor_gated_03_ftp_drop_zone_monitor.py_description.txt
+# Orchestrator-Agnostic Analysis
+================================================================================
+
+**1. Executive Summary**  
+- **Purpose:** The pipeline continuously watches an external FTP server for a vendor‑supplied inventory file (`vendor_inventory.csv`). Once the file appears, it is downloaded, cleaned of null values in key columns, and merged with the company’s internal inventory records to refresh stock levels and pricing.  
+- **High‑level flow:** A sensor component detects the file, triggering a linear chain of three processing components – download, cleanse, and merge.  
+- **Key patterns & complexity:** The design follows a *sequential* and *sensor‑driven* pattern with no branching, parallelism, or dynamic mapping. All four components run under a Python executor and share a uniform retry policy, resulting in a low‑complexity (≈3/10) implementation.
+
+---
+
+**2. Pipeline Architecture**  
+
+| Aspect | Description |
+|--------|-------------|
+| **Flow Patterns** | *Sequential* execution: each component starts only after the preceding one succeeds. The initial step is a *sensor‑driven* gate that polls the FTP location. |
+| **Execution Characteristics** | All components use a **Python** executor type. No container images, custom commands, or GPU resources are defined. |
+| **Component Overview** | 1. **Sensor** – monitors FTP for the target file. <br>2. **Extractor** – downloads the detected file to a temporary local path. <br>3. **Transformer** – removes nulls from critical columns. <br>4. **Merger** – joins the cleansed data with internal inventory via a database connection. |
+| **Flow Description** | - **Entry point:** `wait_for_ftp_file` (sensor). <br>- **Main sequence:** `wait_for_ftp_file → download_vendor_file → cleanse_vendor_data → merge_with_internal_inventory`. <br>- **Branching / Parallelism:** None. <br>- **Sensors:** The first component is a custom FTP file sensor configured to *poke* every 30 seconds with a 5‑minute timeout. |
+
+---
+
+**3. Detailed Component Analysis**  
+
+| Component | Purpose & Category | Executor & Config | Inputs → Outputs | Retry Policy | Concurrency | Connected Systems |
+|-----------|-------------------|-------------------|------------------|--------------|-------------|-------------------|
+| **wait_for_ftp_file** | Sensor – watches `ftp://<ftp_server>/vendor_inventory.csv` and emits a detection signal. | Python executor; no image, command, or resource limits defined. | **Input:** FTP server connection (`ftp_conn`). <br>**Output:** `file_detection_signal` (object). | Max 2 attempts, 300 s delay, retries on *timeout* and *network_error*. No exponential back‑off. | No parallelism; single instance only. | FTP connection (`ftp_conn`) – type **ftp**, used for monitoring. |
+| **download_vendor_file** | Extractor – retrieves the detected CSV from the FTP server to `/tmp/vendor_inventory.csv`. | Python executor; default configuration. | **Inputs:** `file_detection_signal` (from sensor) and FTP connection (`ftp_conn`). <br>**Output:** Local file `/tmp/vendor_inventory.csv`. | Same retry settings as sensor (2 attempts, 300 s delay, on timeout/network errors). | Single‑instance execution. | FTP connection (`ftp_conn`) for file transfer; local temporary filesystem for storage. |
+| **cleanse_vendor_data** | Transformer – removes rows with nulls in `product_id`, `quantity`, or `price`. | Python executor; default configuration. | **Input:** `/tmp/vendor_inventory.csv` (raw). <br>**Output:** `/tmp/vendor_inventory_cleansed.csv`. | Same retry settings (2 attempts, 300 s delay, on timeout/network errors). | Single‑instance execution. | Local temporary filesystem for both input and output files. |
+| **merge_with_internal_inventory** | Merger – joins cleansed vendor data with internal inventory on `product_id`, updating stock and price. | Python executor; default configuration. | **Inputs:** `/tmp/vendor_inventory_cleansed.csv` and internal inventory system (`internal_inventory_conn`). <br>**Output:** Updated internal inventory records (object). | Same retry settings (2 attempts, 300 s delay, on timeout/network errors). | Single‑instance execution. | Database connection (`internal_inventory_conn`) – type **database**; local temporary filesystem for the cleansed CSV. |
+
+*All components share an upstream policy of “all_success”, meaning each waits for the complete success of its predecessor before starting.*
+
+---
+
+**4. Parameter Schema**  
+
+- **Pipeline‑level parameters**  
+  - `name` (string, default `ftp_vendor_inventory_processor`)  
+  - `description` (optional string)  
+  - `tags` (array, default empty)  
+
+- **Schedule configuration**  
+  - Enabled flag (optional)  
+  - Cron expression: default `@daily`  
+  - Start date: `2024‑01‑01T00:00:00` (ISO‑8601)  
+  - End date, timezone, catch‑up, batch window, partitioning – all optional/not set.  
+
+- **Execution settings**  
+  - `max_active_runs` – optional.  
+  - `timeout_seconds` – optional.  
+  - Pipeline‑level retry: 2 retries with 300 s delay.  
+  - `depends_on_past` – optional.  
+
+- **Component‑specific parameters**  
+  - **Sensor (`wait_for_ftp_file`)** – mode `poke`, poke interval 30 s, timeout 300 s.  
+  - **Downloader (`download_vendor_file`)** – destination path `/tmp/vendor_inventory.csv`.  
+  - **Transformer (`cleanse_vendor_data`)** – target columns [`product_id`, `quantity`, `price`].  
+  - **Merger (`merge_with_internal_inventory`)** – join key `product_id`.  
+
+- **Environment variables** (used for authentication)  
+  - `FTP_USERNAME`, `FTP_PASSWORD` – for FTP connection.  
+  - `DB_USER`, `DB_PASSWORD` – for internal inventory database.  
+
+No additional environment variables are defined.
+
+---
+
+**5. Integration Points**  
+
+| External System | Connection ID | Type | Direction | Authentication | Role in Pipeline |
+|-----------------|---------------|------|-----------|----------------|------------------|
+| Vendor FTP Server | `ftp_conn` (also listed as `ftp_server_connection`) | FTP | Input | Basic auth via `FTP_USERNAME` / `FTP_PASSWORD` | Source of `vendor_inventory.csv`; monitored by sensor and accessed by downloader. |
+| Local Temporary Filesystem | `local_filesystem_tmp` | Filesystem | Both | None | Holds the raw and cleansed CSV files between components. |
+| Internal Inventory Database | `internal_inventory_conn` (also `internal_inventory_db`) | Database (PostgreSQL) | Both | Basic auth via `DB_USER` / `DB_PASSWORD` | Destination for merged inventory records; also provides existing inventory for the join. |
+
+**Data Lineage**  
+- **Source:** `vendor_inventory.csv` on the external FTP server.  
+- **Intermediate datasets:** `/tmp/vendor_inventory.csv` (raw download) → `/tmp/vendor_inventory_cleansed.csv` (post‑cleansing).  
+- **Sink:** Updated inventory records persisted in the internal inventory database.
+
+---
+
+**6. Implementation Notes**  
+
+- **Complexity Assessment:** The pipeline is straightforward, with a single linear path and no parallel branches. All components are lightweight Python tasks, making the overall implementation low‑complexity.  
+- **Upstream Dependency Policies:** Each component requires the *complete* success of its predecessor (`all_success`). This guarantees that downstream processing never runs on partial or failed data.  
+- **Retry & Timeout Configurations:** Uniform retry policy (max 2 attempts, 5‑minute delay) applied to all components, targeting timeout and network‑related failures. The sensor has an additional hard timeout of 300 seconds for file detection.  
+- **Potential Risks / Considerations**  
+  - **FTP Availability:** Network interruptions or FTP server downtime could trigger retries; prolonged unavailability may cause the pipeline to fail after the configured attempts.  
+  - **File Consistency:** The sensor only checks for file presence; it does not verify file completeness or integrity (e.g., checksum). A partially uploaded file could be downloaded and processed.  
+  - **Local Disk Space:** Temporary files are stored in `/tmp`; insufficient space could cause download or transformation failures.  
+  - **Database Concurrency:** Since the merger runs as a single instance, contention is minimal, but any external locks on the inventory table could affect the update step.  
+  - **Schema Changes:** The transformer expects specific column names; any change in the vendor CSV schema would require updates to the `target_columns` parameter.  
+
+---
+
+**7. Orchestrator Compatibility**  
+
+| Orchestrator | Compatibility Highlights | Pattern‑Specific Considerations |
+|--------------|--------------------------|---------------------------------|
+| **Airflow‑style engines** | Supports sensor‑driven gating, sequential task execution, Python‑based tasks, and retry policies. No branching or parallelism needed. | Ensure the sensor is configured in *poke* mode with the defined interval and timeout. |
+| **Prefect‑style engines** | Naturally models sensor‑like waiting (via `await` or `polling` loops) and sequential flows. Python tasks map directly. | Map the sensor’s `poke_interval` and `timeout` to Prefect’s `wait_for` utilities. |
+| **Dagster‑style engines** | Handles resources and I/O specifications cleanly; can represent the sensor as a `sensor` definition and the rest as solids. | Use Dagster’s `sensor` with a polling schedule; the linear dependency graph aligns with Dagster’s `@solid` chaining. |
+
+All three major orchestration frameworks can express the identified patterns (sensor‑driven start, sequential downstream tasks) without requiring custom extensions. The lack of parallelism and branching simplifies deployment across any of them.
+
+---
+
+**8. Conclusion**  
+
+The pipeline provides a reliable, low‑complexity solution for ingesting vendor inventory data from an FTP source, cleansing it, and synchronizing it with internal inventory records. Its linear, sensor‑driven architecture, uniform retry strategy, and clear integration points make it straightforward to implement and maintain across a variety of orchestration platforms. Attention should be given to FTP reliability, file integrity checks, and temporary storage capacity to mitigate the primary operational risks.
