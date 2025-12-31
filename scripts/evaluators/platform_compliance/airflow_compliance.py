@@ -1,5 +1,5 @@
 """
-Airflow-specific platform compliance tester with weighted penalties.
+Airflow-specific platform compliance tester gate-based, penalty-free scoring (issues logged).
 """
 
 import ast
@@ -19,18 +19,33 @@ from evaluators.base_evaluator import (
     Severity,
     Orchestrator,
 )
-from evaluators.platform_compliance.base_compliance import BasePlatformComplianceTester
+from .pct_base import BasePlatformComplianceTester
 
+# --- Robust Airflow detection (prevents import-time crashes) ---
+from importlib import metadata as importlib_metadata
 
-# Check if Airflow is available
+AIRFLOW_AVAILABLE = False
+AIRFLOW_VERSION = None
+
 try:
-    import airflow
-    AIRFLOW_AVAILABLE = True
-    AIRFLOW_VERSION = airflow.__version__
-except ImportError:
+    import airflow as airflow_mod  # noqa: F401
+
+    # Prefer importlib.metadata for version (reliable for distributions)
+    try:
+        AIRFLOW_VERSION = importlib_metadata.version("apache-airflow")
+    except importlib_metadata.PackageNotFoundError:
+        AIRFLOW_VERSION = getattr(airflow_mod, "__version__", None)
+
+    # If we still don't have a version, this is likely NOT Apache Airflow
+    if AIRFLOW_VERSION:
+        AIRFLOW_AVAILABLE = True
+    else:
+        AIRFLOW_AVAILABLE = False
+
+except Exception:
     AIRFLOW_AVAILABLE = False
     AIRFLOW_VERSION = None
-
+# -------------------------------------------------------------
 
 class AirflowComplianceTester(BasePlatformComplianceTester):
     """Airflow-specific compliance testing with weighted penalties."""

@@ -1,5 +1,5 @@
 """
-Prefect-specific platform compliance tester with weighted penalties.
+Prefect-specific platform compliance tester gate-based, penalty-free scoring (issues logged).
 """
 
 import ast
@@ -19,8 +19,7 @@ from evaluators.base_evaluator import (
     Severity,
     Orchestrator,
 )
-from evaluators.platform_compliance.base_compliance import BasePlatformComplianceTester
-
+from .pct_base import BasePlatformComplianceTester
 
 # Check if Prefect is available
 try:

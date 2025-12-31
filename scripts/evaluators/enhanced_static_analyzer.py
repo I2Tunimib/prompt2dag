@@ -1,20 +1,45 @@
+#!/usr/bin/env python3
 """
-Enhanced static analyzer with meaningful differentiation metrics.
-Measures not just "does it work?" but "how well does it work?"
+Enhanced static analyzer aligned with paper SAT definition:
+
+SAT dimensions (each in [0,10]):
+1) correctness
+2) code_quality
+3) best_practices
+4) maintainability
+5) robustness
+
+Key rule:
+- Issues are logged for diagnostics but are NOT used as penalty terms.
+- Scores are computed from measurable static signals (thresholded mappings).
+- SAT is the unweighted mean of the five dimension scores.
+
+CLI:
+  python scripts/evaluators/enhanced_static_analyzer.py <path/to/code.py> --print-summary --out results.json
 """
+
+# -------------------------------------------------------------------
+# Bootstrap imports so this file works as a standalone CLI
+# -------------------------------------------------------------------
+import sys
+from pathlib import Path
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[1]  # .../scripts
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+# -------------------------------------------------------------------
 
 import ast
 import json
 import os
 import re
 import subprocess
-import sys
 import tempfile
+import logging
 from collections import Counter
 from datetime import datetime
 from io import StringIO
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from evaluators.base_evaluator import (
     BaseEvaluator,
@@ -35,7 +60,6 @@ except ImportError:
 
 try:
     from radon.complexity import cc_visit
-    from radon.metrics import mi_visit
     RADON_AVAILABLE = True
 except ImportError:
     RADON_AVAILABLE = False
@@ -49,46 +73,61 @@ except ImportError:
     BANDIT_AVAILABLE = False
 
 
+def clamp10(x: float) -> float:
+    return max(0.0, min(10.0, float(x)))
+
+
+def mean_safe(xs: List[float], default: float = 0.0) -> float:
+    xs = [float(x) for x in xs if x is not None]
+    return sum(xs) / len(xs) if xs else default
+
+
 class EnhancedStaticAnalyzer(BaseEvaluator):
     """
-    Enhanced static analyzer with 5-dimensional quality assessment.
-    
-    Dimensions:
-    1. Correctness (0-10): Does it work as intended?
-    2. Code Quality (0-10): How well is it written?
-    3. Best Practices (0-10): Does it follow conventions?
-    4. Maintainability (0-10): How easy to maintain?
-    5. Robustness (0-10): How resilient to failures?
+    Paper-aligned SAT evaluator.
+
+    - Produces 5 dimension scores in [0,10]
+    - SAT is the unweighted mean of these dimension scores
+    - Issues are logged but do not numerically penalise scores
     """
-    
+
     EVALUATION_TYPE = "enhanced_static_analysis"
-    
+
+    DIMENSIONS = [
+        "correctness",
+        "code_quality",
+        "best_practices",
+        "maintainability",
+        "robustness",
+    ]
+
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
-        self.intermediate_yaml: Optional[Dict] = None
-    
-    def set_reference(self, intermediate_yaml: Dict):
-        """Set the intermediate YAML for semantic comparison."""
+        self.intermediate_yaml: Optional[Dict[str, Any]] = None
+
+    def set_reference(self, intermediate_yaml: Dict[str, Any]):
+        """Set intermediate YAML for semantic comparison (optional)."""
         self.intermediate_yaml = intermediate_yaml
-    
+
     def evaluate(self, file_path: Path) -> EvaluationResult:
-        """Run enhanced static analysis."""
-        self.logger.info(f"Running enhanced static analysis on: {file_path}")
-        
+        """Run enhanced static analysis and return SAT dimension scores + overall SAT."""
+        file_path = Path(file_path)
+        self.logger.info(f"Running SAT on: {file_path}")
+
         try:
             code = file_path.read_text(encoding="utf-8")
         except Exception as e:
             return self._error_result(file_path, f"Failed to read file: {e}")
-        
+
         orchestrator = self.detect_orchestrator(code)
         self.logger.info(f"Detected orchestrator: {orchestrator.value}")
-        
-        # Parse AST once for reuse
+
+        # Parse AST once (syntax required for SAT)
         try:
             tree = ast.parse(code)
         except SyntaxError as e:
             return self._syntax_error_result(file_path, e)
-        
+
         result = EvaluationResult(
             evaluation_type=self.EVALUATION_TYPE,
             file_path=str(file_path),
@@ -97,1197 +136,855 @@ class EnhancedStaticAnalyzer(BaseEvaluator):
             metadata={
                 "file_size_bytes": len(code.encode("utf-8")),
                 "line_count": len(code.splitlines()),
+                "tools": {
+                    "pylint_available": PYLINT_AVAILABLE,
+                    "radon_available": RADON_AVAILABLE,
+                    "bandit_available": BANDIT_AVAILABLE,
+                },
             }
         )
-        
-        # Run all 5 dimensions
-        result.scores["correctness"] = self._evaluate_correctness(code, tree, orchestrator)
-        result.scores["code_quality"] = self._evaluate_code_quality(code, tree, file_path)
-        result.scores["best_practices"] = self._evaluate_best_practices(code, tree, orchestrator)
-        result.scores["maintainability"] = self._evaluate_maintainability(code, tree)
-        result.scores["robustness"] = self._evaluate_robustness(code, tree, file_path, orchestrator)
-        
+
+        # Dimension scores (each in [0,10])
+        dim_scores: Dict[str, EvaluationScore] = {}
+        dim_scores["correctness"] = self._evaluate_correctness(code, tree, orchestrator)
+        dim_scores["code_quality"] = self._evaluate_code_quality(code, tree, file_path)
+        dim_scores["best_practices"] = self._evaluate_best_practices(code, tree, orchestrator)
+        dim_scores["maintainability"] = self._evaluate_maintainability(code, tree)
+        dim_scores["robustness"] = self._evaluate_robustness(code, tree, file_path, orchestrator)
+
+        result.scores.update(dim_scores)
+
+        # SAT aggregation: unweighted mean over the five dimensions
+        sat_value = mean_safe([dim_scores[d].raw_score for d in self.DIMENSIONS], default=0.0)
+        sat_value = clamp10(sat_value)
+
+        # Store overall SAT explicitly
+        result.metadata["SAT"] = sat_value
+        result.metadata["SAT_dimensions"] = {d: float(dim_scores[d].raw_score) for d in self.DIMENSIONS}
+
+        # Optional: provide a dedicated top-level score entry
+        result.scores["SAT"] = EvaluationScore(
+            name="SAT",
+            raw_score=sat_value,
+            issues=[],
+            details={"aggregation": "unweighted_mean", "dimensions": self.DIMENSIONS},
+            penalties_applied=0.0,
+        )
+
         return result
-    
+
+    # ---------------------------------------------------------------------
+    # Basic error / syntax handling
+    # ---------------------------------------------------------------------
+
     def _error_result(self, file_path: Path, error: str) -> EvaluationResult:
+        # SAT is still returned with error payload
         return EvaluationResult(
             evaluation_type=self.EVALUATION_TYPE,
             file_path=str(file_path),
             orchestrator=Orchestrator.UNKNOWN,
             timestamp=datetime.now().isoformat(),
-            scores={"error": EvaluationScore(name="error", raw_score=0.0, error=error)},
+            scores={"SAT": EvaluationScore(name="SAT", raw_score=0.0, error=error, penalties_applied=0.0)},
+            metadata={"SAT": 0.0, "error": error},
         )
-    
+
     def _syntax_error_result(self, file_path: Path, error: SyntaxError) -> EvaluationResult:
+        # Syntax failure -> SAT=0 by construction (AST cannot be built)
+        crit = Issue(Severity.CRITICAL, "syntax", f"Syntax error: {error.msg}", error.lineno)
         return EvaluationResult(
             evaluation_type=self.EVALUATION_TYPE,
             file_path=str(file_path),
             orchestrator=Orchestrator.UNKNOWN,
             timestamp=datetime.now().isoformat(),
             scores={
-                "correctness": EvaluationScore(name="correctness", raw_score=0.0, 
-                    issues=[Issue(Severity.CRITICAL, "syntax", f"Syntax error: {error.msg}", error.lineno)]),
-                "code_quality": EvaluationScore(name="code_quality", raw_score=0.0),
-                "best_practices": EvaluationScore(name="best_practices", raw_score=0.0),
-                "maintainability": EvaluationScore(name="maintainability", raw_score=0.0),
-                "robustness": EvaluationScore(name="robustness", raw_score=0.0),
+                "correctness": EvaluationScore(name="correctness", raw_score=0.0, issues=[crit], penalties_applied=0.0),
+                "code_quality": EvaluationScore(name="code_quality", raw_score=0.0, penalties_applied=0.0),
+                "best_practices": EvaluationScore(name="best_practices", raw_score=0.0, penalties_applied=0.0),
+                "maintainability": EvaluationScore(name="maintainability", raw_score=0.0, penalties_applied=0.0),
+                "robustness": EvaluationScore(name="robustness", raw_score=0.0, penalties_applied=0.0),
+                "SAT": EvaluationScore(
+                    name="SAT",
+                    raw_score=0.0,
+                    issues=[crit],
+                    details={"aggregation": "unweighted_mean"},
+                    penalties_applied=0.0
+                )
             },
+            metadata={"SAT": 0.0, "error": f"Syntax error at line {error.lineno}: {error.msg}"}
         )
-    
-    # ═══════════════════════════════════════════════════════════════════════
-    # DIMENSION 1: CORRECTNESS (0-10)
-    # ═══════════════════════════════════════════════════════════════════════
-    def _evaluate_correctness(
-        self, 
-        code: str, 
-        tree: ast.AST, 
-        orchestrator: Orchestrator
-    ) -> EvaluationScore:
+
+    # ---------------------------------------------------------------------
+    # DIMENSION 1: correctness (0-10)
+    # ---------------------------------------------------------------------
+
+    def _evaluate_correctness(self, code: str, tree: ast.AST, orchestrator: Orchestrator) -> EvaluationScore:
         """
-        Evaluate correctness - does it work as intended?
-        
-        Components:
-        - Syntax validity (0-2): Already passed if we're here
-        - Import feasibility (0-2): Can imports resolve?
-        - Structure completeness (0-2): Has required constructs?
-        - Semantic accuracy (0-4): Matches intent from intermediate YAML?
+        Correctness is a static proxy for "is this plausibly correct code":
+        - Syntax validity (guaranteed here): subscore=10
+        - Import sanity: subscore in [0,10]
+        - Orchestrator structure completeness: subscore in [0,10]
+        - Semantic coverage vs intermediate YAML (if present): subscore in [0,10]
         """
-        self.logger.info("Evaluating correctness...")
-        
-        score = 0.0
-        details = {}
-        issues = []
-        
-        # 1. Syntax validity (0-2) - Already passed
-        score += 2.0
-        details["syntax_valid"] = True
-        
-        # 2. Import feasibility (0-2)
-        import_score, import_issues = self._check_imports(code, tree)
-        score += import_score
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {}
+
+        syntax_sub = 10.0
+        import_sub, import_issues = self._score_import_sanity(code, tree)
+        struct_sub, struct_issues = self._score_structure_completeness(code, orchestrator)
+
         issues.extend(import_issues)
-        details["import_score"] = import_score
-        
-        # 3. Structure completeness (0-2)
-        structure_score, structure_issues = self._check_structure_completeness(
-            code, tree, orchestrator
-        )
-        score += structure_score
-        issues.extend(structure_issues)
-        details["structure_score"] = structure_score
-        
-        # 4. Semantic accuracy (0-4)
+        issues.extend(struct_issues)
+
+        subs = [syntax_sub, import_sub, struct_sub]
+        details["syntax_subscore"] = syntax_sub
+        details["import_subscore"] = import_sub
+        details["structure_subscore"] = struct_sub
+
         if self.intermediate_yaml:
-            semantic_score, semantic_issues = self._check_semantic_accuracy(
-                code, tree, orchestrator
-            )
-            score += semantic_score
-            issues.extend(semantic_issues)
-            details["semantic_score"] = semantic_score
+            sem_sub, sem_issues = self._score_semantic_coverage(code, tree)
+            subs.append(sem_sub)
+            details["semantic_subscore"] = sem_sub
+            issues.extend(sem_issues)
         else:
-            # No reference - give partial credit
-            score += 2.0
-            details["semantic_score"] = 2.0
-            details["semantic_note"] = "No intermediate YAML reference provided"
-        
-        return EvaluationScore(
-            name="correctness",
-            raw_score=min(10.0, score),
-            issues=issues,
-            details=details,
-        )
-    
-    def _check_imports(self, code: str, tree: ast.AST) -> Tuple[float, List[Issue]]:
-        """Check import statements for common issues."""
-        issues = []
-        
-        imports = []
+            details["semantic_subscore"] = None
+
+        score = clamp10(mean_safe(subs, default=0.0))
+        return EvaluationScore(name="correctness", raw_score=score, issues=issues, details=details, penalties_applied=0.0)
+
+    def _score_import_sanity(self, code: str, tree: ast.AST) -> Tuple[float, List[Issue]]:
+        issues: List[Issue] = []
+        star_imports = 0
+        total_imports = 0
+
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                for alias in node.names:
-                    imports.append(alias.name)
+                total_imports += len(node.names)
             elif isinstance(node, ast.ImportFrom):
-                if node.module:
-                    imports.append(node.module)
-        
-        # Check for problematic imports
-        problematic = ["*"]  # Star imports are bad
-        relative_imports = [i for i in imports if i and i.startswith(".")]
-        
-        score = 2.0
-        
-        if any("*" in code.split("import")[i] if i > 0 else False 
-               for i in range(len(code.split("import")))):
+                total_imports += len(node.names)
+                for alias in node.names:
+                    if alias.name == "*":
+                        star_imports += 1
+
+        if star_imports > 0:
             issues.append(Issue(
-                Severity.MINOR, "import", "Star import detected - reduces clarity"
+                Severity.MINOR, "import",
+                f"Star import detected ({star_imports}); reduces clarity"
             ))
-            score -= 0.3
-        
-        if relative_imports:
-            issues.append(Issue(
-                Severity.INFO, "import", 
-                f"Relative imports detected: {relative_imports}"
-            ))
-        
-        return max(0.0, score), issues
-    
-    def _check_structure_completeness(
-        self, 
-        code: str, 
-        tree: ast.AST, 
-        orchestrator: Orchestrator
-    ) -> Tuple[float, List[Issue]]:
-        """Check if code has complete orchestrator structure."""
-        issues = []
-        score = 0.0
-        
+            score = 6.0
+        else:
+            score = 10.0
+
+        return clamp10(score), issues
+
+    def _score_structure_completeness(self, code: str, orchestrator: Orchestrator) -> Tuple[float, List[Issue]]:
+        issues: List[Issue] = []
+
+        criteria: List[Tuple[str, bool, Severity, str]] = []
+
+        code_lower = code.lower()
+
         if orchestrator == Orchestrator.AIRFLOW:
-            # Must have: DAG definition, at least one task, dependencies
-            has_dag = "DAG(" in code or "@dag" in code.lower()
-            has_tasks = any(op in code for op in ["Operator(", "operator(", "@task"])
-            has_deps = ">>" in code or "<<" in code or "chain(" in code
-            
-            if has_dag:
-                score += 0.8
-            else:
-                issues.append(Issue(Severity.CRITICAL, "structure", "No DAG definition"))
-            
-            if has_tasks:
-                score += 0.7
-            else:
-                issues.append(Issue(Severity.CRITICAL, "structure", "No tasks defined"))
-            
-            if has_deps:
-                score += 0.5
-            else:
-                issues.append(Issue(Severity.MAJOR, "structure", "No task dependencies"))
-        
+            has_dag = ("dag(" in code_lower) or ("with dag" in code_lower) or ("@dag" in code_lower)
+            has_tasks = ("operator(" in code_lower) or ("@task" in code)
+            has_deps = (">>" in code) or ("<<" in code) or ("chain(" in code_lower)
+
+            criteria = [
+                ("has_dag", has_dag, Severity.MAJOR, "No DAG definition detected (DAG(...) or @dag)"),
+                ("has_tasks", has_tasks, Severity.MAJOR, "No tasks detected (Operator(...) or @task)"),
+                ("has_dependencies", has_deps, Severity.MINOR, "No dependencies detected (>>, <<, or chain(...))"),
+            ]
+
         elif orchestrator == Orchestrator.PREFECT:
             has_flow = "@flow" in code
             has_tasks = "@task" in code
-            
-            if has_flow:
-                score += 1.0
-            else:
-                issues.append(Issue(Severity.CRITICAL, "structure", "No @flow decorator"))
-            
-            if has_tasks:
-                score += 1.0
-            else:
-                issues.append(Issue(Severity.MAJOR, "structure", "No @task decorators"))
-        
+            criteria = [
+                ("has_flow", has_flow, Severity.MAJOR, "No @flow decorator detected"),
+                ("has_tasks", has_tasks, Severity.MINOR, "No @task decorator detected"),
+            ]
+
         elif orchestrator == Orchestrator.DAGSTER:
-            has_job = "@job" in code
-            has_ops = "@op" in code
-            
-            if has_job:
-                score += 1.0
-            else:
-                issues.append(Issue(Severity.CRITICAL, "structure", "No @job decorator"))
-            
-            if has_ops:
-                score += 1.0
-            else:
-                issues.append(Issue(Severity.MAJOR, "structure", "No @op decorators"))
-        
-        return min(2.0, score), issues
-    
-    def _check_semantic_accuracy(
-        self, 
-        code: str, 
-        tree: ast.AST, 
-        orchestrator: Orchestrator
-    ) -> Tuple[float, List[Issue]]:
-        """Check if generated code matches the intent from intermediate YAML."""
-        issues = []
-        score = 0.0
-        
-        if not self.intermediate_yaml:
-            return 2.0, issues
-        
-        # Get expected tasks from intermediate YAML
-        expected_tasks = self.intermediate_yaml.get("tasks", [])
-        expected_task_ids = {t.get("task_id") for t in expected_tasks}
-        
-        # Find tasks in generated code
-        found_tasks = set()
-        
-        # Look for task_id assignments
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name):
-                        if target.id in expected_task_ids or any(
-                            tid in target.id for tid in expected_task_ids
-                        ):
-                            found_tasks.add(target.id)
-            
-            # Also check function definitions
-            if isinstance(node, ast.FunctionDef):
-                if node.name in expected_task_ids:
-                    found_tasks.add(node.name)
-        
-        # Calculate coverage
-        if expected_task_ids:
-            coverage = len(found_tasks) / len(expected_task_ids)
-            score = 4.0 * coverage
-            
-            missing = expected_task_ids - found_tasks
-            if missing:
-                issues.append(Issue(
-                    Severity.MAJOR, "semantic",
-                    f"Missing tasks from spec: {missing}"
-                ))
+            has_job = "@job" in code or "@graph" in code
+            has_ops = "@op" in code or "@asset" in code
+            criteria = [
+                ("has_job_or_graph", has_job, Severity.MAJOR, "No @job/@graph detected"),
+                ("has_ops_or_assets", has_ops, Severity.MINOR, "No @op/@asset detected"),
+            ]
         else:
-            score = 2.0  # No expected tasks - partial credit
-        
-        return min(4.0, score), issues
-    
-    # ═══════════════════════════════════════════════════════════════════════
-    # DIMENSION 2: CODE QUALITY (0-10)
-    # ═══════════════════════════════════════════════════════════════════════
-    def _evaluate_code_quality(
-        self, 
-        code: str, 
-        tree: ast.AST, 
-        file_path: Path
-    ) -> EvaluationScore:
-        """
-        Evaluate code quality - how well is it written?
-        
-        Components:
-        - Style compliance (0-2.5): Flake8 score
-        - Linting score (0-2.5): Pylint score
-        - Documentation coverage (0-2.5): Docstrings presence
-        - Naming quality (0-2.5): PEP8 naming conventions
-        """
-        self.logger.info("Evaluating code quality...")
-        
-        score = 0.0
-        details = {}
-        issues = []
-        
-        # 1. Style compliance - Flake8 (0-2.5)
-        style_score, style_issues = self._run_flake8(code, file_path)
-        score += style_score * 2.5 / 10.0  # Normalize to 2.5
-        issues.extend(style_issues)
-        details["style_score"] = round(style_score, 2)
-        
-        # 2. Linting - Pylint (0-2.5)
-        lint_score, lint_issues = self._run_pylint(code, file_path)
-        score += lint_score * 2.5 / 10.0
-        issues.extend(lint_issues)
-        details["lint_score"] = round(lint_score, 2)
-        
-        # 3. Documentation coverage (0-2.5)
-        doc_score, doc_issues = self._evaluate_documentation(tree)
-        score += doc_score
-        issues.extend(doc_issues)
-        details["documentation_score"] = round(doc_score, 2)
-        
-        # 4. Naming quality (0-2.5)
-        naming_score, naming_issues = self._evaluate_naming(tree)
-        score += naming_score
-        issues.extend(naming_issues)
-        details["naming_score"] = round(naming_score, 2)
-        
-        return EvaluationScore(
-            name="code_quality",
-            raw_score=min(10.0, score),
-            issues=issues,
-            details=details,
-        )
-    
-    def _run_flake8(self, code: str, file_path: Path) -> Tuple[float, List[Issue]]:
-        """Run Flake8 and return normalized score."""
-        issues = []
-        
+            issues.append(Issue(Severity.INFO, "structure", "Unknown orchestrator; completeness score defaulted"))
+            return 5.0, issues
+
+        passed = 0
+        for _name, ok, sev, msg in criteria:
+            if ok:
+                passed += 1
+            else:
+                issues.append(Issue(sev, "structure", msg))
+
+        score = 10.0 * (passed / len(criteria)) if criteria else 0.0
+        return clamp10(score), issues
+
+    def _score_semantic_coverage(self, code: str, tree: ast.AST) -> Tuple[float, List[Issue]]:
+        issues: List[Issue] = []
+
+        expected_tasks = (self.intermediate_yaml or {}).get("tasks", []) or []
+        expected_ids = {t.get("task_id") for t in expected_tasks if isinstance(t, dict)}
+        expected_ids = {x for x in expected_ids if x}
+
+        if not expected_ids:
+            issues.append(Issue(Severity.INFO, "semantic", "No task_ids in reference; semantic score defaulted"))
+            return 5.0, issues
+
+        found = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name in expected_ids:
+                found.add(node.name)
+
+        for tid in expected_ids:
+            if tid in code:
+                found.add(tid)
+
+        coverage = len(found) / len(expected_ids)
+        score = 10.0 * coverage
+
+        missing = sorted(list(expected_ids - found))
+        if missing:
+            issues.append(Issue(
+                Severity.MAJOR, "semantic",
+                f"Missing task identifiers from reference (showing up to 10): {missing[:10]}"
+            ))
+
+        return clamp10(score), issues
+
+    # ---------------------------------------------------------------------
+    # DIMENSION 2: code_quality (0-10)
+    # ---------------------------------------------------------------------
+
+    def _evaluate_code_quality(self, code: str, tree: ast.AST, file_path: Path) -> EvaluationScore:
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {}
+
+        style_sub, style_issues, style_details = self._score_style(file_path, code)
+        lint_sub, lint_issues, lint_details = self._score_lint(code)
+        doc_sub, doc_issues, doc_details = self._score_doc_coverage(tree)
+        naming_sub, naming_issues, naming_details = self._score_naming(tree)
+
+        issues.extend(style_issues + lint_issues + doc_issues + naming_issues)
+        details.update({
+            "style": style_details,
+            "lint": lint_details,
+            "docs": doc_details,
+            "naming": naming_details,
+        })
+
+        score = clamp10(mean_safe([style_sub, lint_sub, doc_sub, naming_sub], default=0.0))
+        return EvaluationScore(name="code_quality", raw_score=score, issues=issues, details=details, penalties_applied=0.0)
+
+    def _score_style(self, file_path: Path, code: str) -> Tuple[float, List[Issue], Dict[str, Any]]:
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {"tool": "flake8", "available": None}
+
+        # flake8 is optional; if absent -> neutral
         try:
             result = subprocess.run(
-                ["flake8", "--format=json", str(file_path)],
+                ["flake8", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            details["available"] = (result.returncode == 0)
+        except Exception:
+            details["available"] = False
+
+        if not details["available"]:
+            issues.append(Issue(Severity.INFO, "tool", "flake8 not available; style score defaulted"))
+            return 5.0, issues, details
+
+        # Try running flake8 (without relying on flake8-json plugin)
+        try:
+            res = subprocess.run(
+                ["flake8", str(file_path)],
                 capture_output=True,
                 text=True,
                 timeout=30,
             )
-            
-            violations = []
-            if result.stdout:
-                try:
-                    output = json.loads(result.stdout)
-                    violations = output.get(str(file_path), [])
-                except json.JSONDecodeError:
-                    pass
-            
-            # Calculate score based on violations per 100 lines
-            lines = len(code.splitlines()) or 1
-            violations_per_100 = (len(violations) / lines) * 100
-            
-            if violations_per_100 == 0:
+            output = (res.stdout or "") + (res.stderr or "")
+            lines = code.splitlines() or ["x"]
+            violation_lines = [ln for ln in output.splitlines() if ln.strip()]
+            vph = (len(violation_lines) / max(1, len(lines))) * 100.0
+            details["violations"] = len(violation_lines)
+            details["violations_per_100_lines"] = vph
+            details["sample"] = violation_lines[:5]
+
+            if vph == 0:
                 score = 10.0
-            elif violations_per_100 < 1:
+            elif vph <= 1:
                 score = 9.0
-            elif violations_per_100 < 3:
+            elif vph <= 3:
                 score = 7.5
-            elif violations_per_100 < 5:
+            elif vph <= 5:
                 score = 6.0
-            elif violations_per_100 < 10:
+            elif vph <= 10:
                 score = 4.0
             else:
                 score = 2.0
-            
-            # Add issues for significant violations
-            for v in violations[:5]:  # Limit to top 5
-                issues.append(Issue(
-                    Severity.MINOR, "style",
-                    f"[{v.get('code')}] {v.get('text')}",
-                    v.get('line_number'),
-                    tool="flake8"
-                ))
-            
-            return score, issues
-        
+
+            for ln in violation_lines[:3]:
+                issues.append(Issue(Severity.MINOR, "style", ln, tool="flake8"))
+
+            return clamp10(score), issues, details
+
         except Exception as e:
-            self.logger.warning(f"Flake8 failed: {e}")
-            return 5.0, []  # Neutral score
-    
-    def _run_pylint(self, code: str, file_path: Path) -> Tuple[float, List[Issue]]:
-        """Run Pylint and return normalized score."""
+            issues.append(Issue(Severity.INFO, "tool", f"flake8 failed: {type(e).__name__}; style score defaulted"))
+            details["error"] = str(e)
+            return 5.0, issues, details
+
+    def _score_lint(self, code: str) -> Tuple[float, List[Issue], Dict[str, Any]]:
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {"tool": "pylint", "available": PYLINT_AVAILABLE}
+
         if not PYLINT_AVAILABLE:
-            return 5.0, []
-        
-        issues = []
-        
+            issues.append(Issue(Severity.INFO, "tool", "pylint not installed; lint score defaulted"))
+            return 5.0, issues, details
+
+        temp_path = None
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".py", delete=False
-            ) as f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
                 f.write(code)
                 temp_path = f.name
-            
-            output_buffer = StringIO()
-            reporter = JSONReporter(output_buffer)
-            
+
+            buf = StringIO()
+            reporter = JSONReporter(buf)
+
             try:
                 PylintRun([temp_path], reporter=reporter, exit=False)
             except SystemExit:
                 pass
-            
-            output_buffer.seek(0)
+
+            buf.seek(0)
             messages = []
-            if output_buffer.getvalue():
+            if buf.getvalue().strip():
                 try:
-                    messages = json.loads(output_buffer.getvalue())
+                    messages = json.loads(buf.getvalue())
                 except json.JSONDecodeError:
-                    pass
-            
-            # Count by type
-            errors = sum(1 for m in messages if m.get("type") in ["error", "fatal"])
-            warnings = sum(1 for m in messages if m.get("type") == "warning")
-            conventions = sum(1 for m in messages if m.get("type") == "convention")
-            
-            # Calculate score
-            if errors == 0 and warnings == 0:
-                score = 10.0 - (conventions * 0.1)
-            elif errors == 0:
-                score = 8.0 - (warnings * 0.3)
+                    messages = []
+
+            counts = Counter(m.get("type") for m in messages)
+            n_err = counts.get("error", 0) + counts.get("fatal", 0)
+            n_warn = counts.get("warning", 0)
+            n_ref = counts.get("refactor", 0)
+            n_conv = counts.get("convention", 0)
+
+            details["message_counts"] = dict(counts)
+
+            if n_err > 0:
+                score = 3.0 if n_err <= 2 else 1.5
+            elif n_warn > 0:
+                score = 7.0 if n_warn <= 2 else 5.5
             else:
-                score = 5.0 - (errors * 1.0)
-            
-            score = max(0.0, min(10.0, score))
-            
-            # Add significant issues
+                score = 9.0 if n_conv <= 10 else 8.0
+
             for m in messages[:3]:
+                sev = Severity.MAJOR if m.get("type") in ["error", "fatal", "warning"] else Severity.MINOR
                 issues.append(Issue(
-                    Severity.MAJOR if m.get("type") in ["error", "warning"] else Severity.MINOR,
+                    sev,
                     "lint",
                     f"[{m.get('symbol')}] {m.get('message')}",
                     m.get("line"),
                     tool="pylint"
                 ))
-            
-            return score, issues
-        
+
+            return clamp10(score), issues, details
+
         except Exception as e:
-            self.logger.warning(f"Pylint failed: {e}")
-            return 5.0, []
+            details["error"] = f"{type(e).__name__}: {e}"
+            issues.append(Issue(Severity.INFO, "tool", "pylint failed; lint score defaulted", tool="pylint"))
+            return 5.0, issues, details
         finally:
-            if os.path.exists(temp_path):
+            if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
-    
-    def _evaluate_documentation(self, tree: ast.AST) -> Tuple[float, List[Issue]]:
-        """Evaluate documentation coverage."""
-        issues = []
-        
-        # Count documentable items and documented items
-        functions = []
-        classes = []
-        module_docstring = ast.get_docstring(tree)
-        
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                functions.append({
-                    "name": node.name,
-                    "has_docstring": ast.get_docstring(node) is not None,
-                    "lineno": node.lineno,
-                })
-            elif isinstance(node, ast.ClassDef):
-                classes.append({
-                    "name": node.name,
-                    "has_docstring": ast.get_docstring(node) is not None,
-                    "lineno": node.lineno,
-                })
-        
-        # Calculate coverage
-        total_items = 1 + len(functions) + len(classes)  # +1 for module
-        documented_items = (1 if module_docstring else 0) + \
-                          sum(1 for f in functions if f["has_docstring"]) + \
-                          sum(1 for c in classes if c["has_docstring"])
-        
-        coverage = documented_items / total_items if total_items > 0 else 0
-        
-        # Score: 0-2.5 based on coverage
-        if coverage >= 0.9:
-            score = 2.5
-        elif coverage >= 0.7:
-            score = 2.0
-        elif coverage >= 0.5:
-            score = 1.5
-        elif coverage >= 0.3:
-            score = 1.0
-        elif coverage > 0:
-            score = 0.5
+
+    def _score_doc_coverage(self, tree: ast.AST) -> Tuple[float, List[Issue], Dict[str, Any]]:
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {}
+
+        module_doc = ast.get_docstring(tree) is not None
+        func_nodes = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+        class_nodes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+
+        total = 1 + len(func_nodes) + len(class_nodes)
+        documented = (1 if module_doc else 0)
+
+        undocumented_funcs = []
+        for f in func_nodes:
+            if ast.get_docstring(f):
+                documented += 1
+            else:
+                undocumented_funcs.append(f.name)
+
+        for c in class_nodes:
+            if ast.get_docstring(c):
+                documented += 1
+
+        cov = documented / total if total > 0 else 0.0
+        details["coverage_ratio"] = cov
+        details["undocumented_functions"] = undocumented_funcs[:10]
+
+        if cov >= 0.9:
+            score = 10.0
+        elif cov >= 0.7:
+            score = 8.0
+        elif cov >= 0.5:
+            score = 6.5
+        elif cov >= 0.3:
+            score = 5.0
+        elif cov > 0:
+            score = 3.5
         else:
-            score = 0.0
-            issues.append(Issue(
-                Severity.MINOR, "documentation",
-                "No documentation found (no docstrings)"
-            ))
-        
-        # Note undocumented functions
-        undocumented = [f["name"] for f in functions if not f["has_docstring"]]
-        if undocumented and len(undocumented) <= 3:
-            issues.append(Issue(
-                Severity.INFO, "documentation",
-                f"Functions without docstrings: {undocumented}"
-            ))
-        
-        return score, issues
-    
-    def _evaluate_naming(self, tree: ast.AST) -> Tuple[float, List[Issue]]:
-        """Evaluate naming conventions (PEP8)."""
-        issues = []
-        
-        # Patterns
-        snake_case = re.compile(r'^[a-z_][a-z0-9_]*$')
-        upper_snake = re.compile(r'^[A-Z_][A-Z0-9_]*$')
-        pascal_case = re.compile(r'^[A-Z][a-zA-Z0-9]*$')
-        
+            score = 2.0
+            issues.append(Issue(Severity.MINOR, "documentation", "No docstrings found"))
+
+        return clamp10(score), issues, details
+
+    def _score_naming(self, tree: ast.AST) -> Tuple[float, List[Issue], Dict[str, Any]]:
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {}
+
+        snake_case = re.compile(r"^[a-z_][a-z0-9_]*$")
+        pascal_case = re.compile(r"^[A-Z][a-zA-Z0-9]*$")
+
+        total = 0
         violations = 0
-        total_names = 0
-        
+
         for node in ast.walk(tree):
-            # Function names should be snake_case
             if isinstance(node, ast.FunctionDef):
-                total_names += 1
+                total += 1
                 if not snake_case.match(node.name) and not node.name.startswith("_"):
                     violations += 1
-                    if violations <= 2:
-                        issues.append(Issue(
-                            Severity.MINOR, "naming",
-                            f"Function '{node.name}' should be snake_case",
-                            node.lineno
-                        ))
-            
-            # Class names should be PascalCase
             elif isinstance(node, ast.ClassDef):
-                total_names += 1
+                total += 1
                 if not pascal_case.match(node.name):
                     violations += 1
-                    issues.append(Issue(
-                        Severity.MINOR, "naming",
-                        f"Class '{node.name}' should be PascalCase",
-                        node.lineno
-                    ))
-            
-            # Constants (module-level uppercase) - check assignments
-            elif isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name):
-                        # Module-level uppercase is OK for constants
-                        total_names += 1
-        
-        # Calculate score
-        if total_names == 0:
-            score = 2.5
+
+        details["total_named_entities"] = total
+        details["naming_violations"] = violations
+
+        if total == 0:
+            return 10.0, issues, details
+
+        rate = violations / total
+        if rate == 0:
+            score = 10.0
+        elif rate <= 0.1:
+            score = 8.5
+        elif rate <= 0.2:
+            score = 7.0
+        elif rate <= 0.3:
+            score = 5.5
         else:
-            violation_rate = violations / total_names
-            if violation_rate == 0:
-                score = 2.5
-            elif violation_rate < 0.1:
-                score = 2.0
-            elif violation_rate < 0.2:
-                score = 1.5
-            elif violation_rate < 0.3:
-                score = 1.0
-            else:
-                score = 0.5
-        
-        return score, issues
-    
-    # ═══════════════════════════════════════════════════════════════════════
-    # DIMENSION 3: BEST PRACTICES (0-10)
-    # ═══════════════════════════════════════════════════════════════════════
-    def _evaluate_best_practices(
-        self, 
-        code: str, 
-        tree: ast.AST, 
-        orchestrator: Orchestrator
-    ) -> EvaluationScore:
-        """
-        Evaluate best practices - does it follow conventions?
-        
-        Components:
-        - Configuration patterns (0-3): Proper config handling
-        - Operator/Task usage (0-3): Correct operator patterns
-        - Dependency patterns (0-2): Clean dependency definition
-        - Resource management (0-2): Proper resource handling
-        """
-        self.logger.info("Evaluating best practices...")
-        
-        score = 0.0
-        details = {}
-        issues = []
-        
+            score = 4.0
+            issues.append(Issue(Severity.MINOR, "naming", f"Naming violation rate high: {rate:.2f}"))
+
+        return clamp10(score), issues, details
+
+    # ---------------------------------------------------------------------
+    # DIMENSION 3: best_practices (0-10)
+    # ---------------------------------------------------------------------
+
+    def _evaluate_best_practices(self, code: str, tree: ast.AST, orchestrator: Orchestrator) -> EvaluationScore:
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {"orchestrator": orchestrator.value}
+
         if orchestrator == Orchestrator.AIRFLOW:
-            bp_score, bp_issues = self._evaluate_airflow_best_practices(code, tree)
+            criteria = {
+                "uses_default_args": ("default_args" in code),
+                "declares_dependencies": any(tok in code for tok in [">>", "<<", "chain("]),
+                "externalizes_config": any(tok in code for tok in ["os.getenv", "os.environ", "Variable.get"]),
+                "sets_task_id": ("task_id=" in code),
+                "sets_retries": ("retries=" in code),
+                "sets_timeouts": any(tok in code for tok in ["execution_timeout", "dagrun_timeout", "timeout="]),
+            }
         elif orchestrator == Orchestrator.PREFECT:
-            bp_score, bp_issues = self._evaluate_prefect_best_practices(code, tree)
+            criteria = {
+                "has_flow": ("@flow" in code),
+                "has_task": ("@task" in code),
+                "externalizes_config": any(tok in code for tok in ["os.getenv", "os.environ"]),
+                "uses_retries": ("retries=" in code),
+                "uses_timeout": ("timeout_seconds" in code or "timeout=" in code),
+            }
         elif orchestrator == Orchestrator.DAGSTER:
-            bp_score, bp_issues = self._evaluate_dagster_best_practices(code, tree)
+            criteria = {
+                "has_job_or_graph": ("@job" in code or "@graph" in code),
+                "has_op_or_asset": ("@op" in code or "@asset" in code),
+                "uses_config_schema": ("config_schema" in code or "OpConfig" in code),
+                "uses_retry_policy": ("RetryPolicy" in code or "retry_policy" in code),
+            }
         else:
-            bp_score, bp_issues = 5.0, []
-        
-        return EvaluationScore(
-            name="best_practices",
-            raw_score=min(10.0, bp_score),
-            issues=bp_issues,
-            details={"orchestrator": orchestrator.value},
-        )
-    
-    def _evaluate_airflow_best_practices(
-        self, code: str, tree: ast.AST
-    ) -> Tuple[float, List[Issue]]:
-        """Evaluate Airflow-specific best practices."""
-        score = 0.0
-        issues = []
-        
-        # 1. Configuration patterns (0-3)
-        # - Uses default_args
-        # - Uses context manager for DAG
-        # - Externalized config
-        
-        if "default_args" in code:
-            score += 1.0
-        else:
-            issues.append(Issue(
-                Severity.MINOR, "best_practice",
-                "Consider using default_args for common task parameters"
-            ))
-        
-        if "with DAG" in code or "with dag" in code:
-            score += 1.0
-        elif "DAG(" in code:
-            score += 0.5
-            issues.append(Issue(
-                Severity.INFO, "best_practice",
-                "Consider using DAG context manager (with DAG...)"
-            ))
-        
-        if "os.getenv" in code or "os.environ" in code or "Variable.get" in code:
-            score += 1.0
-        else:
-            issues.append(Issue(
-                Severity.MINOR, "best_practice",
-                "Consider externalizing configuration using environment variables"
-            ))
-        
-        # 2. Operator usage (0-3)
-        # - Uses appropriate operators
-        # - Sets task_id properly
-        # - Uses meaningful names
-        
-        operator_count = code.count("Operator(")
-        if operator_count > 0:
-            score += 1.5
-        
-        if "task_id=" in code:
-            score += 1.0
-        
-        # Check for meaningful task_ids
-        task_id_pattern = re.compile(r"task_id=['\"]([^'\"]+)['\"]")
-        task_ids = task_id_pattern.findall(code)
-        if task_ids:
-            # Check if task_ids are descriptive (not just task1, task2)
-            generic_names = sum(1 for t in task_ids if re.match(r'^task\d*$', t))
-            if generic_names == 0:
-                score += 0.5
-            else:
-                issues.append(Issue(
-                    Severity.INFO, "best_practice",
-                    "Use descriptive task_id names instead of generic ones"
-                ))
-        
-        # 3. Dependency patterns (0-2)
-        if ">>" in code or "<<" in code:
-            score += 1.0
-            # Check for chain() usage for long chains
-            dep_count = code.count(">>") + code.count("<<")
-            if dep_count > 5 and "chain(" not in code:
-                issues.append(Issue(
-                    Severity.INFO, "best_practice",
-                    "Consider using chain() for long dependency chains"
-                ))
-            else:
-                score += 0.5
-        elif "chain(" in code:
-            score += 1.5
-        
-        # 4. Resource management (0-2)
-        if "pool=" in code or "queue=" in code:
-            score += 1.0
-        
-        if "execution_timeout" in code or "timeout" in code:
-            score += 0.5
-        
-        if "trigger_rule" in code:
-            score += 0.5
-        
-        return min(10.0, score), issues
-    
-    def _evaluate_prefect_best_practices(
-        self, code: str, tree: ast.AST
-    ) -> Tuple[float, List[Issue]]:
-        """Evaluate Prefect-specific best practices."""
-        score = 0.0
-        issues = []
-        
-        # 1. Configuration patterns (0-3)
-        if "@flow" in code:
-            score += 1.5
-        
-        if "task_runner=" in code:
-            score += 0.75
-        
-        if "os.getenv" in code or "prefect.variables" in code:
-            score += 0.75
-        
-        # 2. Task usage (0-3)
-        task_count = code.count("@task")
-        if task_count > 0:
-            score += 1.5
-        
-        if "name=" in code:
-            score += 0.75
-        
-        if "description=" in code:
-            score += 0.75
-        
-        # 3. Dependency patterns (0-2)
-        # In Prefect, dependencies are implicit through function calls
-        # Check for proper flow structure
-        if "def " in code and "return" in code:
-            score += 1.5
-        
-        # 4. Resource management (0-2)
-        if "retries=" in code:
-            score += 1.0
-        
-        if "retry_delay" in code:
-            score += 0.5
-        
-        if "timeout_seconds" in code:
-            score += 0.5
-        
-        return min(10.0, score), issues
-    
-    def _evaluate_dagster_best_practices(
-        self, code: str, tree: ast.AST
-    ) -> Tuple[float, List[Issue]]:
-        """Evaluate Dagster-specific best practices."""
-        score = 0.0
-        issues = []
-        
-        # 1. Configuration patterns (0-3)
-        if "@job" in code:
-            score += 1.0
-        
-        if "@repository" in code:
-            score += 1.0
-        
-        if "config_schema" in code or "OpConfig" in code:
-            score += 1.0
-        
-        # 2. Op usage (0-3)
-        op_count = code.count("@op")
-        if op_count > 0:
-            score += 1.5
-        
-        if "In(" in code or "Out(" in code:
-            score += 1.0
-        
-        if "description=" in code:
-            score += 0.5
-        
-        # 3. Dependency patterns (0-2)
-        # Dagster uses function parameters for dependencies
-        if "context:" in code:
-            score += 1.0
-        
-        if "context.log" in code:
-            score += 0.5
-        
-        # 4. Resource management (0-2)
-        if "retry_policy" in code or "RetryPolicy" in code:
-            score += 1.0
-        
-        if "required_resource_keys" in code:
-            score += 0.5
-        
-        if "tags=" in code:
-            score += 0.5
-        
-        return min(10.0, score), issues
-    
-    # ═══════════════════════════════════════════════════════════════════════
-    # DIMENSION 4: MAINTAINABILITY (0-10)
-    # ═══════════════════════════════════════════════════════════════════════
+            criteria = {"unknown_orchestrator": True}
+            issues.append(Issue(Severity.INFO, "best_practices", "Unknown orchestrator; best_practices defaulted"))
+
+        details["criteria"] = criteria
+        passed = sum(1 for v in criteria.values() if v)
+        total = len(criteria) if criteria else 1
+        score = 10.0 * (passed / total)
+
+        # log missing criteria as INFO (no penalties)
+        for k, ok in criteria.items():
+            if not ok:
+                issues.append(Issue(Severity.INFO, "best_practices", f"Missing best-practice signal: {k}"))
+
+        return EvaluationScore(name="best_practices", raw_score=clamp10(score), issues=issues, details=details, penalties_applied=0.0)
+
+    # ---------------------------------------------------------------------
+    # DIMENSION 4: maintainability (0-10)
+    # ---------------------------------------------------------------------
+
     def _evaluate_maintainability(self, code: str, tree: ast.AST) -> EvaluationScore:
-        """
-        Evaluate maintainability - how easy to maintain?
-        
-        Components:
-        - Complexity (0-3): Cyclomatic complexity
-        - Modularity (0-2.5): Function/class organization
-        - Configuration externalization (0-2): Config separation
-        - Code organization (0-2.5): Structure and layout
-        """
-        self.logger.info("Evaluating maintainability...")
-        
-        score = 0.0
-        details = {}
-        issues = []
-        
-        # 1. Complexity (0-3)
-        complexity_score, complexity_issues = self._evaluate_complexity_for_maintainability(code)
-        score += complexity_score
-        issues.extend(complexity_issues)
-        details["complexity_score"] = round(complexity_score, 2)
-        
-        # 2. Modularity (0-2.5)
-        modularity_score, modularity_issues = self._evaluate_modularity(tree)
-        score += modularity_score
-        issues.extend(modularity_issues)
-        details["modularity_score"] = round(modularity_score, 2)
-        
-        # 3. Configuration externalization (0-2)
-        config_score, config_issues = self._evaluate_config_externalization(code)
-        score += config_score
-        issues.extend(config_issues)
-        details["config_externalization_score"] = round(config_score, 2)
-        
-        # 4. Code organization (0-2.5)
-        org_score, org_issues = self._evaluate_code_organization(code, tree)
-        score += org_score
-        issues.extend(org_issues)
-        details["organization_score"] = round(org_score, 2)
-        
-        return EvaluationScore(
-            name="maintainability",
-            raw_score=min(10.0, score),
-            issues=issues,
-            details=details,
-        )
-    
-    def _evaluate_complexity_for_maintainability(
-        self, code: str
-    ) -> Tuple[float, List[Issue]]:
-        """Evaluate complexity using Radon."""
-        issues = []
-        
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {}
+
+        cplx_sub, cplx_issues, cplx_details = self._score_complexity(code)
+        cfg_sub, cfg_issues, cfg_details = self._score_config_externalization(code)
+        org_sub, org_issues, org_details = self._score_code_organization(code)
+
+        issues.extend(cplx_issues + cfg_issues + org_issues)
+        details["complexity"] = cplx_details
+        details["config_externalization"] = cfg_details
+        details["organization"] = org_details
+
+        score = clamp10(mean_safe([cplx_sub, cfg_sub, org_sub], default=0.0))
+        return EvaluationScore(name="maintainability", raw_score=score, issues=issues, details=details, penalties_applied=0.0)
+
+    def _score_complexity(self, code: str) -> Tuple[float, List[Issue], Dict[str, Any]]:
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {"tool": "radon", "available": RADON_AVAILABLE}
+
         if not RADON_AVAILABLE:
-            return 1.5, []
-        
+            issues.append(Issue(Severity.INFO, "tool", "radon not installed; complexity defaulted"))
+            return 5.0, issues, details
+
         try:
             results = list(cc_visit(code))
-            
             if not results:
-                return 3.0, []  # No functions = simple
-            
+                details["avg_complexity"] = 0.0
+                return 10.0, issues, details
+
             complexities = [r.complexity for r in results]
             avg = sum(complexities) / len(complexities)
-            max_c = max(complexities)
-            
-            # Score based on average complexity
+            mx = max(complexities)
+            details["avg_complexity"] = avg
+            details["max_complexity"] = mx
+            details["count"] = len(complexities)
+
             if avg <= 3:
-                score = 3.0
+                score = 10.0
             elif avg <= 5:
-                score = 2.5
+                score = 8.5
             elif avg <= 8:
-                score = 2.0
+                score = 7.0
             elif avg <= 12:
-                score = 1.5
+                score = 5.5
             else:
-                score = 0.5
-                issues.append(Issue(
-                    Severity.MAJOR, "complexity",
-                    f"High average complexity: {avg:.1f}"
-                ))
-            
-            # Penalize very complex functions
-            if max_c > 15:
-                score -= 0.5
-                issues.append(Issue(
-                    Severity.MAJOR, "complexity",
-                    f"Function with very high complexity: {max_c}"
-                ))
-            
-            return max(0.0, score), issues
-        
-        except Exception:
-            return 1.5, []
-    
-    def _evaluate_modularity(self, tree: ast.AST) -> Tuple[float, List[Issue]]:
-        """Evaluate code modularity."""
-        issues = []
-        
-        functions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
-        classes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
-        
-        # Count lines per function
-        func_sizes = []
-        for func in functions:
-            size = func.end_lineno - func.lineno if hasattr(func, 'end_lineno') else 10
-            func_sizes.append(size)
-        
-        score = 0.0
-        
-        # Has functions (modular)
-        if len(functions) > 0:
-            score += 1.0
-        
-        # Functions are reasonably sized
-        if func_sizes:
-            avg_size = sum(func_sizes) / len(func_sizes)
-            if avg_size <= 20:
-                score += 1.0
-            elif avg_size <= 40:
-                score += 0.5
-            else:
-                issues.append(Issue(
-                    Severity.MINOR, "modularity",
-                    f"Large functions detected (avg {avg_size:.0f} lines)"
-                ))
-        else:
-            score += 0.5
-        
-        # Not too many things in global scope
-        module_body = tree.body if hasattr(tree, 'body') else []
-        global_assignments = sum(1 for n in module_body if isinstance(n, ast.Assign))
-        
-        if global_assignments <= 10:
-            score += 0.5
-        else:
-            issues.append(Issue(
-                Severity.INFO, "modularity",
-                f"Many global assignments ({global_assignments})"
-            ))
-        
-        return min(2.5, score), issues
-    
-    def _evaluate_config_externalization(self, code: str) -> Tuple[float, List[Issue]]:
-        """Evaluate configuration externalization."""
-        issues = []
-        score = 0.0
-        
-        # Environment variables
-        if "os.getenv" in code or "os.environ" in code:
-            score += 1.0
-        
-        # Airflow Variables
-        if "Variable.get" in code:
-            score += 0.5
-        
-        # No hardcoded passwords/tokens
-        sensitive_patterns = [
-            r'password\s*=\s*["\'][^"\']+["\']',
-            r'token\s*=\s*["\'][^"\']+["\']',
-            r'secret\s*=\s*["\'][^"\']+["\']',
-            r'api_key\s*=\s*["\'][^"\']+["\']',
-        ]
-        
-        hardcoded_secrets = False
-        for pattern in sensitive_patterns:
-            if re.search(pattern, code, re.IGNORECASE):
-                hardcoded_secrets = True
-                break
-        
-        if not hardcoded_secrets:
-            score += 0.5
-        else:
-            issues.append(Issue(
-                Severity.MAJOR, "config",
-                "Possible hardcoded secrets detected"
-            ))
-        
-        return min(2.0, score), issues
-    
-    def _evaluate_code_organization(
-        self, code: str, tree: ast.AST
-    ) -> Tuple[float, List[Issue]]:
-        """Evaluate code organization and layout."""
-        issues = []
-        score = 0.0
-        lines = code.splitlines()
-        
-        # Has imports at top
-        first_non_comment_line = 0
-        for i, line in enumerate(lines):
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#"):
-                first_non_comment_line = i
-                break
-        
-        # Check if early lines are imports
-        early_imports = any(
-            "import" in lines[i] 
-            for i in range(first_non_comment_line, min(len(lines), first_non_comment_line + 10))
-        )
-        if early_imports:
-            score += 1.0
-        
-        # Has header comment
-        if lines and lines[0].strip().startswith("#"):
-            score += 0.5
-        
-        # Reasonable line lengths
+                score = 4.0
+                issues.append(Issue(Severity.MAJOR, "complexity", f"High avg complexity: {avg:.1f}"))
+
+            if mx > 15:
+                issues.append(Issue(Severity.MAJOR, "complexity", f"Very high function complexity: {mx}"))
+
+            return clamp10(score), issues, details
+
+        except Exception as e:
+            details["error"] = f"{type(e).__name__}: {e}"
+            issues.append(Issue(Severity.INFO, "tool", "radon failed; complexity defaulted"))
+            return 5.0, issues, details
+
+    def _score_config_externalization(self, code: str) -> Tuple[float, List[Issue], Dict[str, Any]]:
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {}
+
+        has_env = ("os.getenv" in code or "os.environ" in code)
+        has_literal_secret = bool(re.search(r"(api_key|token|password|secret)\s*=\s*['\"][^'\"]+['\"]", code, re.I))
+
+        details["uses_env_vars"] = has_env
+        details["has_literal_secret_pattern"] = has_literal_secret
+
+        if has_literal_secret:
+            issues.append(Issue(Severity.MAJOR, "security", "Potential hardcoded secret pattern detected"))
+
+        criteria = {
+            "externalizes_config": has_env,
+            "no_obvious_literal_secrets": (not has_literal_secret),
+        }
+        passed = sum(1 for v in criteria.values() if v)
+        score = 10.0 * (passed / len(criteria))
+
+        return clamp10(score), issues, {"criteria": criteria, **details}
+
+    def _score_code_organization(self, code: str) -> Tuple[float, List[Issue], Dict[str, Any]]:
+        issues: List[Issue] = []
+        lines = code.splitlines() or ["x"]
+        details: Dict[str, Any] = {}
+
         long_lines = sum(1 for line in lines if len(line) > 120)
-        if long_lines == 0:
-            score += 0.5
-        elif long_lines < 5:
-            score += 0.25
-        else:
-            issues.append(Issue(
-                Severity.INFO, "organization",
-                f"{long_lines} lines exceed 120 characters"
-            ))
-        
-        # Has sections/comments
         comment_lines = sum(1 for line in lines if line.strip().startswith("#"))
-        comment_ratio = comment_lines / len(lines) if lines else 0
-        if comment_ratio >= 0.05:  # At least 5% comments
-            score += 0.5
-        
-        return min(2.5, score), issues
-    
-    # ═══════════════════════════════════════════════════════════════════════
-    # DIMENSION 5: ROBUSTNESS (0-10)
-    # ═══════════════════════════════════════════════════════════════════════
-    def _evaluate_robustness(
-        self, 
-        code: str, 
-        tree: ast.AST, 
-        file_path: Path,
-        orchestrator: Orchestrator
-    ) -> EvaluationScore:
-        """
-        Evaluate robustness - how resilient to failures?
-        
-        Components:
-        - Error handling (0-3): try/except usage
-        - Retry configuration (0-2.5): Retry setup
-        - Timeout configuration (0-2): Timeout setup
-        - Security (0-2.5): Security issues
-        """
-        self.logger.info("Evaluating robustness...")
-        
-        score = 0.0
-        details = {}
-        issues = []
-        
-        # 1. Error handling (0-3)
-        error_score, error_issues = self._evaluate_error_handling(tree)
-        score += error_score
-        issues.extend(error_issues)
-        details["error_handling_score"] = round(error_score, 2)
-        
-        # 2. Retry configuration (0-2.5)
-        retry_score, retry_issues = self._evaluate_retry_config(code, orchestrator)
-        score += retry_score
-        issues.extend(retry_issues)
-        details["retry_score"] = round(retry_score, 2)
-        
-        # 3. Timeout configuration (0-2)
-        timeout_score, timeout_issues = self._evaluate_timeout_config(code, orchestrator)
-        score += timeout_score
-        issues.extend(timeout_issues)
-        details["timeout_score"] = round(timeout_score, 2)
-        
-        # 4. Security (0-2.5)
-        security_score, security_issues = self._evaluate_security(code, file_path)
-        score += security_score
-        issues.extend(security_issues)
-        details["security_score"] = round(security_score, 2)
-        
-        return EvaluationScore(
-            name="robustness",
-            raw_score=min(10.0, score),
-            issues=issues,
-            details=details,
-        )
-    
-    def _evaluate_error_handling(self, tree: ast.AST) -> Tuple[float, List[Issue]]:
-        """Evaluate error handling patterns."""
-        issues = []
-        
-        try_blocks = [n for n in ast.walk(tree) if isinstance(n, ast.Try)]
-        functions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
-        
-        # Score based on try/except presence
-        if len(try_blocks) == 0:
-            if len(functions) > 0:
-                score = 1.0
-                issues.append(Issue(
-                    Severity.INFO, "error_handling",
-                    "Consider adding try/except for error handling"
-                ))
-            else:
-                score = 1.5  # No functions, might be OK
-        else:
-            # Check quality of exception handling
-            score = 2.0
-            
-            bare_excepts = sum(
-                1 for t in try_blocks 
-                for h in t.handlers 
-                if h.type is None
-            )
-            
-            if bare_excepts == 0:
-                score += 1.0
-            else:
-                issues.append(Issue(
-                    Severity.MINOR, "error_handling",
-                    f"Avoid bare 'except:' clauses ({bare_excepts} found)"
-                ))
-        
-        return min(3.0, score), issues
-    
-    def _evaluate_retry_config(
-        self, code: str, orchestrator: Orchestrator
-    ) -> Tuple[float, List[Issue]]:
-        """Evaluate retry configuration."""
-        issues = []
-        score = 0.0
-        
-        retry_patterns = {
+        ratio_comments = comment_lines / len(lines)
+
+        details["long_lines_over_120"] = long_lines
+        details["comment_ratio"] = ratio_comments
+
+        criteria = {
+            "reasonable_line_length": (long_lines <= 4),
+            "has_some_comments": (ratio_comments >= 0.02),
+        }
+        passed = sum(1 for v in criteria.values() if v)
+        score = 10.0 * (passed / len(criteria))
+
+        for k, ok in criteria.items():
+            if not ok:
+                issues.append(Issue(Severity.INFO, "organization", f"Organization signal missing: {k}"))
+
+        return clamp10(score), issues, {"criteria": criteria, **details}
+
+    # ---------------------------------------------------------------------
+    # DIMENSION 5: robustness (0-10)
+    # ---------------------------------------------------------------------
+
+    def _evaluate_robustness(self, code: str, tree: ast.AST, file_path: Path, orchestrator: Orchestrator) -> EvaluationScore:
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {}
+
+        err_sub, err_issues, err_details = self._score_error_handling(tree)
+        retry_sub, retry_issues, retry_details = self._score_retry_signals(code, orchestrator)
+        timeout_sub, timeout_issues, timeout_details = self._score_timeout_signals(code, orchestrator)
+        sec_sub, sec_issues, sec_details = self._score_security_bandit(code)
+
+        issues.extend(err_issues + retry_issues + timeout_issues + sec_issues)
+        details["error_handling"] = err_details
+        details["retries"] = retry_details
+        details["timeouts"] = timeout_details
+        details["security"] = sec_details
+
+        score = clamp10(mean_safe([err_sub, retry_sub, timeout_sub, sec_sub], default=0.0))
+        return EvaluationScore(name="robustness", raw_score=score, issues=issues, details=details, penalties_applied=0.0)
+
+    def _score_error_handling(self, tree: ast.AST) -> Tuple[float, List[Issue], Dict[str, Any]]:
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {}
+
+        try_nodes = [n for n in ast.walk(tree) if isinstance(n, ast.Try)]
+        func_nodes = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+
+        details["try_blocks"] = len(try_nodes)
+        details["function_defs"] = len(func_nodes)
+
+        if not func_nodes:
+            return 7.0, issues, details
+
+        if not try_nodes:
+            issues.append(Issue(Severity.INFO, "error_handling", "No try/except found in function bodies"))
+            return 6.0, issues, details
+
+        bare = sum(1 for t in try_nodes for h in t.handlers if h.type is None)
+        details["bare_except"] = bare
+        if bare > 0:
+            issues.append(Issue(Severity.MINOR, "error_handling", f"Bare except detected ({bare})"))
+            return 6.5, issues, details
+
+        return 8.5, issues, details
+
+    def _score_retry_signals(self, code: str, orchestrator: Orchestrator) -> Tuple[float, List[Issue], Dict[str, Any]]:
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {}
+
+        patterns = {
             Orchestrator.AIRFLOW: ["retries=", "retry_delay=", "retry_exponential_backoff"],
             Orchestrator.PREFECT: ["retries=", "retry_delay_seconds="],
             Orchestrator.DAGSTER: ["retry_policy", "RetryPolicy", "max_retries"],
-        }
-        
-        patterns = retry_patterns.get(orchestrator, ["retries=", "retry"])
-        
-        for pattern in patterns:
-            if pattern in code:
-                score += 0.8
-        
-        if score == 0:
-            issues.append(Issue(
-                Severity.INFO, "robustness",
-                "Consider configuring retry behavior"
-            ))
-        
-        return min(2.5, score), issues
-    
-    def _evaluate_timeout_config(
-        self, code: str, orchestrator: Orchestrator
-    ) -> Tuple[float, List[Issue]]:
-        """Evaluate timeout configuration."""
-        issues = []
-        score = 0.0
-        
-        timeout_patterns = {
-            Orchestrator.AIRFLOW: ["execution_timeout", "timeout=", "dagrun_timeout"],
+        }.get(orchestrator, ["retries=", "retry"])
+
+        found = [p for p in patterns if p in code]
+        details["found_patterns"] = found
+
+        if not found:
+            issues.append(Issue(Severity.INFO, "robustness", "No retry configuration signals detected"))
+            return 5.5, issues, details
+        if len(found) == 1:
+            return 7.0, issues, details
+        return 8.5, issues, details
+
+    def _score_timeout_signals(self, code: str, orchestrator: Orchestrator) -> Tuple[float, List[Issue], Dict[str, Any]]:
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {}
+
+        patterns = {
+            Orchestrator.AIRFLOW: ["execution_timeout", "dagrun_timeout", "timeout="],
             Orchestrator.PREFECT: ["timeout_seconds=", "timeout="],
             Orchestrator.DAGSTER: ["timeout="],
-        }
-        
-        patterns = timeout_patterns.get(orchestrator, ["timeout"])
-        
-        for pattern in patterns:
-            if pattern in code:
-                score += 1.0
-        
-        if score == 0:
-            issues.append(Issue(
-                Severity.INFO, "robustness",
-                "Consider configuring timeouts"
-            ))
-        else:
-            score = min(2.0, score)
-        
-        return score, issues
-    
-    def _evaluate_security(self, code: str, file_path: Path) -> Tuple[float, List[Issue]]:
-        """Evaluate security using Bandit."""
-        issues = []
-        
+        }.get(orchestrator, ["timeout"])
+
+        found = [p for p in patterns if p in code]
+        details["found_patterns"] = found
+
+        if not found:
+            issues.append(Issue(Severity.INFO, "robustness", "No timeout configuration signals detected"))
+            return 5.5, issues, details
+        return 8.0, issues, details
+
+    def _score_security_bandit(self, code: str) -> Tuple[float, List[Issue], Dict[str, Any]]:
+        issues: List[Issue] = []
+        details: Dict[str, Any] = {"tool": "bandit", "available": BANDIT_AVAILABLE}
+
         if not BANDIT_AVAILABLE:
-            return 1.25, []
-        
+            issues.append(Issue(Severity.INFO, "tool", "bandit not installed; security defaulted"))
+            return 5.0, issues, details
+
+        temp_path = None
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".py", delete=False
-            ) as f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
                 f.write(code)
                 temp_path = f.name
-            
-            b_mgr = bandit_manager.BanditManager(
-                bandit_config.BanditConfig(), None
-            )
-            b_mgr.discover_files([temp_path], recursive=False)
-            b_mgr.run_tests()
-            
-            bandit_issues = b_mgr.get_issue_list()
-            
+
+            mgr = bandit_manager.BanditManager(bandit_config.BanditConfig(), None)
+            mgr.discover_files([temp_path], recursive=False)
+            mgr.run_tests()
+            bandit_issues = mgr.get_issue_list()
+
             high = sum(1 for i in bandit_issues if i.severity == bandit.HIGH)
-            medium = sum(1 for i in bandit_issues if i.severity == bandit.MEDIUM)
+            med = sum(1 for i in bandit_issues if i.severity == bandit.MEDIUM)
             low = sum(1 for i in bandit_issues if i.severity == bandit.LOW)
-            
-            # Score calculation
-            if high == 0 and medium == 0 and low == 0:
-                score = 2.5
-            elif high == 0 and medium == 0:
-                score = 2.0
-            elif high == 0:
-                score = 1.5
+
+            details["counts"] = {"high": high, "medium": med, "low": low}
+
+            if high > 0:
+                score = 3.0
+            elif med > 0:
+                score = 5.5
+            elif low > 0:
+                score = 7.5
             else:
-                score = 0.5
-            
-            # Add issues
+                score = 9.0
+
             for bi in bandit_issues[:3]:
+                sev = Severity.CRITICAL if bi.severity == bandit.HIGH else Severity.MAJOR
                 issues.append(Issue(
-                    Severity.CRITICAL if bi.severity == bandit.HIGH else Severity.MAJOR,
+                    sev,
                     "security",
                     f"[{bi.test_id}] {bi.text}",
                     bi.lineno,
                     tool="bandit"
                 ))
-            
-            return score, issues
-        
-        except Exception:
-            return 1.25, []
+
+            return clamp10(score), issues, details
+
+        except Exception as e:
+            details["error"] = f"{type(e).__name__}: {e}"
+            issues.append(Issue(Severity.INFO, "tool", "bandit failed; security defaulted", tool="bandit"))
+            return 5.0, issues, details
         finally:
-            if os.path.exists(temp_path):
+            if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
+
+
+# -------------------------------------------------------------------
+# CLI
+# -------------------------------------------------------------------
+
+def print_summary(result: EvaluationResult) -> None:
+    sat = float(result.metadata.get("SAT", 0.0) or 0.0)
+    dims = result.metadata.get("SAT_dimensions", {}) or {}
+    orch = result.orchestrator.value
+
+    crit = len([i for i in result.all_issues if i.severity == Severity.CRITICAL])
+    maj = len([i for i in result.all_issues if i.severity == Severity.MAJOR])
+    minor = len([i for i in result.all_issues if i.severity == Severity.MINOR])
+
+    print("\n" + "=" * 80)
+    print("SAT — Enhanced Static Analyzer Summary (penalty-free scoring)")
+    print("=" * 80)
+    print(f"File:         {result.file_path}")
+    print(f"Orchestrator: {orch}")
+    print(f"SAT:          {sat:.2f}/10")
+    if dims:
+        print("Dimensions:")
+        for k, v in dims.items():
+            print(f"  - {k}: {float(v):.2f}")
+    print(f"Issues: total={len(result.all_issues)} critical={crit} major={maj} minor={minor}")
+    print("=" * 80)
+
+
+def build_sat_payload(result: EvaluationResult) -> Dict[str, Any]:
+    """
+    Build a JSON payload with:
+    - full EvaluationResult.to_dict()
+    - flattened issues for convenience
+    """
+    payload = result.to_dict()
+    payload["issues"] = [i.to_dict() for i in result.all_issues]
+    payload["issue_summary"] = {
+        "total": len(result.all_issues),
+        "critical": len([i for i in result.all_issues if i.severity == Severity.CRITICAL]),
+        "major": len([i for i in result.all_issues if i.severity == Severity.MAJOR]),
+        "minor": len([i for i in result.all_issues if i.severity == Severity.MINOR]),
+        "info": len([i for i in result.all_issues if i.severity == Severity.INFO]),
+    }
+    return payload
+
+
+def default_sidecar_path(code_file: Path) -> Path:
+    """
+    Default output path when user doesn't specify --out or --out-dir:
+      foo.py -> foo.py.sat.json
+    """
+    return code_file.with_name(code_file.name + ".sat.json")
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run SAT (EnhancedStaticAnalyzer) on a Python file.")
+    parser.add_argument("file", help="Path to generated workflow Python file")
+
+    # Output options:
+    parser.add_argument("--out", default=None, help="Write full JSON result to this exact path")
+    parser.add_argument("--out-dir", default=None, help="Write JSON result into this directory (auto filename)")
+    parser.add_argument("--stdout", action="store_true", help="Also print JSON to stdout")
+
+    parser.add_argument("--print-summary", action="store_true", help="Print a console summary")
+    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+
+    args = parser.parse_args()
+
+    logging.basicConfig(level=getattr(logging, args.log_level), format="%(levelname)s - %(message)s")
+
+    code_path = Path(args.file)
+    analyzer = EnhancedStaticAnalyzer(config=None)
+    result = analyzer.evaluate(code_path)
+
+    if args.print_summary:
+        print_summary(result)
+
+    payload = build_sat_payload(result)
+
+    # Decide output path:
+    # 1) --out wins
+    # 2) else --out-dir
+    # 3) else sidecar next to input file
+    if args.out:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+    elif args.out_dir:
+        out_dir = Path(args.out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_path = out_dir / f"sat_{code_path.stem}_{ts}.json"
+    else:
+        out_path = default_sidecar_path(code_path)
+
+    out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    print(f"Wrote: {out_path}")
+
+    if args.stdout:
+        print(json.dumps(payload, indent=2, default=str))
+
+
+if __name__ == "__main__":
+    main()

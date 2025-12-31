@@ -1,5 +1,5 @@
 """
-Enhanced base platform compliance tester with weighted penalties.
+Enhanced base platform compliance tester gate-based, penalty-free scoring (issues logged).
 Focuses on structural/functional correctness that can objectively differentiate approaches.
 """
 
